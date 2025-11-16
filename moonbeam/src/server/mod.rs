@@ -139,6 +139,7 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 			};
 
 			let path = req.path;
+			let head = req.method.eq_ignore_ascii_case("head");
 			let resp = router.route(req).await;
 
 			tracing::info!(
@@ -165,7 +166,7 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 				break;
 			}
 
-			if let Some(body) = resp.body
+			if !head && let Some(body) = resp.body
 				&& let Err(e) = write_response_body(body, &mut socket).await
 			{
 				tracing::error!("Failed to write response body: {:?}", e);

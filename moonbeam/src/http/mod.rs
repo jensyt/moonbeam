@@ -1,14 +1,19 @@
+use crate::http::cookies::Cookies;
 use futures_lite::AsyncRead;
 use httparse::{Header, Request as RawRequest};
 use percent_encoding::percent_decode_str;
-use std::{io::Read, borrow::Cow};
-use crate::http::cookies::Cookies;
+use std::{
+	borrow::{Borrow, Cow},
+	io::Read,
+};
 
 pub mod cookies;
 
 pub fn canonical_reason(code: u16) -> &'static str {
 	match code {
 		200 => "OK",
+		204 => "No Content",
+		304 => "Not Modified",
 		400 => "Bad Request",
 		401 => "Unauthorized",
 		403 => "Forbidden",
@@ -97,6 +102,11 @@ impl Response {
 	}
 
 	#[inline]
+	pub fn not_modified() -> Self {
+		Self::new_with_code(304)
+	}
+
+	#[inline]
 	pub fn not_found() -> Self {
 		Self::new_with_code(404)
 	}
@@ -122,30 +132,53 @@ impl Response {
 	}
 
 	#[inline]
-	pub fn set_body(&mut self, body: impl Into<Body>) {
+	pub fn with_body(mut self, body: impl Into<Body>, content_type: Option<&str>) -> Self {
+		match content_type {
+			Some(v) => {
+				self.set_header("Content-Type", v);
+			}
+			None => {
+				self.headers
+					.retain(|(n, _)| !n.eq_ignore_ascii_case("Content-Type"));
+			}
+		}
 		self.body = Some(body.into());
+		self
 	}
 
-	pub fn add_header(&mut self, name: &str, value: &str) {
+	#[inline]
+	pub fn with_header<H, V>(mut self, name: H, value: V) -> Self
+	where
+		H: Into<String> + Borrow<str>,
+		V: Into<String>,
+	{
 		if self
 			.headers
 			.iter()
-			.find(|(n, _)| n.eq_ignore_ascii_case(name))
+			.find(|(n, _)| n.eq_ignore_ascii_case(name.borrow()))
 			.is_none()
 		{
-			self.headers.push((name.to_string(), value.to_string()));
+			self.headers.push((name.into(), value.into()));
 		}
+		self
 	}
 
-	pub fn set_header(&mut self, name: &str, value: &str) -> Option<String> {
-		self.headers
+	pub fn set_header<H, V>(&mut self, name: H, value: V) -> Option<String>
+	where
+		H: Into<String> + Borrow<str>,
+		V: Into<String>,
+	{
+		match self
+			.headers
 			.iter_mut()
-			.find(|(n, _)| n.eq_ignore_ascii_case(name))
-			.and_then(|(_, v)| Some(std::mem::replace(v, value.to_string())))
-			.or_else(|| {
-				self.headers.push((name.to_string(), value.to_string()));
+			.find(|(n, _)| n.eq_ignore_ascii_case(name.borrow()))
+		{
+			Some((_, v)) => Some(std::mem::replace(v, value.into())),
+			None => {
+				self.headers.push((name.into(), value.into()));
 				None
-			})
+			}
+		}
 	}
 }
 
@@ -171,6 +204,15 @@ impl Body {
 		let size = file.metadata().map(|meta| meta.len()).ok();
 		Body::Async {
 			data: Box::new(async_fs::File::from(file)),
+			len: size,
+		}
+	}
+
+	#[cfg(feature = "asyncfs")]
+	pub async fn from_async_file(file: async_fs::File) -> Self {
+		let size = file.metadata().await.map(|meta| meta.len()).ok();
+		Body::Async {
+			data: Box::new(file),
 			len: size,
 		}
 	}
@@ -240,13 +282,13 @@ mod tests {
 
 	#[test]
 	fn test_response_add_header() {
-		let mut response = Response {
+		let response = Response {
 			status: 200,
 			headers: vec![],
 			body: None,
 		};
 
-		response.add_header("Content-Type", "text/html");
+		let response = response.with_header("Content-Type", "text/html");
 		assert_eq!(response.headers.len(), 1);
 		assert_eq!(
 			response.headers[0],
@@ -254,7 +296,7 @@ mod tests {
 		);
 
 		// Adding same header should not duplicate
-		response.add_header("content-type", "application/json");
+		let response = response.with_header("content-type", "application/json");
 		assert_eq!(response.headers.len(), 1);
 		assert_eq!(
 			response.headers[0],
@@ -262,7 +304,7 @@ mod tests {
 		);
 
 		// Adding different header should work
-		response.add_header("X-Custom", "value");
+		let response = response.with_header("X-Custom", "value");
 		assert_eq!(response.headers.len(), 2);
 	}
 

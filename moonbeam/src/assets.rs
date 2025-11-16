@@ -1,7 +1,13 @@
 use crate::{Response, http::Body};
-use std::{fs::File, path::Path};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use std::{
+	fs::File,
+	hash::{DefaultHasher, Hasher},
+	path::Path,
+	time::SystemTime,
+};
 
-pub fn get_asset(path: &str, root: impl AsRef<Path>) -> Response {
+pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Response {
 	let root = match root.as_ref().canonicalize() {
 		Ok(p) => p,
 		Err(_) => return Response::internal_server_error(),
@@ -17,6 +23,15 @@ pub fn get_asset(path: &str, root: impl AsRef<Path>) -> Response {
 		return Response::not_found();
 	}
 
+	let tag = make_etag(&path);
+	if let Some(etag) = etag
+		&& let Some(tag) = tag.as_ref()
+		&& etag == tag.as_bytes()
+	{
+		// Not changed
+		return Response::not_modified().with_header("ETag", tag);
+	}
+
 	let ext = get_mime_type(&path);
 
 	let file = match File::open(path) {
@@ -25,13 +40,32 @@ pub fn get_asset(path: &str, root: impl AsRef<Path>) -> Response {
 	};
 
 	#[cfg(feature = "asyncfs")]
-	{
-		Response::new_with_body(Body::from_file_async(file), ext)
-	}
+	let response = Response::new_with_body(Body::from_file_async(file), ext);
 	#[cfg(not(feature = "asyncfs"))]
-	{
-		Response::new_with_body(file, ext)
+	let response = Response::new_with_body(file, ext);
+
+	if let Some(tag) = tag {
+		response.with_header("ETag", tag)
+	} else {
+		response
 	}
+
+}
+
+fn make_etag(path: &Path) -> Option<String> {
+	let modified = path.metadata().ok()?.modified().ok()?;
+	let modified = match modified.duration_since(SystemTime::UNIX_EPOCH) {
+		Ok(d) => d,
+		Err(e) => e.duration(),
+	};
+	let mut hasher = DefaultHasher::new();
+	hasher.write_u64(modified.as_secs());
+	hasher.write_u32(modified.subsec_nanos());
+
+	Some(format!(
+		"\"{}\"",
+		URL_SAFE_NO_PAD.encode(hasher.finish().to_le_bytes())
+	))
 }
 
 /// Returns the MIME type for a given file path.
@@ -63,6 +97,7 @@ where
 		// Image files
 		"jpg" | "jpeg" => Some("image/jpeg"),
 		"png" => Some("image/png"),
+		"apng" => Some("image/apng"),
 		"gif" => Some("image/gif"),
 		"svg" => Some("image/svg+xml"),
 		"webp" => Some("image/webp"),
