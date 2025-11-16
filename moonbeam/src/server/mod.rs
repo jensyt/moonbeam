@@ -257,25 +257,27 @@ fn write_response<'a, 'b>(response: &'a Response, buffer: &'b mut [u8]) -> Resul
 
 	// Add headers
 	if !server {
-		writer.write(b"Server: bakery-server/0.1\r\n")?;
+		writer.write(b"Server: moonbeam/0.1\r\n")?;
 	}
 	if !date {
 		write!(writer, "Date: {}\r\n", fmt_http_date(SystemTime::now()))?;
-	}
-	if !content_type {
-		writer.write(b"Content-Type: application/json\r\n")?;
 	}
 	let nobody = match response.status {
 		100..200 | 204 | 205 | 304 => true,
 		_ => false,
 	};
-	if !content_length && !nobody {
-		match response.body.as_ref() {
-			Some(body) => match body.len() {
-				Some(len) => write!(writer, "Content-Length: {}\r\n", len)?,
-				None => write!(writer, "Transfer-Encoding: chunked\r\n")?,
-			},
-			None => write!(writer, "Content-Length: 0\r\n")?,
+	if !nobody {
+		if !content_type {
+			writer.write(b"Content-Type: application/octet-stream\r\n")?;
+		}
+		if !content_length {
+			match response.body.as_ref() {
+				Some(body) => match body.len() {
+					Some(len) => write!(writer, "Content-Length: {}\r\n", len)?,
+					None => write!(writer, "Transfer-Encoding: chunked\r\n")?,
+				},
+				None => write!(writer, "Content-Length: 0\r\n")?,
+			}
 		}
 	}
 
@@ -373,8 +375,8 @@ mod tests {
 		assert!(response_str.contains("X-Custom: test"));
 
 		// Should contain default headers
-		assert!(response_str.contains("Server: bakery-server/0.1"));
-		assert!(response_str.contains("Content-Type: application/json"));
+		assert!(response_str.contains("Server: moonbeam/0.1"));
+		assert!(response_str.contains("Content-Type: application/octet-stream"));
 		assert!(response_str.contains("Content-Length: 9"));
 		assert!(response_str.contains("Date:"));
 
@@ -403,8 +405,8 @@ mod tests {
 		assert!(response_str.contains("Content-Type: text/plain"));
 
 		// Should not contain default server header
-		assert!(!response_str.contains("Server: bakery-server/0.1"));
-		assert!(!response_str.contains("Content-Type: application/json"));
+		assert!(!response_str.contains("Server: moonbeam/0.1"));
+		assert!(!response_str.contains("Content-Type: application/octet-stream"));
 	}
 
 	#[test]
