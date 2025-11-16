@@ -7,3 +7,6 @@ mod tracing;
 
 pub use crate::server::Server;
 pub use crate::http::{Request, Response};
+
+#[cfg(feature = "macros")]
+pub use moonbeam_attributes::server;

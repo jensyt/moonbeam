@@ -21,9 +21,11 @@ async-signal = "0.2"
 async-fs = {version = "2.2", optional = true}
 percent-encoding = "2.3"
 base64 = {version = "0.22", optional = true}
+moonbeam-attributes = {path = "../moonbeam-attributes", optional = true}
 
 [features]
-default = ["asyncfs", "assets"]
+default = ["asyncfs", "assets", "macros"]
 tracing = ["dep:tracing"]
 asyncfs = ["dep:async-fs"]
 assets = ["dep:base64"]
+macros = ["dep:moonbeam-attributes"]
