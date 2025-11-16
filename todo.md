@@ -2,6 +2,8 @@
 - Support for HTML forms
 - TRACE requests
 - Implement cookies
+- Make tracing meaningful
+- Handle panics in server
 
 # Done
 - ETags for assets

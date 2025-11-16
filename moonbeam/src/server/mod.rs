@@ -139,8 +139,8 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 			};
 
 			let path = req.path;
-			let head = req.method.eq_ignore_ascii_case("head");
-			let resp = router.route(req).await;
+			let head_method = req.method.eq_ignore_ascii_case("head");
+			let mut resp = router.route(req).await;
 
 			tracing::info!(
 				request = %path,
@@ -153,7 +153,7 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 				response.len = resp.body.as_ref().map(|b| b.len())
 			);
 
-			let respbuf = match write_response(&resp, respbuf) {
+			let (head, mut rest) = match write_response(&resp, respbuf) {
 				Ok(buf) => buf,
 				Err(e) => {
 					tracing::error!("Failed to write response: {:?}", e);
@@ -161,12 +161,39 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 				}
 			};
 
-			if let Err(e) = socket.write_all(respbuf).await {
+			let (len, wrote_body) = if !head_method
+				&& let Some(body) = resp.body.as_mut()
+				&& let Some(len) = body.len()
+				&& len < rest.len() as u64
+			{
+				let len = len as usize;
+				match body {
+					Body::Immediate(body) => match rest.write_all(body.as_slice()) {
+						Ok(_) => (head.len() + len, true),
+						Err(_) => (head.len(), false),
+					},
+					Body::Sync { data, len: _ } => match data.read_exact(&mut rest[..len]) {
+						Ok(_) => (head.len() + len, true),
+						Err(_) => (head.len(), false),
+					},
+					Body::Async { data, len: _ } => match data.read_exact(&mut rest[..len]).await {
+						Ok(_) => (head.len() + len, true),
+						Err(_) => (head.len(), false),
+					},
+				}
+			} else {
+				(head.len(), false)
+			};
+			tracing::trace!(one_shot = wrote_body || head_method, "Wrote response to socket in one-shot");
+
+			if let Err(e) = socket.write_all(&respbuf[..len]).await {
 				tracing::error!("Failed to write response: {:?}", e);
 				break;
 			}
 
-			if !head && let Some(body) = resp.body
+			if !head_method
+				&& !wrote_body
+				&& let Some(body) = resp.body
 				&& let Err(e) = write_response_body(body, &mut socket).await
 			{
 				tracing::error!("Failed to write response body: {:?}", e);
@@ -226,7 +253,10 @@ async fn read_from_socket(
 	}
 }
 
-fn write_response<'a, 'b>(response: &'a Response, buffer: &'b mut [u8]) -> Result<&'b [u8], Error> {
+fn write_response<'a, 'b>(
+	response: &'a Response,
+	buffer: &'b mut [u8],
+) -> Result<(&'b [u8], &'b mut [u8]), Error> {
 	let mut writer = &mut buffer[..];
 
 	write!(
@@ -257,7 +287,16 @@ fn write_response<'a, 'b>(response: &'a Response, buffer: &'b mut [u8]) -> Resul
 
 	// Add headers
 	if !server {
-		writer.write(b"Server: moonbeam/0.1\r\n")?;
+		writer.write(
+			concat!(
+				"Server: ",
+				env!("CARGO_PKG_NAME"),
+				"/",
+				env!("CARGO_PKG_VERSION"),
+				"\r\n"
+			)
+			.as_bytes(),
+		)?;
 	}
 	if !date {
 		write!(writer, "Date: {}\r\n", fmt_http_date(SystemTime::now()))?;
@@ -284,7 +323,8 @@ fn write_response<'a, 'b>(response: &'a Response, buffer: &'b mut [u8]) -> Resul
 	writer.write(b"\r\n")?;
 
 	let writerlen = writer.len();
-	Ok(&buffer[..buffer.len() - writerlen])
+	let (header, remaining) = buffer.split_at_mut(buffer.len() - writerlen);
+	Ok((header, remaining))
 }
 
 macro_rules! stream_body {
@@ -366,7 +406,7 @@ mod tests {
 		let mut buffer = vec![0u8; 256];
 		let result = write_response(&response, &mut buffer).unwrap();
 
-		let response_str = std::str::from_utf8(result).unwrap();
+		let response_str = std::str::from_utf8(result.0).unwrap();
 
 		// Should contain status line
 		assert!(response_str.contains("HTTP/1.1 201"));
@@ -398,7 +438,7 @@ mod tests {
 		let mut buffer = vec![0u8; 256];
 		let result = write_response(&response, &mut buffer).unwrap();
 
-		let response_str = std::str::from_utf8(result).unwrap();
+		let response_str = std::str::from_utf8(result.0).unwrap();
 
 		// Should use custom headers instead of defaults
 		assert!(response_str.contains("Server: custom-server"));
@@ -427,7 +467,7 @@ mod tests {
 
 		let mut buffer = vec![0u8; 512];
 		let result = write_response(&response, &mut buffer).unwrap();
-		let response_str = std::str::from_utf8(result).unwrap();
+		let response_str = std::str::from_utf8(result.0).unwrap();
 
 		// Should only contain custom headers, no duplicate defaults
 		assert!(response_str.contains("Server: custom-server"));
@@ -449,7 +489,7 @@ mod tests {
 		let mut buffer = vec![0u8; 128];
 		let result = write_response(&response, &mut buffer).unwrap();
 
-		let response_str = std::str::from_utf8(result).unwrap();
+		let response_str = std::str::from_utf8(result.0).unwrap();
 
 		assert!(response_str.contains("HTTP/1.1 204"));
 		assert!(!response_str.contains("Content-Length"));
