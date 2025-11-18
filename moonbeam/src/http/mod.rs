@@ -1,4 +1,4 @@
-use crate::http::cookies::Cookies;
+use crate::http::{cookies::Cookies, params::Params};
 use futures_lite::AsyncRead;
 use httparse::{Header, Request as RawRequest};
 use percent_encoding::percent_decode_str;
@@ -8,12 +8,14 @@ use std::{
 };
 
 pub mod cookies;
+pub mod params;
 
 pub fn canonical_reason(code: u16) -> &'static str {
 	match code {
 		200 => "OK",
 		204 => "No Content",
 		304 => "Not Modified",
+		307 => "Temporary Redirect",
 		400 => "Bad Request",
 		401 => "Unauthorized",
 		403 => "Forbidden",
@@ -23,6 +25,7 @@ pub fn canonical_reason(code: u16) -> &'static str {
 	}
 }
 
+#[derive(Clone, Copy)]
 pub struct Request<'headers, 'buf> {
 	pub method: &'buf str,
 	pub path: &'buf str,
@@ -43,7 +46,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	}
 
 	#[inline]
-	pub fn find_header(&self, name: &str) -> Option<&[u8]> {
+	pub fn find_header(&self, name: &str) -> Option<&'headers [u8]> {
 		self.headers
 			.iter()
 			.find(|h| h.name.eq_ignore_ascii_case(name))
@@ -51,12 +54,20 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	}
 
 	#[inline]
-	pub fn cookies(&self) -> Cookies {
+	pub fn cookies(&self) -> Cookies<'headers> {
 		Cookies::new(self.find_header("Cookies"))
 	}
 
 	#[inline]
-	pub fn url(&self) -> Cow<'_, str> {
+	pub fn params(&self) -> Params<'headers> {
+		match self.path.split('?').nth(1) {
+			Some(p) => Params::new(percent_decode_str(p).decode_utf8_lossy()),
+			None => Params::new(Cow::Borrowed("")),
+		}
+	}
+
+	#[inline]
+	pub fn url(&self) -> Cow<'buf, str> {
 		let url = self.path.split('?').next().unwrap_or(self.path);
 		percent_decode_str(url).decode_utf8_lossy()
 	}
@@ -104,6 +115,11 @@ impl Response {
 	#[inline]
 	pub fn not_modified() -> Self {
 		Self::new_with_code(304)
+	}
+
+	#[inline]
+	pub fn temporary_redirect(location: impl Into<String>) -> Self {
+		Self::new_with_code(307).with_header("Location", location)
 	}
 
 	#[inline]
@@ -195,6 +211,9 @@ pub enum Body {
 }
 
 impl Body {
+	pub const HTML: Option<&'static str> = Some("text/html; charset=utf-8");
+	pub const JSON: Option<&'static str> = Some("application/json");
+
 	pub fn from_vec(data: impl Into<Vec<u8>>) -> Self {
 		Self::Immediate(data.into())
 	}
