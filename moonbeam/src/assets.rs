@@ -1,5 +1,4 @@
 use crate::{Response, http::Body};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use std::{
 	fs::File,
 	hash::{DefaultHasher, Hasher},
@@ -49,7 +48,6 @@ pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Res
 	} else {
 		response
 	}
-
 }
 
 fn make_etag(path: &Path) -> Option<String> {
@@ -62,10 +60,7 @@ fn make_etag(path: &Path) -> Option<String> {
 	hasher.write_u64(modified.as_secs());
 	hasher.write_u32(modified.subsec_nanos());
 
-	Some(format!(
-		"\"{}\"",
-		URL_SAFE_NO_PAD.encode(hasher.finish().to_le_bytes())
-	))
+	Some(format!("\"{:x}\"", hasher.finish()))
 }
 
 /// Returns the MIME type for a given file path.

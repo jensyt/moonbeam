@@ -2,7 +2,6 @@
 - Support for HTML forms
 - TRACE requests
 - Make tracing meaningful
-- Handle panics in server
 - Content encoding (gzip, brotli)
 
 # Done
@@ -11,3 +10,4 @@
 - Default content-type and content-length
 - Implement cookies
 - Implement params
+- Handle panics in server

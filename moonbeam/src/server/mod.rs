@@ -8,6 +8,8 @@ use futures_lite::{AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt};
 use httparse::Header;
 use httpdate::fmt_http_date;
 use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
+#[cfg(feature = "catchpanic")]
+use std::panic::AssertUnwindSafe;
 use std::{
 	io::{Error, ErrorKind, Write},
 	time::SystemTime,
@@ -31,7 +33,7 @@ where
 
 	unsafe fn destroy(&'static self) {
 		unsafe {
-			(&raw const *self as *mut Self).drop_in_place();
+			drop(Box::from_raw(&raw const *self as *mut Self));
 		}
 	}
 }
@@ -139,7 +141,22 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 
 			let path = req.path;
 			let head_method = req.method.eq_ignore_ascii_case("head");
+			#[cfg(not(feature = "catchpanic"))]
 			let mut resp = router.route(req).await;
+			#[cfg(feature = "catchpanic")]
+			let mut resp = match AssertUnwindSafe(router.route(req)).catch_unwind().await {
+				Ok(resp) => resp,
+				Err(e) => {
+					tracing::error!(request = %path, error = ?e, "Panic in response handler");
+					write_error_response(
+						socket.clone(),
+						Response::internal_server_error(),
+						respbuf,
+					)
+					.await;
+					break;
+				}
+			};
 
 			tracing::info!(
 				request = %path,
