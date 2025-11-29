@@ -97,7 +97,7 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 			#input_fn
 
 			#[repr(transparent)]
-			struct #wrapper_name(#inner_state_type);
+			pub(crate) struct #wrapper_name(#inner_state_type);
 
 			impl ::moonbeam::Server for #wrapper_name {
 				#route_impl
@@ -131,7 +131,7 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 		quote! {
 			#input_fn
 
-			struct #wrapper_name;
+			pub(crate) struct #wrapper_name;
 
 			impl ::moonbeam::Server for #wrapper_name {
 				#route_impl
