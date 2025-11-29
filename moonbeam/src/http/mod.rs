@@ -4,6 +4,7 @@ use httparse::{Header, Request as RawRequest};
 use percent_encoding::percent_decode_str;
 use std::{
 	borrow::{Borrow, Cow},
+	fmt::Debug,
 	io::Read,
 };
 
@@ -20,12 +21,15 @@ pub fn canonical_reason(code: u16) -> &'static str {
 		401 => "Unauthorized",
 		403 => "Forbidden",
 		404 => "Not Found",
+		408 => "Request Timeout",
+		413 => "Content Too Large",
+		431 => "Request Header Fields Too Large",
 		500 => "Internal Server Error",
 		_ => "",
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Request<'headers, 'buf> {
 	pub method: &'buf str,
 	pub path: &'buf str,
@@ -35,12 +39,27 @@ pub struct Request<'headers, 'buf> {
 }
 
 impl<'headers, 'buf> Request<'headers, 'buf> {
-	pub fn new(raw: RawRequest<'headers, 'buf>, body: &'buf [u8]) -> Self {
+	pub fn new_from_raw(raw: RawRequest<'headers, 'buf>, body: &'buf [u8]) -> Self {
 		Self {
 			method: raw.method.unwrap(),
 			path: raw.path.unwrap(),
 			version: raw.version.unwrap(),
 			headers: raw.headers,
+			body,
+		}
+	}
+
+	pub fn new(
+		method: &'buf str,
+		path: &'buf str,
+		headers: &'headers [Header<'buf>],
+		body: &'buf [u8],
+	) -> Self {
+		Self {
+			method,
+			path,
+			version: 1,
+			headers,
 			body,
 		}
 	}
@@ -55,7 +74,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 
 	#[inline]
 	pub fn cookies(&self) -> Cookies<'headers> {
-		Cookies::new(self.find_header("Cookies"))
+		Cookies::new(self.find_header("Cookie"))
 	}
 
 	#[inline]
@@ -73,6 +92,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	}
 }
 
+#[derive(Debug)]
 pub struct Response {
 	pub status: u16,
 	pub headers: Vec<(String, String)>,
@@ -145,6 +165,21 @@ impl Response {
 	#[inline]
 	pub fn forbidden() -> Self {
 		Self::new_with_code(403)
+	}
+
+	#[inline]
+	pub fn request_timeout() -> Self {
+		Self::new_with_code(408)
+	}
+
+	#[inline]
+	pub fn content_too_large() -> Self {
+		Self::new_with_code(413)
+	}
+
+	#[inline]
+	pub fn headers_too_large() -> Self {
+		Self::new_with_code(431)
 	}
 
 	#[inline]
@@ -291,6 +326,16 @@ impl From<async_fs::File> for Body {
 		Body::Async {
 			data: Box::new(file),
 			len: None,
+		}
+	}
+}
+
+impl Debug for Body {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Immediate(v) => write!(f, "Body(Immediate, len={})", v.len()),
+			Self::Sync { data: _, len } => write!(f, "Body(Sync, len={len:?})"),
+			Self::Async { data: _, len } => write!(f, "Body(Async, len={len:?})"),
 		}
 	}
 }

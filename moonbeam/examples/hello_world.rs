@@ -1,4 +1,4 @@
-use moonbeam::{Request, Response, server, Server};
+use moonbeam::{Request, Response, server};
 
 #[server(HelloWorld)]
 async fn serve(_request: Request<'_, '_>) -> Response {
@@ -7,5 +7,5 @@ async fn serve(_request: Request<'_, '_>) -> Response {
 
 fn main() {
 	println!("Running on 127.0.0.1:7463. Press Ctrl+C to exit");
-	HelloWorld::serve(HelloWorld, "127.0.0.1:7463");
+	moonbeam::serve("127.0.0.1:7463", HelloWorld);
 }

@@ -20,7 +20,7 @@ const BUFSIZE: usize = 16 * 1024;
 
 // mod bufpool;
 mod parsing;
-mod task;
+pub mod task;
 mod task_tracker;
 
 pub trait Server
@@ -29,57 +29,48 @@ where
 {
 	fn route(&'static self, request: Request) -> impl Future<Output = Response>;
 
-	fn serve(self, addr: impl AsyncToSocketAddrs) -> &'static Self {
-		let static_self = Box::leak(Box::new(self));
-		async_io::block_on(get_local_executor().run(async {
-			// get_local_executor()
-			// 	.spawn(async {
-			// 		let mut t = Timer::interval(Duration::from_secs(5 * 60));
-			// 		while let Some(_) = t.next().await {
-			// 			get_local_bufpool().reset();
-			// 		}
-			// 	})
-			// 	.detach();
-
-			let mut signals =
-				Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
-			let mut get_signal = async move || {
-				let signal = signals.next().await;
-				Err(Error::new(
-					ErrorKind::Interrupted,
-					format!("Signal: {signal:?}"),
-				))
-			};
-
-			let listener = TcpListener::bind(addr)
-				.await
-				.expect("Failed to bind to socket");
-			loop {
-				match listener.accept().or(get_signal()).await {
-					Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, static_self)),
-					#[allow(unused_variables)]
-					Err(err) => {
-						if err.kind() == ErrorKind::Interrupted {
-							tracing::debug!(?err, "Got signal to shut down");
-						} else {
-							tracing::error!(?err, "Failed to accept connection, shutting down");
-						}
-						break;
-					}
-				}
-			}
-			get_local_tracker()
-				.wait_until_empty(Duration::from_secs(60))
-				.await;
-		}));
-		static_self
-	}
-
 	unsafe fn destroy(&'static self) {
 		unsafe {
 			(&raw const *self as *mut Self).drop_in_place();
 		}
 	}
+}
+
+pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T {
+	let static_server = Box::leak(Box::new(server));
+	async_io::block_on(get_local_executor().run(async {
+		let mut signals =
+			Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
+		let mut get_signal = async move || {
+			let signal = signals.next().await;
+			Err(Error::new(
+				ErrorKind::Interrupted,
+				format!("Signal: {signal:?}"),
+			))
+		};
+
+		let listener = TcpListener::bind(addr)
+			.await
+			.expect("Failed to bind to socket");
+		loop {
+			match listener.accept().or(get_signal()).await {
+				Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, static_server)),
+				#[allow(unused_variables)]
+				Err(err) => {
+					if err.kind() == ErrorKind::Interrupted {
+						tracing::debug!(?err, "Got signal to shut down");
+					} else {
+						tracing::error!(?err, "Failed to accept connection, shutting down");
+					}
+					break;
+				}
+			}
+		}
+		get_local_tracker()
+			.wait_until_empty(Duration::from_secs(60))
+			.await;
+	}));
+	static_server
 }
 
 #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
@@ -97,7 +88,12 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 				total = end;
 				start.saturating_sub(3)
 			}
-			_ => break,
+			Err(r) => {
+				if let Some(r) = r {
+					write_error_response(socket.clone(), r, respbuf).await;
+				}
+				break;
+			}
 		};
 
 		loop {
@@ -113,6 +109,7 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 			let mut req = match parse_http_request(head, &mut headers) {
 				Err(e) => {
 					tracing::error!(error = ?e, "Failed to parse HTTP header");
+					write_error_response(socket.clone(), Response::bad_request(), respbuf).await;
 					break;
 				}
 				Ok(req) => req,
@@ -124,6 +121,8 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 			req.body = {
 				if contentlength > body.len() {
 					tracing::error!(error = "too big", "Failed to read HTTP body");
+					write_error_response(socket.clone(), Response::content_too_large(), respbuf)
+						.await;
 					break;
 				} else if contentlength > total - offset {
 					if let Err(e) = socket
@@ -150,7 +149,7 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 					.iter()
 					.find(|&(n, _)| n.eq_ignore_ascii_case("content-type"))
 					.map(|(_, v)| v),
-				response.len = resp.body.as_ref().map(|b| b.len())
+				response.body = ?resp.body
 			);
 
 			let (head, mut rest) = match write_response(&resp, respbuf) {
@@ -184,7 +183,10 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 			} else {
 				(head.len(), false)
 			};
-			tracing::trace!(one_shot = wrote_body || head_method, "Wrote response to socket in one-shot");
+			tracing::trace!(
+				one_shot = resp.body.is_none() || wrote_body || head_method,
+				"Wrote response to socket in one-shot"
+			);
 
 			if let Err(e) = socket.write_all(&respbuf[..len]).await {
 				tracing::error!("Failed to write response: {:?}", e);
@@ -213,6 +215,10 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 		}
 	}
 
+	if total == reqbuf.len() {
+		write_error_response(socket.clone(), Response::headers_too_large(), respbuf).await;
+	}
+
 	tracing::debug!("Shutting down socket");
 	let _ = socket.shutdown(std::net::Shutdown::Both);
 }
@@ -221,7 +227,7 @@ async fn read_from_socket(
 	mut socket: TcpStream,
 	buf: &mut [u8],
 	total: usize,
-) -> Result<(usize, usize), ()> {
+) -> Result<(usize, usize), Option<Response>> {
 	match socket
 		.read(buf)
 		.or(async {
@@ -236,7 +242,7 @@ async fn read_from_socket(
 			} else {
 				tracing::info!("Remote closed connection");
 			}
-			Err(())
+			Err(None)
 		}
 		Ok(n) => {
 			tracing::trace!(n, total, "Successful socket read");
@@ -245,10 +251,13 @@ async fn read_from_socket(
 		Err(e) => {
 			if e.kind() == std::io::ErrorKind::TimedOut {
 				tracing::warn!("Socket read timed out");
+				Err(Some(
+					Response::request_timeout().with_header("Connection", "close"),
+				))
 			} else {
 				tracing::error!(error = ?e, "Error reading socket");
+				Err(None)
 			}
-			Err(())
 		}
 	}
 }
@@ -306,7 +315,14 @@ fn write_response<'a, 'b>(
 		_ => false,
 	};
 	if !nobody {
-		if !content_type {
+		let hasbody = match response.body.as_ref() {
+			Some(body) => match body.len() {
+				Some(len) if len > 0 => true,
+				_ => false,
+			},
+			None => false,
+		};
+		if !content_type && hasbody {
 			writer.write(b"Content-Type: application/octet-stream\r\n")?;
 		}
 		if !content_length {
@@ -325,6 +341,22 @@ fn write_response<'a, 'b>(
 	let writerlen = writer.len();
 	let (header, remaining) = buffer.split_at_mut(buffer.len() - writerlen);
 	Ok((header, remaining))
+}
+
+async fn write_error_response(mut socket: TcpStream, response: Response, buffer: &mut [u8]) {
+	let (head, _) = match write_response(&response, buffer) {
+		Ok(buf) => buf,
+		#[allow(unused_variables)]
+		Err(e) => {
+			tracing::error!("Failed to write response: {:?}", e);
+			return;
+		}
+	};
+
+	#[allow(unused_variables)]
+	if let Err(e) = socket.write_all(head).await {
+		tracing::error!("Failed to write response: {:?}", e);
+	}
 }
 
 macro_rules! stream_body {

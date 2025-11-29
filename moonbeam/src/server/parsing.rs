@@ -210,7 +210,7 @@ pub(super) fn scan_for_header_end(buffer: &[u8]) -> Option<usize> {
 	}
 }
 
-pub(crate) enum ParseError {
+pub(super) enum ParseError {
 	NoEndFound,
 	HTTPParseError(httparse::Error),
 }
@@ -232,7 +232,7 @@ pub(super) fn parse_http_request<'buf, 'header>(
 	match req.parse_with_uninit_headers(buffer, headers) {
 		Ok(Status::Partial) => Err(ParseError::NoEndFound),
 		Err(e) => Err(ParseError::HTTPParseError(e)),
-		_ => Ok(Request::new(req, &buffer[0..0])),
+		_ => Ok(Request::new_from_raw(req, &buffer[0..0])),
 	}
 }
 
