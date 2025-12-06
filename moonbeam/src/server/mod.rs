@@ -405,7 +405,7 @@ macro_rules! stream_body {
 				$socket.write_all(b"0\r\n\r\n").await?;
 				break;
 			}
-			write!($buf, "{bytesread:0>5}\r\n")?;
+			write!($buf, "{bytesread:0>5x}\r\n")?;
 			$buf[bytesread + 7] = b'\r';
 			$buf[bytesread + 8] = b'\n';
 			let start = $buf.iter().position(|&v| v != b'0').unwrap_or(0);
@@ -429,7 +429,7 @@ macro_rules! stream_body {
 async fn write_response_body(body: Body, socket: &mut TcpStream) -> Result<(), Error> {
 	const {
 		assert!(
-			BUFSIZE < 100000,
+			BUFSIZE <= 0xFFFFF,
 			"Buffer size too large, this function assumes 5 printed characters max"
 		);
 	}
