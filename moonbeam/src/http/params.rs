@@ -1,19 +1,23 @@
 use std::borrow::Cow;
 
+/// Helper struct for parsing query parameters from a URL.
 pub struct Params<'a> {
 	params: Cow<'a, str>,
 }
 
 impl<'a> Params<'a> {
+	/// Creates a new `Params` helper from the query string.
 	pub fn new(params: Cow<'a, str>) -> Self {
 		Params { params }
 	}
 
+	/// Returns an iterator over values for a specific parameter name.
 	pub fn find<'b>(&'a self, param: &'b str) -> ParamIter<'a, 'b> {
 		ParamIter::new(&self.params, param)
 	}
 }
 
+/// Iterator over values for a specific query parameter.
 pub struct ParamIter<'a, 'b> {
 	remaining: &'a str,
 	filter: &'b str,

@@ -17,6 +17,20 @@ impl Parse for ServerArgs {
 	}
 }
 
+/// Attribute macro to convert a function into a `Server` implementation.
+///
+/// This macro simplifies creating a server by handling the boilerplate of implementing the `Server` trait.
+/// It wraps the decorated function in a struct that implements `Server`.
+///
+/// # Arguments
+/// * `name` - The name of the struct to generate.
+///
+/// # Function Signature
+/// The decorated function must have one of the following signatures:
+/// - `fn(Request) -> impl Future<Output = Response>`
+/// - `fn(Request, &State) -> impl Future<Output = Response>` (if state is used)
+///
+/// The function can be `async` or return `impl Future`.
 #[proc_macro_attribute]
 pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 	let args = parse_macro_input!(attr as ServerArgs);

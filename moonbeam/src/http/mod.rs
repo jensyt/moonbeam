@@ -11,6 +11,7 @@ use std::{
 pub mod cookies;
 pub mod params;
 
+/// Returns the canonical reason phrase for a given HTTP status code.
 pub fn canonical_reason(code: u16) -> &'static str {
 	match code {
 		200 => "OK",
@@ -29,6 +30,7 @@ pub fn canonical_reason(code: u16) -> &'static str {
 	}
 }
 
+/// Represents an HTTP request.
 #[derive(Clone, Copy, Debug)]
 pub struct Request<'headers, 'buf> {
 	pub method: &'buf str,
@@ -39,6 +41,7 @@ pub struct Request<'headers, 'buf> {
 }
 
 impl<'headers, 'buf> Request<'headers, 'buf> {
+	/// Creates a new `Request` from a raw `httparse::Request`.
 	pub fn new_from_raw(raw: RawRequest<'headers, 'buf>, body: &'buf [u8]) -> Self {
 		Self {
 			method: raw.method.unwrap(),
@@ -49,6 +52,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 		}
 	}
 
+	/// Creates a new `Request`.
 	pub fn new(
 		method: &'buf str,
 		path: &'buf str,
@@ -64,6 +68,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 		}
 	}
 
+	/// Finds a header by name.
 	#[inline]
 	pub fn find_header(&self, name: &str) -> Option<&'headers [u8]> {
 		self.headers
@@ -72,11 +77,13 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 			.map(|h| h.value)
 	}
 
+	/// Returns a helper to parse cookies from the request.
 	#[inline]
 	pub fn cookies(&self) -> Cookies<'headers> {
 		Cookies::new(self.find_header("Cookie"))
 	}
 
+	/// Returns a helper to parse query parameters from the request URL.
 	#[inline]
 	pub fn params(&self) -> Params<'headers> {
 		match self.path.split('?').nth(1) {
@@ -85,6 +92,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 		}
 	}
 
+	/// Returns the decoded URL path without query parameters.
 	#[inline]
 	pub fn url(&self) -> Cow<'buf, str> {
 		let url = self.path.split('?').next().unwrap_or(self.path);
@@ -92,6 +100,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	}
 }
 
+/// Represents an HTTP response.
 #[derive(Debug)]
 pub struct Response {
 	pub status: u16,
@@ -100,6 +109,7 @@ pub struct Response {
 }
 
 impl Response {
+	/// Creates a new response with the given status code.
 	#[inline]
 	pub fn new_with_code(status: u16) -> Self {
 		Self {
@@ -109,6 +119,7 @@ impl Response {
 		}
 	}
 
+	/// Creates a new response with a body and optional content type.
 	pub fn new_with_body(body: impl Into<Body>, content_type: Option<&str>) -> Self {
 		let headers = if let Some(c) = content_type {
 			vec![("Content-Type".to_string(), c.to_string())]
@@ -122,66 +133,79 @@ impl Response {
 		}
 	}
 
+	/// 204 No Content
 	#[inline]
 	pub fn empty() -> Self {
 		Self::new_with_code(204)
 	}
 
+	/// 200 OK
 	#[inline]
 	pub fn ok() -> Self {
 		Self::new_with_code(200)
 	}
 
+	/// 304 Not Modified
 	#[inline]
 	pub fn not_modified() -> Self {
 		Self::new_with_code(304)
 	}
 
+	/// 307 Temporary Redirect
 	#[inline]
 	pub fn temporary_redirect(location: impl Into<String>) -> Self {
 		Self::new_with_code(307).with_header("Location", location)
 	}
 
+	/// 404 Not Found
 	#[inline]
 	pub fn not_found() -> Self {
 		Self::new_with_code(404)
 	}
 
+	/// 500 Internal Server Error
 	#[inline]
 	pub fn internal_server_error() -> Self {
 		Self::new_with_code(500)
 	}
 
+	/// 400 Bad Request
 	#[inline]
 	pub fn bad_request() -> Self {
 		Self::new_with_code(400)
 	}
 
+	/// 401 Unauthorized
 	#[inline]
 	pub fn unauthorized() -> Self {
 		Self::new_with_code(401)
 	}
 
+	/// 403 Forbidden
 	#[inline]
 	pub fn forbidden() -> Self {
 		Self::new_with_code(403)
 	}
 
+	/// 408 Request Timeout
 	#[inline]
 	pub fn request_timeout() -> Self {
 		Self::new_with_code(408)
 	}
 
+	/// 413 Content Too Large
 	#[inline]
 	pub fn content_too_large() -> Self {
 		Self::new_with_code(413)
 	}
 
+	/// 431 Request Header Fields Too Large
 	#[inline]
 	pub fn headers_too_large() -> Self {
 		Self::new_with_code(431)
 	}
 
+	/// Sets the response body and optionally the Content-Type header.
 	#[inline]
 	pub fn with_body(mut self, body: impl Into<Body>, content_type: Option<&str>) -> Self {
 		match content_type {
@@ -197,6 +221,7 @@ impl Response {
 		self
 	}
 
+	/// Adds a header if it doesn't already exist.
 	#[inline]
 	pub fn with_header<H, V>(mut self, name: H, value: V) -> Self
 	where
@@ -214,6 +239,7 @@ impl Response {
 		self
 	}
 
+	/// Sets a header, replacing any existing value. Returns the old value if it existed.
 	pub fn set_header<H, V>(&mut self, name: H, value: V) -> Option<String>
 	where
 		H: Into<String> + Borrow<str>,
@@ -233,12 +259,16 @@ impl Response {
 	}
 }
 
+/// Represents the body of an HTTP response.
 pub enum Body {
+	/// In-memory body data.
 	Immediate(Vec<u8>),
+	/// Synchronous reader body.
 	Sync {
 		data: Box<dyn Read + 'static>,
 		len: Option<u64>,
 	},
+	/// Asynchronous reader body.
 	Async {
 		data: Box<dyn AsyncRead + Unpin + 'static>,
 		len: Option<u64>,
@@ -246,13 +276,17 @@ pub enum Body {
 }
 
 impl Body {
+	/// Content-Type for HTML.
 	pub const HTML: Option<&'static str> = Some("text/html; charset=utf-8");
+	/// Content-Type for JSON.
 	pub const JSON: Option<&'static str> = Some("application/json");
 
+	/// Creates a body from a vector.
 	pub fn from_vec(data: impl Into<Vec<u8>>) -> Self {
 		Self::Immediate(data.into())
 	}
 
+	/// Creates an async body from a standard file.
 	#[cfg(feature = "asyncfs")]
 	pub fn from_file_async(file: std::fs::File) -> Self {
 		let size = file.metadata().map(|meta| meta.len()).ok();
@@ -262,6 +296,7 @@ impl Body {
 		}
 	}
 
+	/// Creates a body from an async file.
 	#[cfg(feature = "asyncfs")]
 	pub async fn from_async_file(file: async_fs::File) -> Self {
 		let size = file.metadata().await.map(|meta| meta.len()).ok();
@@ -271,6 +306,7 @@ impl Body {
 		}
 	}
 
+	/// Returns the length of the body, if known.
 	pub fn len(&self) -> Option<u64> {
 		match self {
 			Body::Immediate(data) => Some(data.len() as u64),

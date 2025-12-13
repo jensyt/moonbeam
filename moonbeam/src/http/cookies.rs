@@ -1,14 +1,17 @@
+/// Helper struct for parsing cookies from a request.
 pub struct Cookies<'a> {
 	cookies: &'a [u8],
 }
 
 impl<'a> Cookies<'a> {
+	/// Creates a new `Cookies` helper from the Cookie header value.
 	pub fn new(cookies: Option<&'a [u8]>) -> Self {
 		Cookies {
 			cookies: cookies.unwrap_or(b""),
 		}
 	}
 
+	/// Finds the value of a specific cookie by name.
 	pub fn find(&self, cookie: &str) -> Option<&'a [u8]> {
 		for mut c in self.cookies.split(|&v| v == b';') {
 			match c.split_first() {

@@ -25,12 +25,18 @@ mod parsing;
 pub mod task;
 mod task_tracker;
 
+/// Represents an HTTP server that can handle requests.
 pub trait Server
 where
 	Self: 'static + Sized,
 {
+	/// Handles an incoming HTTP request and returns a future that resolves to a response.
 	fn route(&'static self, request: Request) -> impl Future<Output = Response>;
 
+	/// Clean up resources.
+	///
+	/// # Safety
+	/// This function drops the static reference to self. It should only be called when the server is shutting down.
 	unsafe fn destroy(&'static self) {
 		unsafe {
 			drop(Box::from_raw(&raw const *self as *mut Self));
@@ -38,6 +44,11 @@ where
 	}
 }
 
+/// Starts the server on the specified address.
+///
+/// This function blocks the current thread and runs the server loop.
+/// It takes ownership of the server instance and leaks it to create a static reference,
+/// which is required for the `Server` trait.
 pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T {
 	let static_server = Box::leak(Box::new(server));
 	async_io::block_on(get_local_executor().run(async {
