@@ -390,4 +390,71 @@ mod tests {
 		assert_eq!(old_value, None);
 		assert_eq!(response.headers.len(), 2);
 	}
+
+	#[test]
+	fn test_request_find_header() {
+		let headers = [
+			Header { name: "Content-Type", value: b"text/plain" },
+			Header { name: "X-Custom", value: b"custom" },
+		];
+		let req = Request::new("GET", "/", &headers, &[]);
+
+		assert_eq!(req.find_header("Content-Type"), Some(b"text/plain" as &[u8]));
+		assert_eq!(req.find_header("content-type"), Some(b"text/plain" as &[u8]));
+		assert_eq!(req.find_header("X-Custom"), Some(b"custom" as &[u8]));
+		assert_eq!(req.find_header("x-custom"), Some(b"custom" as &[u8]));
+		assert_eq!(req.find_header("NotFound"), None);
+	}
+
+	#[test]
+	fn test_request_url() {
+		let headers = [];
+		let req = Request::new("GET", "/path?query=1", &headers, &[]);
+		assert_eq!(req.url(), "/path");
+
+		let req = Request::new("GET", "/path", &headers, &[]);
+		assert_eq!(req.url(), "/path");
+
+		let req = Request::new("GET", "/path%20space", &headers, &[]);
+		assert_eq!(req.url(), "/path space");
+	}
+
+	#[test]
+	fn test_response_constructors() {
+		let r = Response::ok();
+		assert_eq!(r.status, 200);
+
+		let r = Response::not_found();
+		assert_eq!(r.status, 404);
+
+		let r = Response::bad_request();
+		assert_eq!(r.status, 400);
+
+		let r = Response::temporary_redirect("/foo");
+		assert_eq!(r.status, 307);
+		assert_eq!(r.headers[0], ("Location".to_string(), "/foo".to_string()));
+	}
+
+	#[test]
+	fn test_response_with_body() {
+		let r = Response::ok().with_body("hello", Some("text/plain"));
+		assert_eq!(r.status, 200);
+		assert!(r.body.is_some());
+		assert_eq!(
+			r.headers.iter().find(|(n, _)| n == "Content-Type").unwrap().1,
+			"text/plain"
+		);
+
+		// Test replacing content type
+		let r = r.with_body("world", Some("application/json"));
+		assert_eq!(
+			r.headers.iter().find(|(n, _)| n == "Content-Type").unwrap().1,
+			"application/json"
+		);
+		assert_eq!(r.headers.iter().filter(|(n, _)| n == "Content-Type").count(), 1);
+
+		// Test removing content type
+		let r = r.with_body("data", None);
+		assert!(r.headers.iter().find(|(n, _)| n == "Content-Type").is_none());
+	}
 }

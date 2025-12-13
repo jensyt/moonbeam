@@ -4,7 +4,7 @@ use crate::tracing;
 use async_io::Timer;
 use async_net::{AsyncToSocketAddrs, TcpListener, TcpStream};
 use async_signal::{Signal, Signals};
-use futures_lite::{AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt};
+use futures_lite::{AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, StreamExt};
 use httparse::Header;
 use httpdate::fmt_http_date;
 use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
@@ -405,7 +405,10 @@ macro_rules! stream_body {
 				$socket.write_all(b"0\r\n\r\n").await?;
 				break;
 			}
-			write!($buf, "{bytesread:0>5x}\r\n")?;
+			{
+				let mut prefix = &mut $buf[0..7];
+				write!(prefix, "{bytesread:0>5x}\r\n")?;
+			}
 			$buf[bytesread + 7] = b'\r';
 			$buf[bytesread + 8] = b'\n';
 			let start = $buf.iter().position(|&v| v != b'0').unwrap_or(0);
@@ -426,7 +429,10 @@ macro_rules! stream_body {
 	};
 }
 
-async fn write_response_body(body: Body, socket: &mut TcpStream) -> Result<(), Error> {
+async fn write_response_body<W>(body: Body, socket: &mut W) -> Result<(), Error>
+where
+	W: AsyncWrite + Unpin,
+{
 	const {
 		assert!(
 			BUFSIZE <= 0xFFFFF,
@@ -543,4 +549,83 @@ mod tests {
 		assert!(response_str.contains("HTTP/1.1 204"));
 		assert!(!response_str.contains("Content-Length"));
 	}
+	#[test]
+	fn test_write_response_body_immediate() {
+		let body = Body::Immediate(vec![1, 2, 3, 4]);
+		let mut socket = Vec::new();
+
+		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
+		assert!(result.is_ok());
+		assert_eq!(socket, vec![1, 2, 3, 4]);
+	}
+
+	#[test]
+	fn test_write_response_body_sync() {
+		let data = std::io::Cursor::new(vec![5, 6, 7, 8]);
+		let body = Body::Sync {
+			data: Box::new(data),
+			len: Some(4),
+		};
+		let mut socket = Vec::new();
+
+		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
+		assert!(result.is_ok());
+		assert_eq!(socket, vec![5, 6, 7, 8]);
+	}
+
+	#[test]
+	fn test_write_response_body_sync_no_len_chunked() {
+		let data = std::io::Cursor::new(vec![9, 10]);
+		let body = Body::Sync {
+			data: Box::new(data),
+			len: None, // Triggers chunked encoding
+		};
+		let mut socket = Vec::new();
+
+		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
+		assert!(result.is_ok());
+
+		// The buffer size is 16KB. The entire data fits in one read.
+		// Chunked encoding format: size in hex \r\n data \r\n 0 \r\n \r\n
+		// The macro uses loops and reads buffers.
+		// Since we provided 2 bytes, it should read 2 bytes.
+		// 2 in hex is 2.
+		// Expected: "2\r\n\x09\x0A\r\n0\r\n\r\n"
+		// The macro formats hex with 0>5x, but then skips leading '0's.
+
+		let expected = b"2\r\n\x09\x0A\r\n0\r\n\r\n";
+		assert_eq!(socket, expected);
+	}
+
+	#[test]
+	fn test_write_response_body_async() {
+		let data = futures_lite::io::Cursor::new(vec![11, 12, 13]);
+		let body = Body::Async {
+			data: Box::new(data),
+			len: Some(3),
+		};
+		let mut socket = Vec::new();
+
+		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
+		assert!(result.is_ok());
+		assert_eq!(socket, vec![11, 12, 13]);
+	}
+
+	#[test]
+	fn test_write_response_body_async_no_len_chunked() {
+		let data = futures_lite::io::Cursor::new(vec![14, 15, 16]);
+		let body = Body::Async {
+			data: Box::new(data),
+			len: None,
+		};
+		let mut socket = Vec::new();
+
+		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
+		assert!(result.is_ok());
+
+		// 3 bytes.
+		// "00003\r\n\x0E\x0F\x10\r\n0\r\n\r\n" -> "3\r\n\x0E\x0F\x10\r\n0\r\n\r\n" (leading zeros skipped)
+		let expected = b"3\r\n\x0E\x0F\x10\r\n0\r\n\r\n";
+		assert_eq!(socket, expected);
+}
 }
