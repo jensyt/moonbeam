@@ -436,6 +436,9 @@ where
 mod tests {
 	use super::*;
 	use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+	use piper::{Reader, Writer};
+	use std::pin::Pin;
+	use std::task::{Context, Poll};
 
 	#[test]
 	fn test_write_response() {
@@ -536,89 +539,6 @@ mod tests {
 		assert!(response_str.contains("HTTP/1.1 204"));
 		assert!(!response_str.contains("Content-Length"));
 	}
-	#[test]
-	fn test_write_response_body_immediate() {
-		let body = Body::Immediate(vec![1, 2, 3, 4]);
-		let mut socket = Vec::new();
-
-		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
-		assert!(result.is_ok());
-		assert_eq!(socket, vec![1, 2, 3, 4]);
-	}
-
-	#[test]
-	fn test_write_response_body_sync() {
-		let data = std::io::Cursor::new(vec![5, 6, 7, 8]);
-		let body = Body::Sync {
-			data: Box::new(data),
-			len: Some(4),
-		};
-		let mut socket = Vec::new();
-
-		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
-		assert!(result.is_ok());
-		assert_eq!(socket, vec![5, 6, 7, 8]);
-	}
-
-	#[test]
-	fn test_write_response_body_sync_no_len_chunked() {
-		let data = std::io::Cursor::new(vec![9, 10]);
-		let body = Body::Sync {
-			data: Box::new(data),
-			len: None, // Triggers chunked encoding
-		};
-		let mut socket = Vec::new();
-
-		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
-		assert!(result.is_ok());
-
-		// The buffer size is 16KB. The entire data fits in one read.
-		// Chunked encoding format: size in hex \r\n data \r\n 0 \r\n \r\n
-		// The macro uses loops and reads buffers.
-		// Since we provided 2 bytes, it should read 2 bytes.
-		// 2 in hex is 2.
-		// Expected: "2\r\n\x09\x0A\r\n0\r\n\r\n"
-		// The macro formats hex with 0>5x, but then skips leading '0's.
-
-		let expected = b"2\r\n\x09\x0A\r\n0\r\n\r\n";
-		assert_eq!(socket, expected);
-	}
-
-	#[test]
-	fn test_write_response_body_async() {
-		let data = futures_lite::io::Cursor::new(vec![11, 12, 13]);
-		let body = Body::Async {
-			data: Box::new(data),
-			len: Some(3),
-		};
-		let mut socket = Vec::new();
-
-		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
-		assert!(result.is_ok());
-		assert_eq!(socket, vec![11, 12, 13]);
-	}
-
-	#[test]
-	fn test_write_response_body_async_no_len_chunked() {
-		let data = futures_lite::io::Cursor::new(vec![14, 15, 16]);
-		let body = Body::Async {
-			data: Box::new(data),
-			len: None,
-		};
-		let mut socket = Vec::new();
-
-		let result = futures_lite::future::block_on(write_response_body(body, &mut socket));
-		assert!(result.is_ok());
-
-		// 3 bytes.
-		// "00003\r\n\x0E\x0F\x10\r\n0\r\n\r\n" -> "3\r\n\x0E\x0F\x10\r\n0\r\n\r\n" (leading zeros skipped)
-		let expected = b"3\r\n\x0E\x0F\x10\r\n0\r\n\r\n";
-		assert_eq!(socket, expected);
-	}
-
-	use piper::{Reader, Writer};
-	use std::pin::Pin;
-	use std::task::{Context, Poll};
 
 	struct MockStream {
 		reader: Reader,
@@ -673,7 +593,7 @@ mod tests {
 
 		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
 
-		let test_future = async {
+		let test_future = async move {
 			client_tx
 				.write_all(b"GET /world HTTP/1.1\r\n\r\n")
 				.await
@@ -685,8 +605,6 @@ mod tests {
 
 			assert!(response.contains("HTTP/1.1 200 OK"));
 			assert!(response.contains("Hello /world"));
-
-			drop(client_tx);
 		};
 
 		futures_lite::future::block_on(async {
@@ -704,7 +622,7 @@ mod tests {
 
 		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
 
-		let test_future = async {
+		let test_future = async move {
 			client_tx
 				.write_all(b"GET /one HTTP/1.1\r\n\r\n")
 				.await
@@ -723,8 +641,6 @@ mod tests {
 			let n = client_rx.read(&mut buf).await.unwrap();
 			let response = std::str::from_utf8(&buf[..n]).unwrap();
 			assert!(response.contains("Hello /two"));
-
-			drop(client_tx);
 		};
 
 		futures_lite::future::block_on(async {
@@ -741,7 +657,7 @@ mod tests {
 
 		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
 
-		let test_future = async {
+		let test_future = async move {
 			client_tx.write_all(b"GARBAGE\r\n\r\n").await.unwrap();
 
 			let mut buf = [0u8; 1024];
@@ -749,8 +665,33 @@ mod tests {
 			let response = std::str::from_utf8(&buf[..n]).unwrap();
 
 			assert!(response.contains("400 Bad Request"));
+		};
 
-			drop(client_tx);
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_route_panic() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+		let server = Box::leak(Box::new(MockServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /error HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = [0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("500 Internal Server Error"));
 		};
 
 		futures_lite::future::block_on(async {

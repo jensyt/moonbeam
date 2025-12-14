@@ -19,7 +19,7 @@ pub struct BodyWriteFuture<'a, 'b, S> {
 
 impl<'a, 'b, S> BodyWriteFuture<'a, 'b, S>
 where
-	S: AsyncWrite + Unpin + 'static
+	S: AsyncWrite + Unpin + 'static,
 {
 	pub fn new(
 		buf: &'b mut [u8],
@@ -42,7 +42,7 @@ where
 
 impl<S> Future for BodyWriteFuture<'_, '_, S>
 where
-	S: AsyncWrite + Unpin + 'static
+	S: AsyncWrite + Unpin + 'static,
 {
 	type Output = io::Result<()>;
 
@@ -57,7 +57,7 @@ where
 
 impl<S> BodyWriteFuture<'_, '_, S>
 where
-	S: AsyncWrite + Unpin + 'static
+	S: AsyncWrite + Unpin + 'static,
 {
 	fn poll_not_chunked(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
 		let mself = self.get_mut();
