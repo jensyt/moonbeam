@@ -1,6 +1,6 @@
 [package]
 name = "moonbeam"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -8,6 +8,7 @@ keywords.workspace = true
 categories.workspace = true
 repository.workspace = true
 license.workspace = true
+readme.workspace = true
 
 [dependencies]
 httparse = "1.10"
@@ -26,7 +27,7 @@ moonbeam-attributes = {path = "../moonbeam-attributes", optional = true}
 default = ["asyncfs", "assets", "macros", "catchpanic"]
 tracing = ["dep:tracing"]
 asyncfs = ["dep:async-fs"]
-assets = []
+assets = ["asyncfs"]
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
 

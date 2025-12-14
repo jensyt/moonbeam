@@ -5,7 +5,6 @@ use percent_encoding::percent_decode_str;
 use std::{
 	borrow::{Borrow, Cow},
 	fmt::Debug,
-	io::Read,
 };
 
 pub mod cookies;
@@ -312,16 +311,7 @@ impl Response {
 pub enum Body {
 	/// In-memory body data.
 	Immediate(Vec<u8>),
-	/// Synchronous reader body.
-	Sync {
-		/// The reader providing the body data.
-		data: Box<dyn Read + 'static>,
-		/// The length of the body, if known.
-		len: Option<u64>,
-	},
-	/// Asynchronous reader body.
-	Async {
-		/// The async reader providing the body data.
+	Stream {
 		data: Box<dyn AsyncRead + Unpin + 'static>,
 		/// The length of the body, if known.
 		len: Option<u64>,
@@ -339,32 +329,10 @@ impl Body {
 		Self::Immediate(data.into())
 	}
 
-	/// Creates an async body from a standard file.
-	#[cfg(feature = "asyncfs")]
-	pub fn from_file_async(file: std::fs::File) -> Self {
-		let size = file.metadata().map(|meta| meta.len()).ok();
-		Body::Async {
-			data: Box::new(async_fs::File::from(file)),
-			len: size,
-		}
-	}
-
-	/// Creates a body from an async file.
-	#[cfg(feature = "asyncfs")]
-	pub async fn from_async_file(file: async_fs::File) -> Self {
-		let size = file.metadata().await.map(|meta| meta.len()).ok();
-		Body::Async {
-			data: Box::new(file),
-			len: size,
-		}
-	}
-
-	/// Returns the length of the body, if known.
 	pub fn len(&self) -> Option<u64> {
 		match self {
 			Body::Immediate(data) => Some(data.len() as u64),
-			Body::Sync { data: _, len } => *len,
-			Body::Async { data: _, len } => *len,
+			Body::Stream { len, .. } => *len,
 		}
 	}
 }
@@ -399,12 +367,13 @@ impl From<Box<[u8]>> for Body {
 	}
 }
 
+#[cfg(feature = "asyncfs")]
 impl From<std::fs::File> for Body {
 	fn from(file: std::fs::File) -> Self {
-		let size = file.metadata().map(|meta| meta.len()).ok();
-		Body::Sync {
-			data: Box::new(file),
-			len: size,
+		let len = file.metadata().map(|meta| meta.len()).ok();
+		Body::Stream {
+			data: Box::new(async_fs::File::from(file)),
+			len,
 		}
 	}
 }
@@ -412,7 +381,7 @@ impl From<std::fs::File> for Body {
 #[cfg(feature = "asyncfs")]
 impl From<async_fs::File> for Body {
 	fn from(file: async_fs::File) -> Self {
-		Body::Async {
+		Body::Stream {
 			data: Box::new(file),
 			len: None,
 		}
@@ -423,8 +392,7 @@ impl Debug for Body {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Immediate(v) => write!(f, "Body(Immediate, len={})", v.len()),
-			Self::Sync { data: _, len } => write!(f, "Body(Sync, len={len:?})"),
-			Self::Async { data: _, len } => write!(f, "Body(Async, len={len:?})"),
+			Self::Stream { data: _, len } => write!(f, "Body(Stream, len={len:?})"),
 		}
 	}
 }

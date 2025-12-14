@@ -3,6 +3,7 @@
 - TRACE requests
 - Make tracing meaningful
 - Content encoding (gzip, brotli)
+- Better routing
 
 # Done
 - ETags for assets

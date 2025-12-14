@@ -17,6 +17,7 @@ use std::{
 use std::{mem::MaybeUninit, net::SocketAddr, time::Duration};
 use task::{get_local_executor, new_local_task};
 use task_tracker::get_local_tracker;
+use writer::BodyWriteFuture;
 
 const BUFSIZE: usize = 16 * 1024;
 
@@ -24,6 +25,7 @@ const BUFSIZE: usize = 16 * 1024;
 mod parsing;
 pub mod task;
 mod task_tracker;
+mod writer;
 
 /// Represents an HTTP server that can handle requests.
 ///
@@ -120,11 +122,20 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 		.await;
 }
 
+macro_rules! socket_write {
+	($e:expr) => {
+		if let Err(e) = $e.await {
+			tracing::error!("Failed to write response: {:?}", e);
+			break;
+		}
+	};
+}
+
 #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
 #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(remote = %addr)))]
 pub async fn handle_socket<R: Server, S>(mut socket: S, addr: SocketAddr, router: &'static R)
 where
-	S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+	S: AsyncRead + AsyncWrite + Unpin + 'static,
 {
 	// let mut buf = get_local_bufpool().get();
 	// let (reqbuf, respbuf) = buf.get_mut().split_at_mut(bufpool::BUFSIZE / 2);
@@ -220,46 +231,38 @@ where
 				}
 			};
 
-			let (len, wrote_body) = if !head_method
-				&& let Some(body) = resp.body.as_mut()
-				&& let Some(len) = body.len()
-				&& len < rest.len() as u64
-			{
-				let len = len as usize;
-				match body {
-					Body::Immediate(body) => match rest.write_all(body.as_slice()) {
-						Ok(_) => (head.len() + len, true),
-						Err(_) => (head.len(), false),
-					},
-					Body::Sync { data, len: _ } => match data.read_exact(&mut rest[..len]) {
-						Ok(_) => (head.len() + len, true),
-						Err(_) => (head.len(), false),
-					},
-					Body::Async { data, len: _ } => match data.read_exact(&mut rest[..len]).await {
-						Ok(_) => (head.len() + len, true),
-						Err(_) => (head.len(), false),
-					},
-				}
-			} else {
-				(head.len(), false)
-			};
-			tracing::trace!(
-				one_shot = resp.body.is_none() || wrote_body || head_method,
-				"Wrote response to socket in one-shot"
-			);
-
-			if let Err(e) = socket.write_all(&respbuf[..len]).await {
-				tracing::error!("Failed to write response: {:?}", e);
-				break;
+			if head_method {
+				let body = resp.body.take();
+				tracing::trace!(removed_body = body.is_some(), "Processing HEAD request");
 			}
 
-			if !head_method
-				&& !wrote_body
-				&& let Some(body) = resp.body
-				&& let Err(e) = write_response_body(body, &mut socket).await
-			{
-				tracing::error!("Failed to write response body: {:?}", e);
-				break;
+			match resp.body {
+				None => {
+					socket_write!(socket.write_all(head));
+					tracing::trace!("Wrote headers only");
+				}
+				Some(Body::Immediate(body)) if body.len() < rest.len() => {
+					let _ = rest.write_all(body.as_slice());
+					let len = head.len() + body.len();
+					socket_write!(socket.write_all(&respbuf[..len]));
+					tracing::trace!("Wrote headers and body in one shot");
+				}
+				Some(Body::Immediate(body)) => {
+					socket_write!(socket.write_all(head));
+					socket_write!(socket.write_all(body.as_slice()));
+					tracing::trace!(body_len = body.len(), "Wrote headers and body separately");
+				}
+				Some(Body::Stream { data, len }) => {
+					let preread = head.len();
+					socket_write!(BodyWriteFuture::new(
+						respbuf,
+						preread,
+						data,
+						len.map(|v| v as usize),
+						&mut socket,
+					));
+					tracing::trace!(len, "Streamed body");
+				}
 			}
 
 			if close {
@@ -277,6 +280,10 @@ where
 
 	if total == reqbuf.len() {
 		write_error_response(&mut socket, Response::headers_too_large(), respbuf).await;
+		tracing::error!(
+			error = "request headers too large",
+			"Failed to read HTTP request"
+		);
 	}
 
 	tracing::debug!("Shutting down socket");
@@ -422,76 +429,6 @@ where
 	#[allow(unused_variables)]
 	if let Err(e) = socket.write_all(head).await {
 		tracing::error!("Failed to write response: {:?}", e);
-	}
-}
-
-macro_rules! stream_body {
-	($socket:ident, $data:ident, $len:ident, async = $a:tt) => {{
-		// let mut buf = get_local_bufpool().get();
-		// let mut buf = buf.get_mut();
-		let mut buf = vec![0; BUFSIZE];
-		match $len {
-			Some(_) => stream_body!(_notchunked $socket, $data, $len, buf, $a),
-			None => stream_body!(_chunked $socket, $data, $len, buf, $a),
-		}
-
-		Ok(())
-	}};
-	(_notchunked $socket:ident, $data:ident, $len:ident, $buf:ident, $a:tt) => {
-		loop {
-			let bytesread = stream_body!(_read_notchunked $data, $buf, $a)?;
-			if bytesread == 0 {
-				break;
-			}
-			$socket.write_all(&$buf[..bytesread]).await?;
-		}
-	};
-	(_chunked $socket:ident, $data:ident, $len:ident, $buf:ident, $a:tt) => {
-		loop {
-			// We need to write chunk information before/after the data itself
-			let bytesread = stream_body!(_read_chunked $data, $buf, $a)?;
-			if bytesread == 0 {
-				$socket.write_all(b"0\r\n\r\n").await?;
-				break;
-			}
-			{
-				let mut prefix = &mut $buf[0..7];
-				write!(prefix, "{bytesread:0>5x}\r\n")?;
-			}
-			$buf[bytesread + 7] = b'\r';
-			$buf[bytesread + 8] = b'\n';
-			let start = $buf.iter().position(|&v| v != b'0').unwrap_or(0);
-			$socket.write_all(&$buf[start..bytesread + 9]).await?;
-		}
-	};
-	(_read_notchunked $data:ident, $buf:ident, true) => {
-		$data.read(&mut $buf).await
-	};
-	(_read_notchunked $data:ident, $buf:ident, false) => {
-		$data.read(&mut $buf)
-	};
-	(_read_chunked $data:ident, $buf:ident, true) => {
-		$data.read(&mut $buf[7..BUFSIZE-2]).await
-	};
-	(_read_chunked $data:ident, $buf:ident, false) => {
-		$data.read(&mut $buf[7..BUFSIZE-2])
-	};
-}
-
-async fn write_response_body<W>(body: Body, socket: &mut W) -> Result<(), Error>
-where
-	W: AsyncWrite + Unpin,
-{
-	const {
-		assert!(
-			BUFSIZE <= 0xFFFFF,
-			"Buffer size too large, this function assumes 5 printed characters max"
-		);
-	}
-	match body {
-		Body::Immediate(body) => socket.write_all(body.as_slice()).await,
-		Body::Sync { mut data, len } => stream_body!(socket, data, len, async = false),
-		Body::Async { mut data, len } => stream_body!(socket, data, len, async = true),
 	}
 }
 

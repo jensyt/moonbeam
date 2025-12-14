@@ -1,4 +1,4 @@
-use crate::{Response, http::Body};
+use crate::Response;
 use std::{
 	fs::File,
 	hash::{DefaultHasher, Hasher},
@@ -37,10 +37,6 @@ pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Res
 		Ok(f) => f,
 		Err(_) => return Response::internal_server_error(),
 	};
-
-	#[cfg(feature = "asyncfs")]
-	let response = Response::new_with_body(Body::from_file_async(file), ext);
-	#[cfg(not(feature = "asyncfs"))]
 	let response = Response::new_with_body(file, ext);
 
 	if let Some(tag) = tag {
