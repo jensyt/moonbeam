@@ -261,6 +261,7 @@ dependencies = [
  "httpdate",
  "moonbeam-attributes",
  "percent-encoding",
+ "piper",
  "tracing",
 ]
 

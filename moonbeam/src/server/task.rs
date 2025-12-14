@@ -1,5 +1,5 @@
-use async_executor::StaticLocalExecutor;
 use super::task_tracker::get_local_tracker;
+use async_executor::StaticLocalExecutor;
 
 pub(super) fn get_local_executor() -> &'static StaticLocalExecutor {
 	thread_local! {
