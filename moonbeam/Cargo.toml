@@ -29,3 +29,6 @@ asyncfs = ["dep:async-fs"]
 assets = []
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
+
+[dev-dependencies]
+piper = "0.2"

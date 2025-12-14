@@ -1,6 +1,6 @@
+use crate::tracing;
 use async_io::Timer;
 use std::{cell::Cell, marker::PhantomData, time::Duration};
-use crate::tracing;
 
 pub(super) fn get_local_tracker() -> &'static TaskTracker {
 	thread_local! {
@@ -16,14 +16,14 @@ pub(super) fn get_local_tracker() -> &'static TaskTracker {
 pub(super) struct TaskTracker {
 	count: Cell<usize>,
 	// Make this type !Send since it is meant to be thread-local only
-	_phantom: PhantomData<*const ()>
+	_phantom: PhantomData<*const ()>,
 }
 
 impl TaskTracker {
 	pub const fn new() -> Self {
 		TaskTracker {
 			count: Cell::new(0),
-			_phantom: PhantomData
+			_phantom: PhantomData,
 		}
 	}
 

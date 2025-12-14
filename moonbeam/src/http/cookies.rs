@@ -25,11 +25,11 @@ impl<'a> Cookies<'a> {
 					match v.split_first() {
 						Some((b'"', rest)) => match rest.split_last() {
 							Some((_, rest)) => return Some(rest),
-							None => continue
+							None => continue,
 						},
 						_ => return Some(v),
 					}
-				},
+				}
 				_ => (),
 			}
 		}

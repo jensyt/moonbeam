@@ -2,9 +2,9 @@ use crate::http::{Body, Request, Response, canonical_reason};
 // use crate::server::bufpool::get_local_bufpool;
 use crate::tracing;
 use async_io::Timer;
-use async_net::{AsyncToSocketAddrs, TcpListener, TcpStream};
+use async_net::{AsyncToSocketAddrs, TcpListener};
 use async_signal::{Signal, Signals};
-use futures_lite::{AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, StreamExt};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, StreamExt};
 use httparse::Header;
 use httpdate::fmt_http_date;
 use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
@@ -41,43 +41,58 @@ where
 pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T {
 	let static_server = Box::leak(Box::new(server));
 	async_io::block_on(get_local_executor().run(async {
-		let mut signals =
-			Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
-		let mut get_signal = async move || {
-			let signal = signals.next().await;
-			Err(Error::new(
-				ErrorKind::Interrupted,
-				format!("Signal: {signal:?}"),
-			))
-		};
-
 		let listener = TcpListener::bind(addr)
 			.await
 			.expect("Failed to bind to socket");
-		loop {
-			match listener.accept().or(get_signal()).await {
-				Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, static_server)),
-				#[allow(unused_variables)]
-				Err(err) => {
-					if err.kind() == ErrorKind::Interrupted {
-						tracing::debug!(?err, "Got signal to shut down");
-					} else {
-						tracing::error!(?err, "Failed to accept connection, shutting down");
-					}
-					break;
-				}
-			}
-		}
-		get_local_tracker()
-			.wait_until_empty(Duration::from_secs(60))
-			.await;
+		accept_loop(listener, static_server).await;
 	}));
 	static_server
 }
 
+pub fn serve_listener<T: Server>(listener: TcpListener, server: T) -> &'static T {
+	let static_server = Box::leak(Box::new(server));
+	async_io::block_on(get_local_executor().run(async {
+		accept_loop(listener, static_server).await;
+	}));
+	static_server
+}
+
+async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
+	let mut signals =
+		Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
+	let mut get_signal = async move || {
+		let signal = signals.next().await;
+		Err(Error::new(
+			ErrorKind::Interrupted,
+			format!("Signal: {signal:?}"),
+		))
+	};
+
+	loop {
+		match listener.accept().or(get_signal()).await {
+			Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, server)),
+			#[allow(unused_variables)]
+			Err(err) => {
+				if err.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?err, "Got signal to shut down");
+				} else {
+					tracing::error!(?err, "Failed to accept connection, shutting down");
+				}
+				break;
+			}
+		}
+	}
+	get_local_tracker()
+		.wait_until_empty(Duration::from_secs(60))
+		.await;
+}
+
 #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
 #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(remote = %addr)))]
-pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, router: &'static R) {
+pub async fn handle_socket<R: Server, S>(mut socket: S, addr: SocketAddr, router: &'static R)
+where
+	S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
 	// let mut buf = get_local_bufpool().get();
 	// let (reqbuf, respbuf) = buf.get_mut().split_at_mut(bufpool::BUFSIZE / 2);
 	let mut buf = vec![0; BUFSIZE];
@@ -85,14 +100,14 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 	let mut total = 0;
 
 	while total < reqbuf.len() {
-		let mut start = match read_from_socket(socket.clone(), &mut reqbuf[total..], total).await {
+		let mut start = match read_from_socket(&mut socket, &mut reqbuf[total..], total).await {
 			Ok((start, end)) => {
 				total = end;
 				start.saturating_sub(3)
 			}
 			Err(r) => {
 				if let Some(r) = r {
-					write_error_response(socket.clone(), r, respbuf).await;
+					write_error_response(&mut socket, r, respbuf).await;
 				}
 				break;
 			}
@@ -111,7 +126,7 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 			let mut req = match parse_http_request(head, &mut headers) {
 				Err(e) => {
 					tracing::error!(error = ?e, "Failed to parse HTTP header");
-					write_error_response(socket.clone(), Response::bad_request(), respbuf).await;
+					write_error_response(&mut socket, Response::bad_request(), respbuf).await;
 					break;
 				}
 				Ok(req) => req,
@@ -123,8 +138,7 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 			req.body = {
 				if contentlength > body.len() {
 					tracing::error!(error = "too big", "Failed to read HTTP body");
-					write_error_response(socket.clone(), Response::content_too_large(), respbuf)
-						.await;
+					write_error_response(&mut socket, Response::content_too_large(), respbuf).await;
 					break;
 				} else if contentlength > total - offset {
 					if let Err(e) = socket
@@ -148,12 +162,8 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 				Ok(resp) => resp,
 				Err(e) => {
 					tracing::error!(request = %path, error = ?e, "Panic in response handler");
-					write_error_response(
-						socket.clone(),
-						Response::internal_server_error(),
-						respbuf,
-					)
-					.await;
+					write_error_response(&mut socket, Response::internal_server_error(), respbuf)
+						.await;
 					break;
 				}
 			};
@@ -233,18 +243,21 @@ pub async fn handle_socket<R: Server>(mut socket: TcpStream, addr: SocketAddr, r
 	}
 
 	if total == reqbuf.len() {
-		write_error_response(socket.clone(), Response::headers_too_large(), respbuf).await;
+		write_error_response(&mut socket, Response::headers_too_large(), respbuf).await;
 	}
 
 	tracing::debug!("Shutting down socket");
-	let _ = socket.shutdown(std::net::Shutdown::Both);
+	let _ = socket.close().await;
 }
 
-async fn read_from_socket(
-	mut socket: TcpStream,
+async fn read_from_socket<R>(
+	socket: &mut R,
 	buf: &mut [u8],
 	total: usize,
-) -> Result<(usize, usize), Option<Response>> {
+) -> Result<(usize, usize), Option<Response>>
+where
+	R: AsyncRead + Unpin,
+{
 	match socket
 		.read(buf)
 		.or(async {
@@ -360,7 +373,10 @@ fn write_response<'a, 'b>(
 	Ok((header, remaining))
 }
 
-async fn write_error_response(mut socket: TcpStream, response: Response, buffer: &mut [u8]) {
+async fn write_error_response<W>(socket: &mut W, response: Response, buffer: &mut [u8])
+where
+	W: AsyncWrite + Unpin,
+{
 	let (head, _) = match write_response(&response, buffer) {
 		Ok(buf) => buf,
 		#[allow(unused_variables)]
@@ -449,6 +465,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 	#[test]
 	fn test_write_response() {
@@ -627,5 +644,186 @@ mod tests {
 		// "00003\r\n\x0E\x0F\x10\r\n0\r\n\r\n" -> "3\r\n\x0E\x0F\x10\r\n0\r\n\r\n" (leading zeros skipped)
 		let expected = b"3\r\n\x0E\x0F\x10\r\n0\r\n\r\n";
 		assert_eq!(socket, expected);
-}
+	}
+
+	use piper::{Reader, Writer};
+	use std::pin::Pin;
+	use std::task::{Context, Poll};
+
+	struct MockStream {
+		reader: Reader,
+		writer: Writer,
+	}
+
+	impl AsyncRead for MockStream {
+		fn poll_read(
+			mut self: Pin<&mut Self>,
+			cx: &mut Context<'_>,
+			buf: &mut [u8],
+		) -> Poll<std::io::Result<usize>> {
+			Pin::new(&mut self.reader).poll_read(cx, buf)
+		}
+	}
+
+	impl AsyncWrite for MockStream {
+		fn poll_write(
+			mut self: Pin<&mut Self>,
+			cx: &mut Context<'_>,
+			buf: &[u8],
+		) -> Poll<std::io::Result<usize>> {
+			Pin::new(&mut self.writer).poll_write(cx, buf)
+		}
+
+		fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+			Pin::new(&mut self.writer).poll_flush(cx)
+		}
+
+		fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+			Pin::new(&mut self.writer).poll_close(cx)
+		}
+	}
+
+	struct MockServer;
+	impl Server for MockServer {
+		async fn route(&'static self, req: Request<'_, '_>) -> Response {
+			if req.path == "/error" {
+				panic!("forced panic");
+			}
+			Response::ok().with_body(format!("Hello {}", req.path), None)
+		}
+	}
+
+	#[test]
+	fn test_handle_socket_simple_request() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = Box::leak(Box::new(MockServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let test_future = async {
+			client_tx
+				.write_all(b"GET /world HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Hello /world"));
+
+			drop(client_tx);
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_keep_alive() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = Box::leak(Box::new(MockServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let test_future = async {
+			client_tx
+				.write_all(b"GET /one HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = [0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+			assert!(response.contains("Hello /one"));
+
+			client_tx
+				.write_all(b"GET /two HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+			assert!(response.contains("Hello /two"));
+
+			drop(client_tx);
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_malformed() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+		let server = Box::leak(Box::new(MockServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let test_future = async {
+			client_tx.write_all(b"GARBAGE\r\n\r\n").await.unwrap();
+
+			let mut buf = [0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("400 Bad Request"));
+
+			drop(client_tx);
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_serve() {
+		use async_net::TcpListener;
+		use std::time::Duration;
+
+		// Bind to ephemeral port
+		let listener = futures_lite::future::block_on(TcpListener::bind("127.0.0.1:0")).unwrap();
+		let addr = listener.local_addr().unwrap();
+
+		let server = MockServer; // MockServer is ZST, copy is cheap. But serve takes T.
+		// Wait, serve takes T, but implementation boxes it.
+		// In the test snippet I did: let server = Box::leak(Box::new(MockServer));
+		// serve_listener takes server: T.
+		// So I should pass MockServer directly.
+
+		// Spawn server in a thread
+		std::thread::spawn(move || {
+			serve_listener(listener, server);
+		});
+
+		// Give it a moment to start (though bind is already done)
+		std::thread::sleep(Duration::from_millis(50));
+
+		// Connect
+		futures_lite::future::block_on(async {
+			let mut stream = async_net::TcpStream::connect(addr).await.unwrap();
+			stream
+				.write_all(b"GET /serve HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let n = stream.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("Hello /serve"));
+		});
+	}
 }

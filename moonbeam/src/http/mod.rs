@@ -394,13 +394,25 @@ mod tests {
 	#[test]
 	fn test_request_find_header() {
 		let headers = [
-			Header { name: "Content-Type", value: b"text/plain" },
-			Header { name: "X-Custom", value: b"custom" },
+			Header {
+				name: "Content-Type",
+				value: b"text/plain",
+			},
+			Header {
+				name: "X-Custom",
+				value: b"custom",
+			},
 		];
 		let req = Request::new("GET", "/", &headers, &[]);
 
-		assert_eq!(req.find_header("Content-Type"), Some(b"text/plain" as &[u8]));
-		assert_eq!(req.find_header("content-type"), Some(b"text/plain" as &[u8]));
+		assert_eq!(
+			req.find_header("Content-Type"),
+			Some(b"text/plain" as &[u8])
+		);
+		assert_eq!(
+			req.find_header("content-type"),
+			Some(b"text/plain" as &[u8])
+		);
 		assert_eq!(req.find_header("X-Custom"), Some(b"custom" as &[u8]));
 		assert_eq!(req.find_header("x-custom"), Some(b"custom" as &[u8]));
 		assert_eq!(req.find_header("NotFound"), None);
@@ -441,20 +453,39 @@ mod tests {
 		assert_eq!(r.status, 200);
 		assert!(r.body.is_some());
 		assert_eq!(
-			r.headers.iter().find(|(n, _)| n == "Content-Type").unwrap().1,
+			r.headers
+				.iter()
+				.find(|(n, _)| n == "Content-Type")
+				.unwrap()
+				.1,
 			"text/plain"
 		);
 
 		// Test replacing content type
 		let r = r.with_body("world", Some("application/json"));
 		assert_eq!(
-			r.headers.iter().find(|(n, _)| n == "Content-Type").unwrap().1,
+			r.headers
+				.iter()
+				.find(|(n, _)| n == "Content-Type")
+				.unwrap()
+				.1,
 			"application/json"
 		);
-		assert_eq!(r.headers.iter().filter(|(n, _)| n == "Content-Type").count(), 1);
+		assert_eq!(
+			r.headers
+				.iter()
+				.filter(|(n, _)| n == "Content-Type")
+				.count(),
+			1
+		);
 
 		// Test removing content type
 		let r = r.with_body("data", None);
-		assert!(r.headers.iter().find(|(n, _)| n == "Content-Type").is_none());
+		assert!(
+			r.headers
+				.iter()
+				.find(|(n, _)| n == "Content-Type")
+				.is_none()
+		);
 	}
 }
