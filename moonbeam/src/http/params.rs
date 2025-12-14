@@ -14,7 +14,16 @@ impl<'a> Params<'a> {
 	/// Returns an iterator over values for a specific parameter name.
 	///
 	/// # Example
-	/// For a query string `?a=1&b=2&a=3`, `find("a")` will yield `1` and `3`.
+	/// ```
+	/// use std::borrow::Cow;
+	/// use moonbeam::http::params::Params;
+	///
+	/// let params = Params::new(Cow::Borrowed("a=1&b=2&a=3"));
+	/// let mut a = params.find("a");
+	/// assert_eq!(a.next(), Some("1"));
+	/// assert_eq!(a.next(), Some("3"));
+	/// assert_eq!(a.next(), None);
+	/// ```
 	pub fn find<'b>(&'a self, param: &'b str) -> ParamIter<'a, 'b> {
 		ParamIter::new(&self.params, param)
 	}
