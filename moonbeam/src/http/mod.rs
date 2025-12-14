@@ -84,6 +84,8 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	}
 
 	/// Returns a helper to parse query parameters from the request URL.
+	///
+	/// The query parameters are URL-decoded.
 	#[inline]
 	pub fn params(&self) -> Params<'headers> {
 		match self.path.split('?').nth(1) {
@@ -152,6 +154,8 @@ impl Response {
 	}
 
 	/// 307 Temporary Redirect
+	///
+	/// Sets the `Location` header to the given location.
 	#[inline]
 	pub fn temporary_redirect(location: impl Into<String>) -> Self {
 		Self::new_with_code(307).with_header("Location", location)
@@ -206,6 +210,8 @@ impl Response {
 	}
 
 	/// Sets the response body and optionally the Content-Type header.
+	///
+	/// This overwrites the body and `Content-Type` header if they already exist.
 	#[inline]
 	pub fn with_body(mut self, body: impl Into<Body>, content_type: Option<&str>) -> Self {
 		match content_type {

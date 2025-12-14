@@ -12,6 +12,8 @@ impl<'a> Cookies<'a> {
 	}
 
 	/// Finds the value of a specific cookie by name.
+	///
+	/// If the cookie value is enclosed in double quotes, they are stripped from the returned value.
 	pub fn find(&self, cookie: &str) -> Option<&'a [u8]> {
 		for mut c in self.cookies.split(|&v| v == b';') {
 			match c.split_first() {

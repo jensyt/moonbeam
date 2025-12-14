@@ -1,7 +1,7 @@
 //! # Moonbeam
 //!
 //! Moonbeam is a lightweight, single-threaded HTTP server library for Rust.
-//! It is designed for simplicity and performance, avoiding `Rc` and `Arc` where possible.
+//! It is designed for simplicity and performance.
 //!
 //! Key features:
 //! - Single-threaded execution model
