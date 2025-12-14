@@ -49,14 +49,6 @@ pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T 
 	static_server
 }
 
-pub fn serve_listener<T: Server>(listener: TcpListener, server: T) -> &'static T {
-	let static_server = Box::leak(Box::new(server));
-	async_io::block_on(get_local_executor().run(async {
-		accept_loop(listener, static_server).await;
-	}));
-	static_server
-}
-
 async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 	let mut signals =
 		Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
@@ -793,23 +785,22 @@ mod tests {
 		use async_net::TcpListener;
 		use std::time::Duration;
 
-		// Bind to ephemeral port
-		let listener = futures_lite::future::block_on(TcpListener::bind("127.0.0.1:0")).unwrap();
-		let addr = listener.local_addr().unwrap();
-
-		let server = MockServer; // MockServer is ZST, copy is cheap. But serve takes T.
-		// Wait, serve takes T, but implementation boxes it.
-		// In the test snippet I did: let server = Box::leak(Box::new(MockServer));
-		// serve_listener takes server: T.
-		// So I should pass MockServer directly.
-
-		// Spawn server in a thread
-		std::thread::spawn(move || {
-			serve_listener(listener, server);
+		// Pick a random port by binding to 0 and getting the address
+		let addr = futures_lite::future::block_on(async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			listener.local_addr().unwrap()
 		});
 
-		// Give it a moment to start (though bind is already done)
-		std::thread::sleep(Duration::from_millis(50));
+		let server = MockServer;
+
+		let serve_addr = addr.clone();
+		// Spawn server in a thread
+		std::thread::spawn(move || {
+			serve(serve_addr, server);
+		});
+
+		// Give it a moment to start
+		std::thread::sleep(Duration::from_millis(100));
 
 		// Connect
 		futures_lite::future::block_on(async {
