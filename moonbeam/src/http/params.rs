@@ -1,19 +1,44 @@
 use std::borrow::Cow;
 
+/// Helper struct for parsing query parameters from a URL.
+///
+/// # Example
+/// ```
+/// use std::borrow::Cow;
+/// use moonbeam::http::params::Params;
+///
+/// let params = Params::new(Cow::Borrowed("key=value"));
+/// assert_eq!(params.find("key").next(), Some("value"));
+/// ```
 pub struct Params<'a> {
 	params: Cow<'a, str>,
 }
 
 impl<'a> Params<'a> {
+	/// Creates a new `Params` helper from the query string.
 	pub fn new(params: Cow<'a, str>) -> Self {
 		Params { params }
 	}
 
+	/// Returns an iterator over values for a specific parameter name.
+	///
+	/// # Example
+	/// ```
+	/// use std::borrow::Cow;
+	/// use moonbeam::http::params::Params;
+	///
+	/// let params = Params::new(Cow::Borrowed("a=1&b=2&a=3"));
+	/// let mut a = params.find("a");
+	/// assert_eq!(a.next(), Some("1"));
+	/// assert_eq!(a.next(), Some("3"));
+	/// assert_eq!(a.next(), None);
+	/// ```
 	pub fn find<'b>(&'a self, param: &'b str) -> ParamIter<'a, 'b> {
 		ParamIter::new(&self.params, param)
 	}
 }
 
+/// Iterator over values for a specific query parameter.
 pub struct ParamIter<'a, 'b> {
 	remaining: &'a str,
 	filter: &'b str,
