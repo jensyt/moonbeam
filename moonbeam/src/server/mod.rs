@@ -77,7 +77,7 @@ where
 ///     }
 /// }
 ///
-/// // serve("127.0.0.1:8080", MyServer);
+/// serve("127.0.0.1:8080", MyServer);
 /// ```
 pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T {
 	let static_server = Box::leak(Box::new(server));

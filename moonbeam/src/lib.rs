@@ -9,24 +9,44 @@
 //! - Built-in HTTP parsing and routing
 //! - Minimal dependencies
 //!
-//! # Example
+//! # Examples
+//!
+//! ## Stateless Server
 //!
 //! ```no_run
-//! use moonbeam::{Server, Request, Response, serve};
-//! use std::future::Future;
+//! use moonbeam::{Request, Response, server, serve};
 //!
-//! struct MyServer;
-//!
-//! impl Server for MyServer {
-//!     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
-//!         async {
-//!             Response::ok().with_body("Hello, World!", None)
-//!         }
-//!     }
+//! #[server(MyServer)]
+//! async fn handle_request(_req: Request<'_, '_>) -> Response {
+//!     Response::ok().with_body("Hello, World!", None)
 //! }
 //!
 //! fn main() {
 //!     serve("127.0.0.1:8080", MyServer);
+//! }
+//! ```
+//!
+//! ## Stateful Server
+//!
+//! ```no_run
+//! use moonbeam::{Request, Response, server, serve};
+//!
+//! struct State {
+//!     count: std::sync::atomic::AtomicUsize,
+//! }
+//!
+//! #[server(MyStatefulServer)]
+//! async fn handle_request(_req: Request<'_, '_>, state: &State) -> Response {
+//!     let count = state.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+//!     Response::ok().with_body(format!("Request count: {}", count), None)
+//! }
+//!
+//! fn main() {
+//!     let state = State {
+//!         count: std::sync::atomic::AtomicUsize::new(0),
+//!     };
+//!     // Pass the state to the generated struct tuple constructor
+//!     serve("127.0.0.1:8080", MyStatefulServer(state));
 //! }
 //! ```
 
