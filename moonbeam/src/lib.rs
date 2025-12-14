@@ -8,6 +8,27 @@
 //! - Async/await support
 //! - Built-in HTTP parsing and routing
 //! - Minimal dependencies
+//!
+//! # Example
+//!
+//! ```no_run
+//! use moonbeam::{Server, Request, Response, serve};
+//! use std::future::Future;
+//!
+//! struct MyServer;
+//!
+//! impl Server for MyServer {
+//!     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
+//!         async {
+//!             Response::ok().with_body("Hello, World!", None)
+//!         }
+//!     }
+//! }
+//!
+//! fn main() {
+//!     serve("127.0.0.1:8080", MyServer);
+//! }
+//! ```
 
 pub mod http;
 pub mod server;

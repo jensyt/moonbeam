@@ -1,6 +1,15 @@
 use std::borrow::Cow;
 
 /// Helper struct for parsing query parameters from a URL.
+///
+/// # Example
+/// ```
+/// use std::borrow::Cow;
+/// use moonbeam::http::params::Params;
+///
+/// let params = Params::new(Cow::Borrowed("key=value"));
+/// assert_eq!(params.find("key").next(), Some("value"));
+/// ```
 pub struct Params<'a> {
 	params: Cow<'a, str>,
 }

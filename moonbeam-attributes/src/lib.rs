@@ -1,3 +1,9 @@
+//! # Moonbeam Attributes
+//!
+//! This crate provides procedural macros for the `moonbeam` web server library.
+//! The main macro is `#[server]`, which simplifies creating server implementations
+//! by wrapping a function.
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
@@ -31,6 +37,19 @@ impl Parse for ServerArgs {
 /// - `fn(Request, &State) -> impl Future<Output = Response>` (if state is used)
 ///
 /// The function can be `async` or return `impl Future`.
+///
+/// # Example
+/// ```rust,ignore
+/// use moonbeam::{Request, Response, server};
+///
+/// #[server(MyServer)]
+/// async fn handle_request(req: Request<'_, '_>) -> Response {
+///     Response::ok().with_body("Hello World!", None)
+/// }
+///
+/// // Usage:
+/// // serve("127.0.0.1:8080", MyServer);
+/// ```
 #[proc_macro_attribute]
 pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 	let args = parse_macro_input!(attr as ServerArgs);

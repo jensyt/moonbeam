@@ -26,6 +26,20 @@ pub mod task;
 mod task_tracker;
 
 /// Represents an HTTP server that can handle requests.
+///
+/// # Example
+/// ```
+/// use moonbeam::{Server, Request, Response};
+/// use std::future::Future;
+///
+/// struct MyServer;
+///
+/// impl Server for MyServer {
+///     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
+///         async { Response::ok() }
+///     }
+/// }
+/// ```
 pub trait Server
 where
 	Self: 'static + Sized,
@@ -49,6 +63,22 @@ where
 /// This function blocks the current thread and runs the server loop.
 /// It takes ownership of the server instance and leaks it to create a static reference,
 /// which is required for the `Server` trait.
+///
+/// # Example
+/// ```no_run
+/// use moonbeam::{Server, Request, Response, serve};
+/// use std::future::Future;
+///
+/// struct MyServer;
+///
+/// impl Server for MyServer {
+///     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
+///         async { Response::ok() }
+///     }
+/// }
+///
+/// // serve("127.0.0.1:8080", MyServer);
+/// ```
 pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T {
 	let static_server = Box::leak(Box::new(server));
 	async_io::block_on(get_local_executor().run(async {

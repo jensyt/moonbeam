@@ -12,6 +12,14 @@ pub mod cookies;
 pub mod params;
 
 /// Returns the canonical reason phrase for a given HTTP status code.
+///
+/// # Example
+/// ```
+/// use moonbeam::http::canonical_reason;
+///
+/// assert_eq!(canonical_reason(200), "OK");
+/// assert_eq!(canonical_reason(404), "Not Found");
+/// ```
 pub fn canonical_reason(code: u16) -> &'static str {
 	match code {
 		200 => "OK",
@@ -31,12 +39,29 @@ pub fn canonical_reason(code: u16) -> &'static str {
 }
 
 /// Represents an HTTP request.
+///
+/// # Example
+/// ```
+/// use moonbeam::http::{Request, Body};
+/// use httparse::Header;
+///
+/// let headers = [Header { name: "Host", value: b"localhost" }];
+/// let req = Request::new("GET", "/", &headers, b"");
+///
+/// assert_eq!(req.method, "GET");
+/// assert_eq!(req.path, "/");
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct Request<'headers, 'buf> {
+	/// The HTTP method (e.g., "GET", "POST").
 	pub method: &'buf str,
+	/// The request path (e.g., "/index.html").
 	pub path: &'buf str,
+	/// The HTTP version (0 for 1.0, 1 for 1.1).
 	pub version: u8,
+	/// The request headers.
 	pub headers: &'headers [Header<'buf>],
+	/// The request body.
 	pub body: &'buf [u8],
 }
 
@@ -103,10 +128,21 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 }
 
 /// Represents an HTTP response.
+///
+/// # Example
+/// ```
+/// use moonbeam::http::Response;
+///
+/// let resp = Response::ok().with_body("Hello", None);
+/// assert_eq!(resp.status, 200);
+/// ```
 #[derive(Debug)]
 pub struct Response {
+	/// The HTTP status code (e.g., 200, 404).
 	pub status: u16,
+	/// The response headers.
 	pub headers: Vec<(String, String)>,
+	/// The response body.
 	pub body: Option<Body>,
 }
 
@@ -266,17 +302,28 @@ impl Response {
 }
 
 /// Represents the body of an HTTP response.
+///
+/// # Example
+/// ```
+/// use moonbeam::http::Body;
+///
+/// let body = Body::from("Hello");
+/// ```
 pub enum Body {
 	/// In-memory body data.
 	Immediate(Vec<u8>),
 	/// Synchronous reader body.
 	Sync {
+		/// The reader providing the body data.
 		data: Box<dyn Read + 'static>,
+		/// The length of the body, if known.
 		len: Option<u64>,
 	},
 	/// Asynchronous reader body.
 	Async {
+		/// The async reader providing the body data.
 		data: Box<dyn AsyncRead + Unpin + 'static>,
+		/// The length of the body, if known.
 		len: Option<u64>,
 	},
 }
