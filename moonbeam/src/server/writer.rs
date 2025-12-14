@@ -91,6 +91,7 @@ where
 				Poll::Ready(0) => {
 					mself.read_done = true;
 					write!(&mut mself.buf[mself.read_pos..], "0\r\n\r\n")?;
+					mself.read_pos += 5;
 				}
 				Poll::Ready(n) => {
 					write!(&mut mself.buf[mself.read_pos..], "{n:0>5x}\r\n")?;
@@ -170,5 +171,142 @@ where
 		} else {
 			Poll::Pending
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+	use piper::{Reader, Writer};
+	use std::pin::Pin;
+	use std::task::{Context, Poll};
+
+	// Helper to create a mock socket using piper
+	struct MockSocket {
+		reader: Reader,
+		writer: Writer,
+	}
+
+	impl AsyncRead for MockSocket {
+		fn poll_read(
+			mut self: Pin<&mut Self>,
+			cx: &mut Context<'_>,
+			buf: &mut [u8],
+		) -> Poll<std::io::Result<usize>> {
+			Pin::new(&mut self.reader).poll_read(cx, buf)
+		}
+	}
+
+	impl AsyncWrite for MockSocket {
+		fn poll_write(
+			mut self: Pin<&mut Self>,
+			cx: &mut Context<'_>,
+			buf: &[u8],
+		) -> Poll<std::io::Result<usize>> {
+			Pin::new(&mut self.writer).poll_write(cx, buf)
+		}
+
+		fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+			Pin::new(&mut self.writer).poll_flush(cx)
+		}
+
+		fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+			Pin::new(&mut self.writer).poll_close(cx)
+		}
+	}
+
+	// Helper to create a stream body from a string
+	fn stream_body(content: impl Into<Vec<u8>>) -> Box<dyn AsyncRead + Unpin + 'static> {
+		let (reader, mut writer) = piper::pipe(1024);
+		let content = content.into();
+		let _len = content.len();
+
+		// Spawn a task to write content to the pipe
+		std::thread::spawn(move || {
+			futures_lite::future::block_on(async move {
+				writer.write_all(&content).await.unwrap();
+				writer.close().await.unwrap();
+			});
+		});
+
+		Box::new(reader)
+	}
+
+	#[test]
+	fn test_body_write_future_known_length() {
+		let (reader, _client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let mut socket = MockSocket { reader, writer };
+
+		let body_content = "Hello, World!";
+		let body = stream_body(body_content);
+		let mut buf = vec![0u8; 1024];
+
+		// Fill buffer with some existing data to simulate preread
+		let prefix = b"HTTP/1.1 200 OK\r\n\r\n";
+		buf[..prefix.len()].copy_from_slice(prefix);
+		let preread = prefix.len();
+
+		let future = BodyWriteFuture::new(
+			&mut buf,
+			preread,
+			body,
+			Some(body_content.len()),
+			&mut socket,
+		);
+
+		futures_lite::future::block_on(future).unwrap();
+		futures_lite::future::block_on(socket.writer.close()).unwrap();
+
+		futures_lite::future::block_on(async {
+			let mut result = Vec::new();
+			client_rx.read_to_end(&mut result).await.unwrap();
+			let result_str = String::from_utf8(result).unwrap();
+
+			// Expected output: Preread header + body content
+			let expected = format!("{}{}", std::str::from_utf8(prefix).unwrap(), body_content);
+			assert_eq!(result_str, expected);
+		});
+	}
+
+	#[test]
+	fn test_body_write_future_chunked() {
+		let (reader, _client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let mut socket = MockSocket { reader, writer };
+
+		let body_content = "Chunked Data";
+		let body = stream_body(body_content);
+		let mut buf = vec![0u8; 1024];
+
+		let prefix = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+		buf[..prefix.len()].copy_from_slice(prefix);
+		let preread = prefix.len();
+
+		// None for length triggers chunked encoding
+		let future = BodyWriteFuture::new(&mut buf, preread, body, None, &mut socket);
+
+		futures_lite::future::block_on(future).unwrap();
+		futures_lite::future::block_on(socket.writer.close()).unwrap();
+
+		futures_lite::future::block_on(async {
+			let mut result = Vec::new();
+			client_rx.read_to_end(&mut result).await.unwrap();
+			let result_str = String::from_utf8(result).unwrap();
+
+			let expected_start = std::str::from_utf8(prefix).unwrap();
+			assert!(result_str.starts_with(expected_start));
+
+			// Check for chunk structure: <hex len>\r\n<data>\r\n0\r\n\r\n
+			let body_part = &result_str[expected_start.len()..];
+			println!("Got body part: {:?}", body_part);
+			assert!(body_part.ends_with("0\r\n\r\n"));
+			assert!(body_part.contains(&format!(
+				"{:x}\r\n{}\r\n",
+				body_content.len(),
+				body_content
+			)));
+		});
 	}
 }
