@@ -736,4 +736,136 @@ mod tests {
 			assert!(response.contains("Hello /serve"));
 		});
 	}
+
+	// Helper to create a stream body from a string
+	fn stream_body(content: impl Into<Vec<u8>>) -> Box<dyn AsyncRead + Unpin + 'static> {
+		let (reader, mut writer) = piper::pipe(1024);
+		let content = content.into();
+
+		std::thread::spawn(move || {
+			futures_lite::future::block_on(async move {
+				writer.write_all(&content).await.unwrap();
+				writer.close().await.unwrap();
+			});
+		});
+
+		Box::new(reader)
+	}
+
+	struct StreamServer;
+	impl Server for StreamServer {
+		async fn route(&'static self, req: Request<'_, '_>) -> Response {
+			if req.path == "/stream" {
+				let content = "Streamed Content";
+				let body = Body::Stream {
+					data: stream_body(content),
+					len: Some(content.len() as u64),
+				};
+				Response::ok().with_body(body, None)
+			} else if req.path == "/chunked" {
+				let content = "Chunked Content";
+				let body = Body::Stream {
+					data: stream_body(content),
+					len: None,
+				};
+				Response::ok().with_body(body, None)
+			} else {
+				Response::not_found()
+			}
+		}
+	}
+
+	#[test]
+	fn test_handle_socket_stream_body_known_length() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = Box::leak(Box::new(StreamServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /stream HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				if total_read >= buf.len() {
+					break;
+				}
+				// Simple heuristic to stop reading if we got body
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap()
+					.contains("Streamed Content")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Content-Length: 16"));
+			assert!(response.contains("Streamed Content"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_stream_body_chunked() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = Box::leak(Box::new(StreamServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /chunked HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				if total_read >= buf.len() {
+					break;
+				}
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap()
+					.ends_with("0\r\n\r\n")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Transfer-Encoding: chunked"));
+			assert!(response.contains("Chunked Content"));
+			assert!(response.ends_with("0\r\n\r\n"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
 }
