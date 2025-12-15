@@ -20,11 +20,9 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 		.unwrap_or(false);
 
 	if !already_compressed && compressible_type {
-		if !resp
-			.headers
-			.iter()
-			.any(|(n, v)| n.eq_ignore_ascii_case("vary") && v.eq_ignore_ascii_case("Accept-Encoding"))
-		{
+		if !resp.headers.iter().any(|(n, v)| {
+			n.eq_ignore_ascii_case("vary") && v.eq_ignore_ascii_case("Accept-Encoding")
+		}) {
 			resp.headers
 				.push(("Vary".to_string(), "Accept-Encoding".to_string()));
 		}
@@ -45,7 +43,9 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 			let body_stream: Box<dyn AsyncRead + Unpin + 'static> = match resp.body.take() {
 				Some(Body::Immediate(data)) => Box::new(Cursor::new(data)),
 				Some(Body::Stream { data, .. }) => data,
-				None => unreachable!("Compression applied to empty body (checked at function start)"),
+				None => {
+					unreachable!("Compression applied to empty body (checked at function start)")
+				}
 			};
 
 			// Wrap in BufReader to satisfy AsyncBufRead with controlled capacity
