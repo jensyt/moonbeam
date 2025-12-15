@@ -45,7 +45,7 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 			let body_stream: Box<dyn AsyncRead + Unpin + 'static> = match resp.body.take() {
 				Some(Body::Immediate(data)) => Box::new(Cursor::new(data)),
 				Some(Body::Stream { data, .. }) => data,
-				None => Box::new(Cursor::new(vec![])),
+				None => unreachable!("Compression applied to empty body (checked at function start)"),
 			};
 
 			// Wrap in BufReader to satisfy AsyncBufRead with controlled capacity
