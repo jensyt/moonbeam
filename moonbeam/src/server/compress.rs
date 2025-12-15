@@ -2,8 +2,11 @@ use crate::http::{Body, Request, Response};
 use futures_lite::AsyncRead;
 use futures_lite::io::{BufReader, Cursor};
 
-#[cfg(feature = "compress")]
 pub fn apply_compression(req: &Request, resp: &mut Response) {
+	if resp.body.is_none() {
+		return;
+	}
+
 	let already_compressed = resp
 		.headers
 		.iter()
@@ -70,9 +73,6 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 	}
 }
 
-#[cfg(not(feature = "compress"))]
-pub fn apply_compression(_req: &Request, _resp: &mut Response) {}
-
 fn is_compressible(content_type: &str) -> bool {
 	let ct = content_type.trim().to_ascii_lowercase();
 	ct.starts_with("text/")
@@ -86,7 +86,6 @@ fn is_compressible(content_type: &str) -> bool {
 }
 
 #[cfg(test)]
-#[cfg(feature = "compress")]
 mod tests {
 	use super::*;
 	use crate::server::Server;
