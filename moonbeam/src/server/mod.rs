@@ -22,6 +22,8 @@ use writer::BodyWriteFuture;
 const BUFSIZE: usize = 16 * 1024;
 
 // mod bufpool;
+#[cfg(feature = "compress")]
+mod compress;
 mod parsing;
 pub mod task;
 mod task_tracker;
@@ -211,6 +213,9 @@ where
 					break;
 				}
 			};
+
+			#[cfg(feature = "compress")]
+			compress::apply_compression(&req, &mut resp);
 
 			tracing::info!(
 				request = %path,

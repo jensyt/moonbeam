@@ -281,22 +281,28 @@ impl Response {
 	}
 
 	/// Sets a header, replacing any existing value. Returns the old value if it existed.
+	///
+	/// If multiple headers with the same name exist, they are all removed and replaced
+	/// by the new single header. The value of the first removed header is returned.
 	pub fn set_header<H, V>(&mut self, name: H, value: V) -> Option<String>
 	where
 		H: Into<String> + Borrow<str>,
 		V: Into<String>,
 	{
-		match self
+		let name_str = name.borrow();
+		let old_value = self
 			.headers
-			.iter_mut()
-			.find(|(n, _)| n.eq_ignore_ascii_case(name.borrow()))
-		{
-			Some((_, v)) => Some(std::mem::replace(v, value.into())),
-			None => {
-				self.headers.push((name.into(), value.into()));
-				None
-			}
+			.iter()
+			.find(|(n, _)| n.eq_ignore_ascii_case(name_str))
+			.map(|(_, v)| v.clone());
+
+		if old_value.is_some() {
+			self.headers
+				.retain(|(n, _)| !n.eq_ignore_ascii_case(name_str));
 		}
+
+		self.headers.push((name.into(), value.into()));
+		old_value
 	}
 }
 
@@ -446,6 +452,26 @@ mod tests {
 		let old_value = response.set_header("X-New", "new-value");
 		assert_eq!(old_value, None);
 		assert_eq!(response.headers.len(), 2);
+	}
+
+	#[test]
+	fn test_response_set_header_removes_duplicates() {
+		let mut response = Response {
+			status: 200,
+			headers: vec![
+				("X-Custom".to_string(), "v1".to_string()),
+				("X-Custom".to_string(), "v2".to_string()),
+			],
+			body: None,
+		};
+
+		let old_value = response.set_header("X-Custom", "v3");
+		assert_eq!(old_value, Some("v1".to_string()));
+		assert_eq!(response.headers.len(), 1);
+		assert_eq!(
+			response.headers[0],
+			("X-Custom".to_string(), "v3".to_string())
+		);
 	}
 
 	#[test]
