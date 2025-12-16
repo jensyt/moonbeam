@@ -3,7 +3,7 @@ use futures_lite::AsyncRead;
 use futures_lite::io::{BufReader, Cursor};
 
 pub fn apply_compression(req: &Request, resp: &mut Response) {
-	if resp.body.is_none() {
+	if resp.body.is_none() && resp.status != 304 {
 		return;
 	}
 
@@ -25,6 +25,10 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 		}) {
 			resp.headers
 				.push(("Vary".to_string(), "Accept-Encoding".to_string()));
+		}
+
+		if resp.status == 304 {
+			return;
 		}
 
 		let accept_encoding = req
