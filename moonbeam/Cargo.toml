@@ -22,7 +22,7 @@ async-signal = "0.2"
 async-fs = {version = "2.2", optional = true}
 percent-encoding = "2.3"
 moonbeam-attributes = {path = "../moonbeam-attributes", optional = true}
-async-compression = {version = "0.4", features = ["gzip", "brotli", "futures-io"], optional = true}
+async-compression = {version = "0.4", features = ["gzip", "brotli", "zlib", "futures-io"], optional = true}
 
 [features]
 default = ["asyncfs", "assets", "macros", "catchpanic"]

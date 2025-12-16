@@ -34,8 +34,9 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 
 		let use_brotli = accept_encoding.contains("br");
 		let use_gzip = accept_encoding.contains("gzip");
+		let use_deflate = accept_encoding.contains("deflate");
 
-		if use_brotli || use_gzip {
+		if use_brotli || use_gzip || use_deflate {
 			// Stream compression for all bodies
 			resp.headers
 				.retain(|(n, _)| !n.eq_ignore_ascii_case("content-length"));
@@ -56,8 +57,12 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 				Box::new(async_compression::futures::bufread::BrotliEncoder::new(
 					reader,
 				))
-			} else {
+			} else if use_gzip {
 				Box::new(async_compression::futures::bufread::GzipEncoder::new(
+					reader,
+				))
+			} else {
+				Box::new(async_compression::futures::bufread::ZlibEncoder::new(
 					reader,
 				))
 			};
@@ -67,7 +72,13 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 				len: None,
 			});
 
-			let encoding = if use_brotli { "br" } else { "gzip" };
+			let encoding = if use_brotli {
+				"br"
+			} else if use_gzip {
+				"gzip"
+			} else {
+				"deflate"
+			};
 			resp.set_header("Content-Encoding", encoding);
 		}
 	}
@@ -200,6 +211,13 @@ mod tests {
 		s
 	}
 
+	fn decode_zlib(data: &[u8]) -> Vec<u8> {
+		let mut d = flate2::read::ZlibDecoder::new(data);
+		let mut s = Vec::new();
+		d.read_to_end(&mut s).unwrap();
+		s
+	}
+
 	fn decode_chunked(data: &[u8]) -> Vec<u8> {
 		let mut res = Vec::new();
 		let mut cur = std::io::Cursor::new(data);
@@ -286,5 +304,37 @@ mod tests {
 
 		let (head, _) = futures_lite::future::block_on(run_test(server, Some("gzip, br")));
 		assert!(head.contains("Content-Encoding: br"));
+	}
+
+	#[test]
+	fn test_compress_small_deflate_chunked() {
+		let body = b"hello world".to_vec();
+		let server = MockServer {
+			body: body.clone(),
+			content_type: "text/plain".to_string(),
+			use_stream: false,
+		};
+
+		let (head, resp_body) = futures_lite::future::block_on(run_test(server, Some("deflate")));
+
+		assert!(head.contains("Content-Encoding: deflate"));
+		assert!(head.contains("Transfer-Encoding: chunked"));
+
+		let chunk_decoded = decode_chunked(&resp_body);
+		let decoded = decode_zlib(&chunk_decoded);
+		assert_eq!(decoded, body);
+	}
+
+	#[test]
+	fn test_preference_gzip_over_deflate() {
+		let body = b"hello".to_vec();
+		let server = MockServer {
+			body: body.clone(),
+			content_type: "text/plain".to_string(),
+			use_stream: false,
+		};
+
+		let (head, _) = futures_lite::future::block_on(run_test(server, Some("deflate, gzip")));
+		assert!(head.contains("Content-Encoding: gzip"));
 	}
 }
