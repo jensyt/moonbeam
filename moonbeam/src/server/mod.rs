@@ -383,6 +383,10 @@ fn write_response<'a, 'b>(
 	let mut content_length = false;
 
 	for (name, value) in response.headers.iter() {
+		if response.status == 304 && name.eq_ignore_ascii_case("content-type") {
+			continue;
+		}
+
 		if name.eq_ignore_ascii_case("server") {
 			server = true;
 		} else if name.eq_ignore_ascii_case("date") {

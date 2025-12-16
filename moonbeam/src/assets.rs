@@ -23,15 +23,19 @@ pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Res
 	}
 
 	let tag = make_etag(&path);
+	let ext = get_mime_type(&path);
+
 	if let Some(etag) = etag
 		&& let Some(tag) = tag.as_ref()
 		&& etag == tag.as_bytes()
 	{
 		// Not changed
-		return Response::not_modified().with_header("ETag", tag);
+		let mut response = Response::not_modified().with_header("ETag", tag);
+		if let Some(ct) = ext {
+			response = response.with_header("Content-Type", ct);
+		}
+		return response;
 	}
-
-	let ext = get_mime_type(&path);
 
 	let file = match File::open(path) {
 		Ok(f) => f,
