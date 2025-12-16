@@ -20,7 +20,7 @@ Add `moonbeam` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.1.0"
+moonbeam = "0.2"
 ```
 
 ## Usage
