@@ -1,4 +1,3 @@
-use super::task_tracker::get_local_tracker;
 use async_executor::StaticLocalExecutor;
 
 pub(super) fn get_local_executor() -> &'static StaticLocalExecutor {
@@ -12,7 +11,10 @@ pub(super) fn get_local_executor() -> &'static StaticLocalExecutor {
 	})
 }
 
+#[cfg(feature = "signals")]
 pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
+	use super::task_tracker::get_local_tracker;
+
 	let guard = get_local_tracker().track();
 	get_local_executor()
 		.spawn(async {
@@ -20,4 +22,9 @@ pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
 			future.await
 		})
 		.detach();
+}
+
+#[cfg(not(feature = "signals"))]
+pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
+	get_local_executor().spawn(future).detach();
 }
