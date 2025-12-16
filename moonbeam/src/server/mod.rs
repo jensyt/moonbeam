@@ -3,8 +3,11 @@ use crate::http::{Body, Request, Response, canonical_reason};
 use crate::tracing;
 use async_io::Timer;
 use async_net::{AsyncToSocketAddrs, TcpListener};
+#[cfg(feature = "signals")]
 use async_signal::{Signal, Signals};
-use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, StreamExt};
+#[cfg(feature = "signals")]
+use futures_lite::StreamExt;
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
 use httparse::Header;
 use httpdate::fmt_http_date;
 use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
@@ -16,6 +19,7 @@ use std::{
 };
 use std::{mem::MaybeUninit, net::SocketAddr, time::Duration};
 use task::{get_local_executor, new_local_task};
+#[cfg(feature = "signals")]
 use task_tracker::get_local_tracker;
 use writer::BodyWriteFuture;
 
@@ -26,6 +30,7 @@ const BUFSIZE: usize = 16 * 1024;
 mod compress;
 mod parsing;
 pub mod task;
+#[cfg(feature = "signals")]
 mod task_tracker;
 mod writer;
 
@@ -94,19 +99,21 @@ pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T 
 	static_server
 }
 
+#[cfg(feature = "signals")]
 async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 	let mut signals =
 		Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
-	let mut get_signal = async move || {
-		let signal = signals.next().await;
-		Err(Error::new(
-			ErrorKind::Interrupted,
-			format!("Signal: {signal:?}"),
-		))
-	};
 
 	loop {
-		match listener.accept().or(get_signal()).await {
+		let signal_err = async {
+			let signal = signals.next().await;
+			Err(Error::new(
+				ErrorKind::Interrupted,
+				format!("Signal: {signal:?}"),
+			))
+		};
+
+		match listener.accept().or(signal_err).await {
 			Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, server)),
 			#[allow(unused_variables)]
 			Err(err) => {
@@ -119,9 +126,37 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 			}
 		}
 	}
-	get_local_tracker()
-		.wait_until_empty(Duration::from_secs(60))
-		.await;
+
+	let wait_for_tasks = async {
+		get_local_tracker()
+			.wait_until_empty(Duration::from_secs(60))
+			.await;
+	};
+
+	let force_shutdown = async {
+		if let Some(signal) = signals.next().await {
+			#[cfg(not(feature = "tracing"))]
+			let _ = signal;
+			tracing::warn!("Received signal {:?}, forcing shutdown", signal);
+		}
+	};
+
+	wait_for_tasks.or(force_shutdown).await;
+}
+
+#[cfg(not(feature = "signals"))]
+async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
+	loop {
+		match listener.accept().await {
+			Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, server)),
+			Err(err) => {
+				#[cfg(not(feature = "tracing"))]
+				let _ = err;
+				tracing::error!(?err, "Failed to accept connection, shutting down");
+				break;
+			}
+		}
+	}
 }
 
 macro_rules! socket_write {
