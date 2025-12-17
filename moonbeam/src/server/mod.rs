@@ -26,6 +26,8 @@ mod parsing;
 pub mod task;
 #[cfg(feature = "signals")]
 mod task_tracker;
+#[cfg(feature = "tls")]
+mod tls;
 mod writer;
 
 /// Represents an HTTP server that can handle requests.
@@ -88,13 +90,38 @@ pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T 
 		let listener = TcpListener::bind(addr)
 			.await
 			.expect("Failed to bind to socket");
+		#[cfg(feature = "tls")]
+		accept_loop(listener, static_server, None).await;
+		#[cfg(not(feature = "tls"))]
 		accept_loop(listener, static_server).await;
 	}));
 	static_server
 }
 
+#[cfg(feature = "tls")]
+pub fn serve_tls<T: Server>(
+	addr: impl AsyncToSocketAddrs,
+	server: T,
+	cert_path: &std::path::Path,
+	key_path: &std::path::Path,
+) -> std::io::Result<&'static T> {
+	let acceptor = self::tls::create_tls_acceptor(cert_path, key_path)?;
+	let static_server = Box::leak(Box::new(server));
+	async_io::block_on(get_local_executor().run(async {
+		let listener = TcpListener::bind(addr)
+			.await
+			.expect("Failed to bind to socket");
+		accept_loop(listener, static_server, Some(acceptor)).await;
+	}));
+	Ok(static_server)
+}
+
 #[cfg(feature = "signals")]
-async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
+async fn accept_loop<T: Server>(
+	listener: TcpListener,
+	server: &'static T,
+	#[cfg(feature = "tls")] tls_acceptor: Option<tls::TlsAcceptor>,
+) {
 	use async_signal::{Signal, Signals};
 	use futures_lite::StreamExt;
 	use task_tracker::get_local_tracker;
@@ -112,7 +139,27 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 		};
 
 		match listener.accept().or(signal_err).await {
-			Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, server)),
+			Ok((socket, addr)) => {
+				#[cfg(feature = "tls")]
+				if let Some(acceptor) = &tls_acceptor {
+					let acceptor = acceptor.clone();
+					new_local_task(async move {
+						match acceptor.accept(tls::FuturesIoCompat(socket)).await {
+							Ok(stream) => {
+								handle_socket(tls::TlsStreamCompat(stream), addr, server).await
+							}
+							Err(e) => {
+								tracing::error!("TLS handshake failed: {:?}", e);
+							}
+						}
+					});
+				} else {
+					new_local_task(handle_socket(socket, addr, server));
+				}
+
+				#[cfg(not(feature = "tls"))]
+				new_local_task(handle_socket(socket, addr, server));
+			}
 			#[allow(unused_variables)]
 			Err(err) => {
 				if err.kind() == ErrorKind::Interrupted {
@@ -138,10 +185,34 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 }
 
 #[cfg(not(feature = "signals"))]
-async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
+async fn accept_loop<T: Server>(
+	listener: TcpListener,
+	server: &'static T,
+	#[cfg(feature = "tls")] tls_acceptor: Option<tls::TlsAcceptor>,
+) {
 	loop {
 		match listener.accept().await {
-			Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, server)),
+			Ok((socket, addr)) => {
+				#[cfg(feature = "tls")]
+				if let Some(acceptor) = &tls_acceptor {
+					let acceptor = acceptor.clone();
+					new_local_task(async move {
+						match acceptor.accept(tls::FuturesIoCompat(socket)).await {
+							Ok(stream) => {
+								handle_socket(tls::TlsStreamCompat(stream), addr, server).await
+							}
+							Err(e) => {
+								tracing::error!("TLS handshake failed: {:?}", e);
+							}
+						}
+					});
+				} else {
+					new_local_task(handle_socket(socket, addr, server));
+				}
+
+				#[cfg(not(feature = "tls"))]
+				new_local_task(handle_socket(socket, addr, server));
+			}
 			#[allow(unused_variables)]
 			Err(err) => {
 				tracing::error!(?err, "Failed to accept connection, shutting down");

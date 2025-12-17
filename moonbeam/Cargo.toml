@@ -23,6 +23,11 @@ async-fs = {version = "2.2", optional = true}
 percent-encoding = "2.3"
 moonbeam-attributes = {path = "../moonbeam-attributes", optional = true}
 async-compression = {version = "0.4", features = ["gzip", "brotli", "zlib", "futures-io"], optional = true}
+futures-rustls = { version = "0.26", optional = true }
+rustls = { version = "0.23", optional = true }
+rustls-pemfile = { version = "2.1", optional = true }
+rustls-pki-types = { version = "1.0", optional = true }
+futures-io = { version = "0.3", optional = true }
 
 [features]
 default = ["asyncfs", "assets", "macros", "catchpanic", "signals"]
@@ -33,6 +38,7 @@ assets = ["asyncfs"]
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
 compress = ["dep:async-compression"]
+tls = ["dep:futures-rustls", "dep:rustls", "dep:rustls-pemfile", "dep:rustls-pki-types", "dep:futures-io"]
 
 [dev-dependencies]
 piper = "0.2"
