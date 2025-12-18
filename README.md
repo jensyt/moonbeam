@@ -13,6 +13,7 @@ Moonbeam is designed to be simple, efficient, and free of synchronization overhe
 - **HTTP/1.1**: Supports persistent connections, chunked transfer encoding, and common headers.
 - **Standard Features**: Includes support for Cookies, Query Parameters, Headers, and Bodies.
 - **Panic Handling**: Robust server that catches panics in request handlers.
+- **Response Compression**: Supports automatic compression of responses (Gzip, Brotli, Zlib).
 
 ## Installation
 
@@ -20,8 +21,21 @@ Add `moonbeam` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.2"
+moonbeam = "0.2.1"
 ```
+
+## Feature Flags
+
+Moonbeam provides several feature flags to configure functionality and dependencies:
+
+- **default**: Enables `macros`, `assets`, `asyncfs`, `catchpanic`, and `signals`.
+- **macros**: Enables the `#[server]` attribute macro.
+- **assets**: Enables static file serving utilities (implies `asyncfs`).
+- **asyncfs**: Enables asynchronous file system support.
+- **signals**: Enables signal handling (e.g., for graceful shutdown).
+- **catchpanic**: Wraps handlers to catch panics and return 500 errors.
+- **tracing**: Enables `tracing` instrumentation.
+- **compress**: Enables HTTP response compression (gzip, brotli, zlib).
 
 ## Usage
 

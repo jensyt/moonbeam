@@ -2,7 +2,6 @@
 - Support for HTML forms
 - TRACE requests
 - Make tracing meaningful
-- Content encoding (gzip, brotli)
 - Better routing
 
 # Done
@@ -12,3 +11,4 @@
 - Implement cookies
 - Implement params
 - Handle panics in server
+- Content encoding (gzip, brotli)
