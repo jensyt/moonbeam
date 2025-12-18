@@ -377,23 +377,30 @@ fn write_response<'a, 'b>(
 		canonical_reason(response.status)
 	)?;
 
+	let nobody = match response.status {
+		100..200 | 204 | 205 | 304 => true,
+		_ => false,
+	};
+
 	let mut server = false;
 	let mut date = false;
-	let mut content_type = false;
-	let mut content_length = false;
+	let mut content_type = nobody;
+	let mut content_length = nobody;
 
 	for (name, value) in response.headers.iter() {
-		if response.status == 304 && name.eq_ignore_ascii_case("content-type") {
-			continue;
-		}
-
 		if name.eq_ignore_ascii_case("server") {
 			server = true;
 		} else if name.eq_ignore_ascii_case("date") {
 			date = true;
 		} else if name.eq_ignore_ascii_case("content-type") {
+			if nobody {
+				continue;
+			}
 			content_type = true;
 		} else if name.eq_ignore_ascii_case("content-length") {
+			if nobody {
+				continue;
+			}
 			content_length = true;
 		}
 
@@ -413,32 +420,27 @@ fn write_response<'a, 'b>(
 			.as_bytes(),
 		)?;
 	}
+
 	if !date {
 		write!(writer, "Date: {}\r\n", fmt_http_date(SystemTime::now()))?;
 	}
-	let nobody = match response.status {
-		100..200 | 204 | 205 | 304 => true,
-		_ => false,
-	};
-	if !nobody {
-		let hasbody = match response.body.as_ref() {
-			Some(body) => match body.len() {
-				Some(len) if len > 0 => true,
-				_ => false,
-			},
-			None => false,
-		};
-		if !content_type && hasbody {
-			writer.write(b"Content-Type: application/octet-stream\r\n")?;
-		}
-		if !content_length {
-			match response.body.as_ref() {
-				Some(body) => match body.len() {
-					Some(len) => write!(writer, "Content-Length: {}\r\n", len)?,
-					None => write!(writer, "Transfer-Encoding: chunked\r\n")?,
-				},
-				None => write!(writer, "Content-Length: 0\r\n")?,
+
+	if !content_type {
+		match response.body.as_ref() {
+			Some(_) => {
+				writer.write(b"Content-Type: application/octet-stream\r\n")?;
 			}
+			None => (),
+		}
+	}
+
+	if !content_length {
+		match response.body.as_ref() {
+			Some(body) => match body.len() {
+				Some(len) => write!(writer, "Content-Length: {}\r\n", len)?,
+				None => write!(writer, "Transfer-Encoding: chunked\r\n")?,
+			},
+			None => write!(writer, "Content-Length: 0\r\n")?,
 		}
 	}
 
@@ -903,5 +905,38 @@ mod tests {
 		futures_lite::future::block_on(async {
 			futures_lite::future::zip(handle_future, test_future).await;
 		});
+	}
+
+	#[test]
+	fn test_header_stripping_304() {
+		// Response with content headers but 304 status
+		let response = Response::not_modified(Some("text/html"))
+			.with_header("Content-Length", "100")
+			.with_header("ETag", "\"123\"");
+
+		let mut buffer = vec![0u8; 1024];
+		let (head, _) = write_response(&response, &mut buffer).unwrap();
+		let head_str = std::str::from_utf8(head).unwrap();
+
+		assert!(head_str.contains("HTTP/1.1 304 Not Modified"));
+		assert!(head_str.contains("ETag: \"123\""));
+		assert!(!head_str.contains("Content-Type"));
+		assert!(!head_str.contains("Content-Length"));
+	}
+
+	#[test]
+	fn test_header_stripping_204() {
+		// Response with content headers but 204 status
+		let response = Response::empty()
+			.with_header("Content-Type", "application/json")
+			.with_header("Content-Length", "50");
+
+		let mut buffer = vec![0u8; 1024];
+		let (head, _) = write_response(&response, &mut buffer).unwrap();
+		let head_str = std::str::from_utf8(head).unwrap();
+
+		assert!(head_str.contains("HTTP/1.1 204 No Content"));
+		assert!(!head_str.contains("Content-Type"));
+		assert!(!head_str.contains("Content-Length"));
 	}
 }

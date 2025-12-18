@@ -30,11 +30,7 @@ pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Res
 		&& etag == tag.as_bytes()
 	{
 		// Not changed
-		let mut response = Response::not_modified().with_header("ETag", tag);
-		if let Some(ct) = ext {
-			response = response.with_header("Content-Type", ct);
-		}
-		return response;
+		return Response::not_modified(ext).with_header("ETag", tag);
 	}
 
 	let file = match File::open(path) {

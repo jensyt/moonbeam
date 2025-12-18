@@ -184,8 +184,12 @@ impl Response {
 
 	/// 304 Not Modified
 	#[inline]
-	pub fn not_modified() -> Self {
-		Self::new_with_code(304)
+	pub fn not_modified(content_type: Option<&str>) -> Self {
+		let mut resp = Self::new_with_code(304);
+		if let Some(ct) = content_type {
+			resp.set_header("Content-Type", ct);
+		}
+		resp
 	}
 
 	/// 307 Temporary Redirect
