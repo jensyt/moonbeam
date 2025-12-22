@@ -78,7 +78,8 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 			 }
 		}
 
-		impl<S: Send + Sync + 'static> ::moonbeam::Server for #router_name<S> {
+		// Send + Sync removed here as requested
+		impl<S: 'static> ::moonbeam::Server for #router_name<S> {
 			fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
 				async move {
 					let method = req.method;

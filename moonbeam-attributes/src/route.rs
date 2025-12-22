@@ -117,7 +117,7 @@ pub fn route_impl(
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
 			fn call<'a>(&self, req: ::moonbeam::http::Request<'a, 'a>, params: ::std::collections::HashMap<String, String>, state: &'static #state_ty_path)
-				-> std::pin::Pin<Box<dyn ::std::future::Future<Output = ::moonbeam::http::Response> + Send + 'a>>
+				-> std::pin::Pin<Box<dyn ::std::future::Future<Output = ::moonbeam::http::Response> + 'a>>
 			{
 				#(#params_extraction)*
 				#import_params
