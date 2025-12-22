@@ -3,13 +3,14 @@ use quote::quote;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use syn::{
-	Ident, LitStr, Token,
+	Ident, LitStr, Token, Type,
 	parse::{Parse, ParseStream},
 	parse_macro_input,
 };
 
 struct RouterInput {
 	name: Ident,
+	state_type: Option<Type>,
 	routes: Vec<RouteEntry>,
 }
 
@@ -25,6 +26,15 @@ impl Parse for RouterInput {
 	fn parse(input: ParseStream) -> syn::Result<Self> {
 		let name: Ident = input.parse()?;
 
+		let state_type = if input.peek(Token![<]) {
+			let _lt: Token![<] = input.parse()?;
+			let ty: Type = input.parse()?;
+			let _gt: Token![>] = input.parse()?;
+			Some(ty)
+		} else {
+			None
+		};
+
 		let content;
 		syn::braced!(content in input);
 
@@ -33,7 +43,11 @@ impl Parse for RouterInput {
 			routes.push(content.parse()?);
 		}
 
-		Ok(RouterInput { name, routes })
+		Ok(RouterInput {
+			name,
+			state_type,
+			routes,
+		})
 	}
 }
 
@@ -65,31 +79,59 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 	let route_logic = generate_route_logic(&input.routes);
 
-	let output = quote! {
-		struct #router_name<S>(pub S);
+	let output = if let Some(state_ty) = input.state_type {
+		// Specific state type provided: router!(Name<State> { ... })
+		quote! {
+			struct #router_name(pub #state_ty);
 
-		impl<S> #router_name<S> {
-			pub fn new(state: S) -> Self {
-				Self(state)
+			impl #router_name {
+				pub fn new(state: #state_ty) -> Self {
+					Self(state)
+				}
+			}
+
+			impl ::moonbeam::Server for #router_name {
+				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
+					async move {
+						let method = req.method;
+						let path = req.path;
+						let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+						#route_logic
+
+						::moonbeam::http::Response::not_found()
+					}
+				}
 			}
 		}
+	} else {
+		// No state type: router!(Name { ... }) -> Generic router
+		quote! {
+			struct #router_name<S>(pub S);
 
-		impl #router_name<()> {
-			 pub fn stateless() -> Self {
-				 Self(())
-			 }
-		}
+			impl<S> #router_name<S> {
+				pub fn new(state: S) -> Self {
+					Self(state)
+				}
+			}
 
-		impl<S: 'static> ::moonbeam::Server for #router_name<S> {
-			fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
-				async move {
-					let method = req.method;
-					let path = req.path;
-					let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+			impl #router_name<()> {
+				 pub fn stateless() -> Self {
+					 Self(())
+				 }
+			}
 
-					#route_logic
+			impl<S: 'static> ::moonbeam::Server for #router_name<S> {
+				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
+					async move {
+						let method = req.method;
+						let path = req.path;
+						let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
-					::moonbeam::http::Response::not_found()
+						#route_logic
+
+						::moonbeam::http::Response::not_found()
+					}
 				}
 			}
 		}
