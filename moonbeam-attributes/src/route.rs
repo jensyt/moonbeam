@@ -116,16 +116,16 @@ pub fn route_impl(
 		#vis struct #fn_name;
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'a>(&self, req: ::moonbeam::http::Request<'a, 'a>, params: ::std::collections::HashMap<String, String>, state: &'static #state_ty_path)
-				-> std::pin::Pin<Box<dyn ::std::future::Future<Output = ::moonbeam::http::Response> + 'a>>
+			fn call(&self, req: ::moonbeam::http::Request<'_, '_>, params: ::std::collections::HashMap<String, String>, state: &'static #state_ty_path)
+				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
-				#(#params_extraction)*
-				#import_params
-				#import_state
+				async move {
+					#(#params_extraction)*
+					#import_params
+					#import_state
 
-				Box::pin(async move {
 					#call_expr
-				})
+				}
 			}
 		}
 	};

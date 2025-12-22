@@ -1,5 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::cmp::Ordering;
+use std::collections::HashMap;
 use syn::{
 	Ident, LitStr, Token,
 	parse::{Parse, ParseStream},
@@ -78,12 +80,12 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 			 }
 		}
 
-		// Send + Sync removed here as requested
 		impl<S: 'static> ::moonbeam::Server for #router_name<S> {
 			fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
 				async move {
 					let method = req.method;
 					let path = req.path;
+					let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
 					#route_logic
 
@@ -97,50 +99,91 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
-	let mut checks = TokenStream::new();
+	let mut routes_by_method: HashMap<String, Vec<&RouteEntry>> = HashMap::new();
 
 	for route in routes {
-		let method_str = route.method.to_string().to_uppercase();
-		let path_str = route.path.value();
-		let handler = &route.handler;
+		let method = route.method.to_string().to_uppercase();
+		routes_by_method.entry(method).or_default().push(route);
+	}
 
-		let segments: Vec<&str> = path_str.split('/').filter(|s| !s.is_empty()).collect();
-		let segment_count = segments.len();
+	let mut method_match_arms = TokenStream::new();
 
-		let mut param_extraction = TokenStream::new();
-		let mut path_checks = TokenStream::new();
+	for (method, mut method_routes) in routes_by_method {
+		// Sort routes to ensure literals match before params
+		method_routes.sort_by(|a, b| {
+			let a_path = a.path.value();
+			let b_path = b.path.value();
+			let a_segments: Vec<&str> = a_path.split('/').filter(|s| !s.is_empty()).collect();
+			let b_segments: Vec<&str> = b_path.split('/').filter(|s| !s.is_empty()).collect();
 
-		for (i, segment) in segments.iter().enumerate() {
-			if segment.starts_with(':') {
-				let param_name = &segment[1..];
-				param_extraction.extend(quote! {
-					params.insert(#param_name.to_string(), path_segments[#i].to_string());
-				});
-			} else {
-				let seg_lit = segment.to_string();
-				path_checks.extend(quote! {
-					if path_segments[#i] != #seg_lit { mismatch = true; }
-				});
+			// Iterate segments
+			for (seg_a, seg_b) in a_segments.iter().zip(b_segments.iter()) {
+				let a_is_param = seg_a.starts_with(':');
+				let b_is_param = seg_b.starts_with(':');
+
+				if !a_is_param && b_is_param {
+					return Ordering::Less;
+				}
+				if a_is_param && !b_is_param {
+					return Ordering::Greater;
+				}
 			}
+
+			// If prefix matches, longer path (more specific) should be checked first?
+			// Actually slice matching handles length, so disjoint lengths are fine.
+			// But for consistency:
+			a_segments.len().cmp(&b_segments.len())
+		});
+
+		let mut path_match_arms = TokenStream::new();
+
+		for route in method_routes {
+			let path_str = route.path.value();
+			let handler = &route.handler;
+			let segments: Vec<&str> = path_str.split('/').filter(|s| !s.is_empty()).collect();
+
+			let mut pattern_tokens = Vec::new();
+			let mut params_extraction = TokenStream::new();
+
+			for (i, segment) in segments.iter().enumerate() {
+				if segment.starts_with(':') {
+					let param_name = &segment[1..];
+					// Use a unique name for the match binding to avoid collisions
+					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
+					pattern_tokens.push(quote! { #bind_name });
+
+					params_extraction.extend(quote! {
+						params.insert(#param_name.to_string(), #bind_name.to_string());
+					});
+				} else {
+					pattern_tokens.push(quote! { #segment });
+				}
+			}
+
+			let pattern = quote! { [ #(#pattern_tokens),* ] };
+
+			path_match_arms.extend(quote! {
+				#pattern => {
+					let mut params = ::std::collections::HashMap::new();
+					#params_extraction
+					return ::moonbeam::router::RouteHandler::call(&#handler, req, params, &self.0).await;
+				}
+			});
 		}
 
-		checks.extend(quote! {
-			if method.eq_ignore_ascii_case(#method_str) {
-				let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-				if path_segments.len() == #segment_count {
-					let mut mismatch = false;
-					#path_checks
+		// Add default arm for path match
+		path_match_arms.extend(quote! {
+			_ => {}
+		});
 
-					if !mismatch {
-						let mut params = ::std::collections::HashMap::new();
-						#param_extraction
-
-						return ::moonbeam::router::RouteHandler::call(&#handler, req, params, &self.0).await;
-					}
+		method_match_arms.extend(quote! {
+			if method.eq_ignore_ascii_case(#method) {
+				match path_segments.as_slice() {
+					#path_match_arms
 				}
 			}
 		});
 	}
 
-	checks
+	method_match_arms
 }

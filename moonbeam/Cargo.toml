@@ -33,7 +33,7 @@ assets = ["asyncfs"]
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
 compress = ["dep:async-compression"]
-router = []
+router = ["macros"]
 
 [dev-dependencies]
 piper = "0.2"
