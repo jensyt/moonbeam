@@ -11,6 +11,9 @@ use syn::{
 	parse_macro_input,
 };
 
+mod route;
+mod router;
+
 // Parse the attribute arguments
 struct ServerArgs {
 	name: Ident,
@@ -206,4 +209,16 @@ fn extract_static_ref_type(ty: &Type) -> proc_macro2::TokenStream {
 			quote! { #ty }
 		}
 	}
+}
+
+/// Defines a route handler.
+#[proc_macro_attribute]
+pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
+	route::route_impl(attr, item)
+}
+
+/// Defines a router and its routes.
+#[proc_macro]
+pub fn router(item: TokenStream) -> TokenStream {
+	router::router_impl(item)
 }
