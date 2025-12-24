@@ -1,6 +1,6 @@
 [package]
 name = "moonbeam"
-version = "0.2.1"
+version = "0.2.2"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -33,7 +33,7 @@ assets = ["asyncfs"]
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
 compress = ["dep:async-compression"]
-router = ["macros"]
+router = ["macros", "moonbeam-attributes/router"]
 
 [dev-dependencies]
 piper = "0.2"
