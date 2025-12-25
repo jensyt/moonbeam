@@ -11,11 +11,6 @@ pub fn route_impl(
 	let fn_name = &sig.ident;
 	let inputs = &sig.inputs;
 
-	// Rename original function
-	let impl_fn_name = Ident::new(&format!("__moonbeam_route_{}", fn_name), fn_name.span());
-	let mut impl_fn = input_fn.clone();
-	impl_fn.sig.ident = impl_fn_name.clone();
-
 	let mut params_extraction = Vec::new();
 	let mut call_args = Vec::new();
 	let mut has_path_params = false;
@@ -86,9 +81,9 @@ pub fn route_impl(
 
 	let is_async = sig.asyncness.is_some();
 	let call_expr = if is_async {
-		quote! { #impl_fn_name(#(#call_args),*).await }
+		quote! { Self::#fn_name(#(#call_args),*).await }
 	} else {
-		quote! { #impl_fn_name(#(#call_args),*) }
+		quote! { Self::#fn_name(#(#call_args),*) }
 	};
 
 	let import_params = if has_path_params {
@@ -110,10 +105,12 @@ pub fn route_impl(
 	};
 
 	let output = quote! {
-		#impl_fn
-
 		#[allow(non_camel_case_types)]
 		#vis struct #fn_name;
+
+		impl #fn_name {
+			#input_fn
+		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
 			fn call(&self, req: ::moonbeam::http::Request<'_, '_>, params: ::std::collections::HashMap<String, String>, state: &'static #state_ty_path)
