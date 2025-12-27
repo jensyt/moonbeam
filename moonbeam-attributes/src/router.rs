@@ -185,7 +185,7 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 			let segments: Vec<&str> = path_str.split('/').filter(|s| !s.is_empty()).collect();
 
 			let mut pattern_tokens = Vec::new();
-			let mut params_extraction = TokenStream::new();
+			let mut params_items = Vec::new();
 
 			for (i, segment) in segments.iter().enumerate() {
 				if segment.starts_with(':') {
@@ -194,8 +194,8 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
 					pattern_tokens.push(quote! { #bind_name });
 
-					params_extraction.extend(quote! {
-						params.insert(#param_name, *#bind_name);
+					params_items.push(quote! {
+						(#param_name, *#bind_name)
 					});
 				} else {
 					pattern_tokens.push(quote! { #segment });
@@ -206,9 +206,8 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 
 			path_match_arms.extend(quote! {
 				#pattern => {
-					let mut params = ::std::collections::HashMap::new();
-					#params_extraction
-					return ::moonbeam::router::RouteHandler::call(&#handler, req, params, &self.0).await;
+					let params = [ #(#params_items),* ];
+					return ::moonbeam::router::RouteHandler::call(&#handler, req, &params, &self.0).await;
 				}
 			});
 		}
