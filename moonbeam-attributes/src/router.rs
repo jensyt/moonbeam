@@ -195,7 +195,7 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 					pattern_tokens.push(quote! { #bind_name });
 
 					params_extraction.extend(quote! {
-						params.insert(#param_name.to_string(), #bind_name.to_string());
+						params.insert(#param_name, *#bind_name);
 					});
 				} else {
 					pattern_tokens.push(quote! { #segment });

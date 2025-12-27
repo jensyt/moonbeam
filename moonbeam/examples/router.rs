@@ -7,9 +7,8 @@ struct State {
 }
 
 #[route]
-async fn hello(PathParams(map): PathParams, state: &'static State) -> Response {
+async fn hello(PathParams(name): PathParams<&str>, state: &'static State) -> Response {
 	let count = state.count.fetch_add(1, Ordering::Relaxed);
-	let name = map.get("name").map(|s| s.as_str()).unwrap_or("unknown");
 	Response::new_with_body(
 		format!("Hello {name}! Request #{count}."),
 		Some("text/plain"),
@@ -18,7 +17,7 @@ async fn hello(PathParams(map): PathParams, state: &'static State) -> Response {
 
 #[route]
 async fn hello_two(
-	PathParams((first, last)): PathParams<(String, String)>,
+	PathParams((first, last)): PathParams<(&str, &str)>,
 	state: &'static State,
 ) -> Response {
 	let count = state.count.fetch_add(1, Ordering::Relaxed);

@@ -14,7 +14,7 @@ use std::collections::HashMap;
 /// use std::collections::HashMap;
 ///
 /// // Handler signature
-/// // fn handler(PathParams(params): PathParams<HashMap<String, String>>, ...)
+/// // fn handler(PathParams(params): PathParams<HashMap<&str, &str>>, ...)
 /// ```
 ///
 /// ## Accessing via Tuple Destructuring
@@ -22,13 +22,16 @@ use std::collections::HashMap;
 /// use moonbeam::router::PathParams;
 ///
 /// // Handler signature for path "/users/:id/posts/:post_id"
-/// // fn handler(PathParams((id, post_id)): PathParams<(String, String)>, ...)
+/// // fn handler(PathParams((id, post_id)): PathParams<(&str, &str)>, ...)
 /// ```
 #[derive(Debug)]
-pub struct PathParams<T = HashMap<String, String>>(pub T);
+pub struct PathParams<T>(pub T);
 
-impl From<HashMap<String, String>> for PathParams<HashMap<String, String>> {
-	fn from(params: HashMap<String, String>) -> Self {
+pub type ParamMap<'a> = HashMap<&'a str, &'a str>;
+pub type PathParamsMap<'a> = PathParams<ParamMap<'a>>;
+
+impl<'a> From<ParamMap<'a>> for PathParamsMap<'a> {
+	fn from(params: ParamMap<'a>) -> Self {
 		Self(params)
 	}
 }
@@ -36,35 +39,42 @@ impl From<HashMap<String, String>> for PathParams<HashMap<String, String>> {
 /// Trait for converting a raw parameter map into the target `PathParams` type.
 /// This allows the `#[route]` macro to automatically convert the map provided by the router
 /// into the specific tuple or structure requested by the user.
-pub trait FromParams {
-	fn from_params(params: HashMap<String, String>, names: &[&str]) -> Self;
+pub trait FromParams<'a> {
+	fn from_params(params: ParamMap<'a>, names: &[&str]) -> Self;
 }
 
-// Default implementation for HashMap
-impl FromParams for PathParams<HashMap<String, String>> {
-	fn from_params(params: HashMap<String, String>, _names: &[&str]) -> Self {
+// Default implementation for HashMap<&str, &str>
+impl<'a> FromParams<'a> for PathParamsMap<'a> {
+	fn from_params(params: ParamMap<'a>, _names: &[&str]) -> Self {
 		PathParams(params)
 	}
 }
 
+impl<'a> FromParams<'a> for PathParams<&'a str> {
+	fn from_params(mut params: ParamMap<'a>, names: &[&str]) -> Self {
+		let p1 = params.remove(names[0]).unwrap_or_default();
+		PathParams(p1)
+	}
+}
+
 // Implementations for Tuples (up to 4 for now, can be expanded)
-impl FromParams for PathParams<(String,)> {
-	fn from_params(mut params: HashMap<String, String>, names: &[&str]) -> Self {
+impl<'a> FromParams<'a> for PathParams<(&'a str,)> {
+	fn from_params(mut params: ParamMap<'a>, names: &[&str]) -> Self {
 		let p1 = params.remove(names[0]).unwrap_or_default();
 		PathParams((p1,))
 	}
 }
 
-impl FromParams for PathParams<(String, String)> {
-	fn from_params(mut params: HashMap<String, String>, names: &[&str]) -> Self {
+impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str)> {
+	fn from_params(mut params: ParamMap<'a>, names: &[&str]) -> Self {
 		let p1 = params.remove(names[0]).unwrap_or_default();
 		let p2 = params.remove(names[1]).unwrap_or_default();
 		PathParams((p1, p2))
 	}
 }
 
-impl FromParams for PathParams<(String, String, String)> {
-	fn from_params(mut params: HashMap<String, String>, names: &[&str]) -> Self {
+impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str, &'a str)> {
+	fn from_params(mut params: ParamMap<'a>, names: &[&str]) -> Self {
 		let p1 = params.remove(names[0]).unwrap_or_default();
 		let p2 = params.remove(names[1]).unwrap_or_default();
 		let p3 = params.remove(names[2]).unwrap_or_default();
@@ -72,12 +82,35 @@ impl FromParams for PathParams<(String, String, String)> {
 	}
 }
 
-impl FromParams for PathParams<(String, String, String, String)> {
-	fn from_params(mut params: HashMap<String, String>, names: &[&str]) -> Self {
+impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str, &'a str, &'a str)> {
+	fn from_params(mut params: ParamMap<'a>, names: &[&str]) -> Self {
 		let p1 = params.remove(names[0]).unwrap_or_default();
 		let p2 = params.remove(names[1]).unwrap_or_default();
 		let p3 = params.remove(names[2]).unwrap_or_default();
 		let p4 = params.remove(names[3]).unwrap_or_default();
 		PathParams((p1, p2, p3, p4))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_from_params_hashmap_str() {
+		let mut input = HashMap::new();
+		input.insert("key", "value");
+		let params: PathParams<HashMap<&str, &str>> = FromParams::from_params(input, &[]);
+		assert_eq!(params.0.get("key"), Some(&"value"));
+	}
+
+	#[test]
+	fn test_from_params_tuple_str() {
+		let mut input = HashMap::new();
+		input.insert("p1", "v1");
+		input.insert("p2", "v2");
+		let params: PathParams<(&str, &str)> = FromParams::from_params(input, &["p1", "p2"]);
+		assert_eq!(params.0.0, "v1");
+		assert_eq!(params.0.1, "v2");
 	}
 }
