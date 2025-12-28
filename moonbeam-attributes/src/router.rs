@@ -95,7 +95,11 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 					async move {
 						let method = req.method;
 						let path = req.path;
-						let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+						let mut path_segments = [""; 8];
+						let len: usize = path.split('/').filter(|s| !s.is_empty()).zip(&mut path_segments).fold(0, |count, (src, dst)| {
+							*dst = src;
+							count + 1
+						});
 
 						#route_logic
 
@@ -125,8 +129,12 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
 					async move {
 						let method = req.method;
-						let path = req.path;
-						let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+						let path = req.url();
+						let mut path_segments = [""; 8];
+						let len: usize = path.split('/').filter(|s| !s.is_empty()).zip(&mut path_segments).fold(0, |count, (src, dst)| {
+							*dst = src;
+							count + 1
+						});
 
 						#route_logic
 
@@ -218,7 +226,7 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 
 		method_match_arms.extend(quote! {
 			if method.eq_ignore_ascii_case(#method) {
-				match path_segments.as_slice() {
+				match &path_segments[..len] {
 					#path_match_arms
 				}
 			}
