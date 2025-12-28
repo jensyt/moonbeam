@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{FnArg, Ident, ItemFn, Pat, Type, parse_macro_input, spanned::Spanned};
+use syn::{FnArg, ItemFn, Type, parse_macro_input, spanned::Spanned};
 
 pub fn route_impl(
 	_attr: proc_macro::TokenStream,
@@ -13,14 +13,12 @@ pub fn route_impl(
 
 	let mut params_extraction = Vec::new();
 	let mut call_args = Vec::new();
-	let mut has_path_params = false;
 	let mut state_type: Option<Type> = None;
 
 	for arg in inputs {
 		match arg {
 			FnArg::Typed(pat_type) => {
 				let ty = &pat_type.ty;
-				let pat = &pat_type.pat;
 
 				// Check for PathParams
 				let is_path_params = if let Type::Path(type_path) = &**ty {
@@ -52,15 +50,9 @@ pub fn route_impl(
 				};
 
 				if is_path_params {
-					has_path_params = true;
-					let var_names = extract_var_names(pat);
-					let var_names_lit: Vec<String> =
-						var_names.iter().map(|s| s.to_string()).collect();
-
 					params_extraction.push(quote! {
 						let arg_params = <#ty as ::moonbeam::router::FromParams>::from_params(
-							params,
-							&[#(#var_names_lit),*]
+							params
 						);
 					});
 					call_args.push(quote!(arg_params));
@@ -86,18 +78,6 @@ pub fn route_impl(
 		quote! { Self::#fn_name(#(#call_args),*) }
 	};
 
-	let import_params = if has_path_params {
-		quote! {}
-	} else {
-		quote! { let _ = params; }
-	};
-
-	let import_state = if state_type.is_some() {
-		quote! {}
-	} else {
-		quote! { let _ = state; }
-	};
-
 	let (impl_generics, state_ty_path) = if let Some(st) = state_type {
 		(quote! {}, quote! { #st })
 	} else {
@@ -113,12 +93,10 @@ pub fn route_impl(
 		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &[(&'b str, &'b str)], state: &'static #state_ty_path)
+			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &'_[&'b str], state: &'static #state_ty_path)
 				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
 				#(#params_extraction)*
-				#import_params
-				#import_state
 
 				async move {
 					#call_expr
@@ -128,25 +106,4 @@ pub fn route_impl(
 	};
 
 	output.into()
-}
-
-fn extract_var_names(pat: &Pat) -> Vec<Ident> {
-	let mut names = Vec::new();
-	match pat {
-		Pat::TupleStruct(ts) => {
-			for p in &ts.elems {
-				names.extend(extract_var_names(p));
-			}
-		}
-		Pat::Tuple(t) => {
-			for p in &t.elems {
-				names.extend(extract_var_names(p));
-			}
-		}
-		Pat::Ident(i) => {
-			names.push(i.ident.clone());
-		}
-		_ => {}
-	}
-	names
 }

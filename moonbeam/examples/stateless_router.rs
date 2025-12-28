@@ -1,14 +1,22 @@
-use moonbeam::router::{PathParams, PathParamsMap};
+use moonbeam::router::PathParams;
 use moonbeam::{Request, Response, route, router, serve};
 
 #[route]
-async fn index(_req: Request<'_, '_>) -> Response {
-	Response::ok().with_body("Welcome to the stateless router!", Some("text/plain"))
+async fn index(req: Request<'_, '_>) -> Response {
+	let x = req
+		.params()
+		.find("x")
+		.next()
+		.map(|v| format!("Got x = {v}"))
+		.unwrap_or_else(|| "Did not get x param".into());
+	Response::ok().with_body(
+		format!("Welcome to the stateless router! {x}"),
+		Some("text/plain"),
+	)
 }
 
 #[route]
-async fn hello(PathParams(map): PathParamsMap<'_>, _req: Request<'_, '_>) -> Response {
-	let name = map.get("name").map(|s| *s).unwrap_or("unknown");
+async fn hello(PathParams(name): PathParams<&str>, _req: Request<'_, '_>) -> Response {
 	Response::new_with_body(format!("Hello {name}!"), Some("text/plain"))
 }
 

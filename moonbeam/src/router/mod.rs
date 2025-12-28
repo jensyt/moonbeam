@@ -1,5 +1,5 @@
 mod path_params;
-pub use path_params::{FromParams, ParamMap, PathParams, PathParamsMap};
+pub use path_params::{FromParams, PathParams};
 
 use crate::http::{Request, Response};
 use std::future::Future;
@@ -9,7 +9,7 @@ pub trait RouteHandler<S>: 'static {
 	fn call<'a, 'b>(
 		&self,
 		req: Request<'a, 'b>,
-		params: &[(&'b str, &'b str)],
+		params: &'_ [&'b str],
 		state: &'static S,
 	) -> impl Future<Output = Response>;
 }

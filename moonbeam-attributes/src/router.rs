@@ -189,13 +189,12 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 
 			for (i, segment) in segments.iter().enumerate() {
 				if segment.starts_with(':') {
-					let param_name = &segment[1..];
 					// Use a unique name for the match binding to avoid collisions
 					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
 					pattern_tokens.push(quote! { #bind_name });
 
 					params_items.push(quote! {
-						(#param_name, *#bind_name)
+						*#bind_name
 					});
 				} else {
 					pattern_tokens.push(quote! { #segment });
