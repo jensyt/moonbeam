@@ -27,15 +27,15 @@ async fn hello_two(
 	)
 }
 
-router!(MyRouter<State> {
-	get("/hello/:name") => hello,
-	get("/hello/:first/:last") => hello_two,
-});
-
 fn main() {
+	router!(MyRouter<State> {
+		get("/hello/:name") => hello,
+		get("/hello/:first/:last") => hello_two,
+	});
+
 	let router = MyRouter::new(State {
 		count: AtomicU32::new(0),
 	});
-	println!("Router compiled successfully! Running on 127.0.0.1:5678");
+	println!("Running on 127.0.0.1:5678. Press Ctrl+C to exit");
 	serve("127.0.0.1:5678", router);
 }

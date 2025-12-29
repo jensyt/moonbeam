@@ -16,17 +16,18 @@ async fn index(req: Request<'_, '_>) -> Response {
 }
 
 #[route]
-async fn hello(PathParams(name): PathParams<&str>, _req: Request<'_, '_>) -> Response {
+async fn hello(PathParams(name): PathParams<&str>) -> Response {
 	Response::new_with_body(format!("Hello {name}!"), Some("text/plain"))
 }
 
-router!(StatelessRouter {
-	get("/") => index,
-	get("/hello/:name") => hello,
-});
-
 fn main() {
-	let router = StatelessRouter::stateless();
-	println!("Stateless router running on 127.0.0.1:5679");
-	serve("127.0.0.1:5679", router);
+	router!(
+		StatelessRouter {
+			get("/") => index,
+			get("/hello/:name") => hello,
+		}
+	);
+
+	println!("Running on 127.0.0.1:5679. Press Ctrl+C to exit");
+	serve("127.0.0.1:5679", StatelessRouter);
 }

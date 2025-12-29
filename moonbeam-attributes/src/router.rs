@@ -77,55 +77,36 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	let input = parse_macro_input!(item as RouterInput);
 	let router_name = input.name;
 
-	let route_logic = generate_route_logic(&input.routes);
+	let route_logic = generate_route_logic(&input.routes, input.state_type.is_some());
 
-	let output = if let Some(state_ty) = input.state_type {
-		// Specific state type provided: router!(Name<State> { ... })
-		quote! {
-			struct #router_name(pub #state_ty);
+	let (state, new) = if let Some(state_ty) = input.state_type {
+		(
+			quote! { (pub #state_ty) },
+			quote! {
+			   pub fn new(state: #state_ty) -> Self {
+				   Self(state)
+			   }
+			},
+		)
+	} else {
+		(
+			TokenStream::new(),
+			quote! {
+				pub fn new() -> Self {
+					Self
+				}
+			},
+		)
+	};
+
+	let output = quote! {
+			struct #router_name #state;
 
 			impl #router_name {
-				pub fn new(state: #state_ty) -> Self {
-					Self(state)
-				}
+				#new
 			}
 
 			impl ::moonbeam::Server for #router_name {
-				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
-					async move {
-						let method = req.method;
-						let path = req.path;
-						let mut path_segments = [""; 8];
-						let len: usize = path.split('/').filter(|s| !s.is_empty()).zip(&mut path_segments).fold(0, |count, (src, dst)| {
-							*dst = src;
-							count + 1
-						});
-
-						#route_logic
-
-						::moonbeam::http::Response::not_found()
-					}
-				}
-			}
-		}
-	} else {
-		// No state type: router!(Name { ... }) -> Generic router
-		quote! {
-			struct #router_name<S>(pub S);
-
-			impl<S> #router_name<S> {
-				pub fn new(state: S) -> Self {
-					Self(state)
-				}
-			}
-
-			impl #router_name<()> {
-				 pub fn stateless() -> Self {
-					 Self(())
-				 }
-			}
-
-			impl<S: 'static> ::moonbeam::Server for #router_name<S> {
 				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
 					async move {
 						let method = req.method;
@@ -142,13 +123,12 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 					}
 				}
 			}
-		}
 	};
 
 	output.into()
 }
 
-fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
+fn generate_route_logic(routes: &[RouteEntry], has_state: bool) -> TokenStream {
 	let mut routes_by_method: HashMap<String, Vec<&RouteEntry>> = HashMap::new();
 
 	for route in routes {
@@ -157,6 +137,11 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 	}
 
 	let mut method_match_arms = TokenStream::new();
+	let state = if has_state {
+		quote! { &self.0 }
+	} else {
+		quote! { self }
+	};
 
 	for (method, mut method_routes) in routes_by_method {
 		// Sort routes to ensure literals match before params
@@ -214,7 +199,7 @@ fn generate_route_logic(routes: &[RouteEntry]) -> TokenStream {
 			path_match_arms.extend(quote! {
 				#pattern => {
 					let params = [ #(#params_items),* ];
-					return ::moonbeam::router::RouteHandler::call(&#handler, req, &params, &self.0).await;
+					return ::moonbeam::router::RouteHandler::call(&#handler, req, &params, #state).await;
 				}
 			});
 		}
