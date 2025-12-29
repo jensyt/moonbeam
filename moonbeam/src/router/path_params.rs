@@ -1,22 +1,20 @@
 /// Wrapper for accessing path parameters extracted by the router.
 ///
 /// This struct is used with the `#[route]` macro to extract named parameters from the URL path.
-/// It is generic to support both direct access to the underlying `HashMap` and
-/// tuple destructuring for cleaner signatures.
+/// It primarily supports tuple destructuring to map path segments to function arguments.
 ///
 /// # Examples
 ///
-/// ## Accessing via HashMap
-/// ```rust
+/// ## Single Parameter
+/// ```
 /// use moonbeam::router::PathParams;
-/// use std::collections::HashMap;
 ///
-/// // Handler signature
-/// // fn handler(PathParams(params): PathParams<HashMap<&str, &str>>, ...)
+/// // Handler signature for path "/users/:id"
+/// // fn handler(PathParams(id): PathParams<&str>, ...)
 /// ```
 ///
-/// ## Accessing via Tuple Destructuring
-/// ```rust
+/// ## Multiple Parameters (Tuple Destructuring)
+/// ```
 /// use moonbeam::router::PathParams;
 ///
 /// // Handler signature for path "/users/:id/posts/:post_id"
@@ -25,10 +23,12 @@
 #[derive(Debug)]
 pub struct PathParams<T>(pub T);
 
-/// Trait for converting a raw parameter map into the target `PathParams` type.
-/// This allows the `#[route]` macro to automatically convert the map provided by the router
-/// into the specific tuple or structure requested by the user.
+/// Trait for converting a raw parameter list into the target `PathParams` type.
+///
+/// This allows the `#[route]` macro to automatically convert the slice of parameter values
+/// provided by the router into the specific tuple or structure requested by the user.
 pub trait FromParams<'a> {
+	/// Converts a slice of path parameter strings into `Self`.
 	fn from_params(params: &[&'a str]) -> Self;
 }
 

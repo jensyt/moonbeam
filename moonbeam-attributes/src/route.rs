@@ -1,6 +1,27 @@
 use quote::quote;
 use syn::{FnArg, ItemFn, Type, parse_macro_input, spanned::Spanned};
 
+/// Implementation logic for the `#[route]` attribute macro.
+///
+/// This function parses the decorated function and generates a struct that implements `RouteHandler`.
+/// It handles:
+/// - Parsing function arguments to determine what needs to be injected (Request, PathParams, State).
+/// - Generating the `RouteHandler::call` implementation.
+/// - Wrapping the user's function call with the extracted arguments.
+///
+/// # Example
+///
+/// ```ignore
+/// #[route]
+/// async fn get_user(req: Request<'_, '_>, PathParams(id): PathParams<&str>) -> Response {
+///     // ...
+/// }
+/// ```
+///
+/// # Arguments
+///
+/// * `_attr` - The attribute arguments (currently unused).
+/// * `item` - The decorated function as a `TokenStream`.
 pub fn route_impl(
 	_attr: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
