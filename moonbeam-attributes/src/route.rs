@@ -99,9 +99,9 @@ pub fn route_impl(
 
 	let is_async = sig.asyncness.is_some();
 	let call_expr = if is_async {
-		quote! { Self::#fn_name(#(#call_args),*).await }
-	} else {
 		quote! { Self::#fn_name(#(#call_args),*) }
+	} else {
+		quote! { async move { Self::#fn_name(#(#call_args),*) } }
 	};
 
 	let (impl_generics, state_ty_path) = if let Some(st) = state_type {
@@ -123,10 +123,7 @@ pub fn route_impl(
 				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
 				#(#params_extraction)*
-
-				async move {
-					#call_expr
-				}
+				#call_expr
 			}
 		}
 	};

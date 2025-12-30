@@ -16,7 +16,7 @@ async fn index(req: Request<'_, '_>) -> Response {
 }
 
 #[route]
-async fn hello(PathParams(name): PathParams<&str>) -> Response {
+fn hello(PathParams(name): PathParams<&str>) -> Response {
 	Response::new_with_body(format!("Hello {name}!"), Some("text/plain"))
 }
 
