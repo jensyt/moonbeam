@@ -209,12 +209,12 @@ fn generate_route_logic(routes: &[RouteEntry], has_state: bool) -> TokenStream {
 		for route in method_routes {
 			let path_str = route.path.value();
 			let handler = &route.handler;
-			let segments: Vec<&str> = path_str.split('/').filter(|s| !s.is_empty()).collect();
+			let segments = path_str.split('/').filter(|s| !s.is_empty());
 
 			let mut pattern_tokens = Vec::new();
 			let mut params_items = Vec::new();
 
-			for (i, segment) in segments.iter().enumerate() {
+			for (i, segment) in segments.enumerate() {
 				if segment.starts_with(':') {
 					// Named parameter
 					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
