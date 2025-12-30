@@ -2,12 +2,13 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use std::collections::HashMap;
 use syn::{
-	Ident, LitStr, Token, Type,
+	Ident, LitStr, Token, Type, Visibility,
 	parse::{Parse, ParseStream},
 	parse_macro_input,
 };
 
 struct RouterInput {
+	visibility: Visibility,
 	name: Ident,
 	state_type: Option<Type>,
 	routes: Vec<RouteEntry>,
@@ -23,6 +24,7 @@ struct RouteEntry {
 
 impl Parse for RouterInput {
 	fn parse(input: ParseStream) -> syn::Result<Self> {
+		let visibility: Visibility = input.parse()?;
 		let name: Ident = input.parse()?;
 
 		let state_type = if input.peek(Token![<]) {
@@ -43,6 +45,7 @@ impl Parse for RouterInput {
 		}
 
 		Ok(RouterInput {
+			visibility,
 			name,
 			state_type,
 			routes,
@@ -98,6 +101,7 @@ impl Parse for RouteEntry {
 /// ```
 pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	let input = parse_macro_input!(item as RouterInput);
+	let visibility = input.visibility;
 	let router_name = input.name;
 
 	let route_logic = generate_route_logic(&input.routes, input.state_type.is_some());
@@ -123,7 +127,7 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	};
 
 	let output = quote! {
-			struct #router_name #state;
+			#visibility struct #router_name #state;
 
 			impl #router_name {
 				#new
