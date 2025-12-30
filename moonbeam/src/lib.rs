@@ -53,6 +53,8 @@
 #[cfg(feature = "assets")]
 pub mod assets;
 pub mod http;
+#[cfg(feature = "router")]
+pub mod router;
 pub mod server;
 #[macro_use]
 mod tracing;
@@ -65,3 +67,5 @@ pub use httparse::Header;
 /// Attribute macro to simplify creating server implementations.
 #[cfg(feature = "macros")]
 pub use moonbeam_attributes::server;
+#[cfg(feature = "router")]
+pub use moonbeam_attributes::{route, router};

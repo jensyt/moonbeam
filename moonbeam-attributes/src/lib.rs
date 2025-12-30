@@ -11,6 +11,11 @@ use syn::{
 	parse_macro_input,
 };
 
+#[cfg(feature = "router")]
+mod route;
+#[cfg(feature = "router")]
+mod router;
+
 // Parse the attribute arguments
 struct ServerArgs {
 	name: Ident,
@@ -206,4 +211,18 @@ fn extract_static_ref_type(ty: &Type) -> proc_macro2::TokenStream {
 			quote! { #ty }
 		}
 	}
+}
+
+/// Defines a route handler.
+#[cfg(feature = "router")]
+#[proc_macro_attribute]
+pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
+	route::route_impl(attr, item)
+}
+
+/// Defines a router and its routes.
+#[cfg(feature = "router")]
+#[proc_macro]
+pub fn router(item: TokenStream) -> TokenStream {
+	router::router_impl(item)
 }

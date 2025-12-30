@@ -2,7 +2,6 @@
 - Support for HTML forms
 - TRACE requests
 - Make tracing meaningful
-- Better routing
 
 # Done
 - ETags for assets
@@ -12,3 +11,4 @@
 - Implement params
 - Handle panics in server
 - Content encoding (gzip, brotli)
+- Better routing
