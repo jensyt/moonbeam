@@ -75,3 +75,21 @@ fn test_rest_param_with_separators() {
 		panic!("Expected immediate body");
 	}
 }
+
+#[test]
+fn test_long_rest_param() {
+	let router = Box::leak(Box::new(RestRouter::new()));
+
+	// Test path with > 8 segments to verify the fix for long paths
+	// /static/1/2/3/4/5/6/7/8/9/10 (11 segments total)
+	let headers = [];
+	let req = Request::new("GET", "/static/1/2/3/4/5/6/7/8/9/10", &headers, &[]);
+	let res = block_on(router.route(req));
+	assert_eq!(res.status, 200);
+
+	if let Some(Body::Immediate(data)) = res.body {
+		assert_eq!(String::from_utf8_lossy(&data), "1/2/3/4/5/6/7/8/9/10");
+	} else {
+		panic!("Expected immediate body");
+	}
+}

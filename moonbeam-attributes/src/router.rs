@@ -233,9 +233,7 @@ fn generate_route_logic(routes: &[RouteEntry], has_state: bool) -> TokenStream {
 							""
 						} else {
 							let start = #bind_name[0].as_ptr() as usize - path.as_ptr() as usize;
-							let last = #bind_name.last().unwrap();
-							let end = last.as_ptr() as usize + last.len() - path.as_ptr() as usize;
-							&path[start..end]
+							&path[start..]
 						}
 					});
 				} else {
