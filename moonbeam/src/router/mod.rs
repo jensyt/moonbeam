@@ -20,6 +20,7 @@ use std::future::Future;
 ///
 /// This trait defines the interface for handling requests with support for:
 /// - Path parameters (e.g., `/users/:id`)
+/// - Rest parameters (e.g., `/static/*path`)
 /// - Application state injection
 ///
 /// Implementations of this trait are typically generated automatically by the `#[route]` macro.

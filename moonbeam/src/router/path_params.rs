@@ -20,6 +20,17 @@
 /// // Handler signature for path "/users/:id/posts/:post_id"
 /// // fn handler(PathParams((id, post_id)): PathParams<(&str, &str)>, ...)
 /// ```
+///
+/// ## Rest Parameters
+/// ```ignore
+/// use moonbeam::router::PathParams;
+///
+/// // Handler signature for path "/static/*path"
+/// fn handler(PathParams(path): PathParams<&str>, ...)
+/// ```
+///
+/// Note that rest parameters match zero or more path segments, so this example will match "/static",
+/// "/static/", "/static/a", "/static/a/b", etc.
 #[derive(Debug)]
 pub struct PathParams<T>(pub T);
 

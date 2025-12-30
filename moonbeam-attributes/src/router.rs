@@ -1,6 +1,5 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use syn::{
 	Ident, LitStr, Token, Type,
@@ -83,6 +82,7 @@ impl Parse for RouteEntry {
 /// The routing logic supports:
 /// - Static paths (e.g., "/users")
 /// - Named parameters (e.g., "/users/:id")
+/// - Rest parameters (e.g., "/static/*path")
 /// - Method matching (GET, POST, etc.)
 ///
 /// # Syntax Example
@@ -91,7 +91,8 @@ impl Parse for RouteEntry {
 /// router! {
 ///     MyRouter<MyState> {
 ///         get("/users") => get_users,
-///         post("/users/:id") => create_user
+///         post("/users/:id") => create_user,
+///         get("/static/*path") => serve_static
 ///     }
 /// }
 /// ```
@@ -166,30 +167,41 @@ fn generate_route_logic(routes: &[RouteEntry], has_state: bool) -> TokenStream {
 	};
 
 	for (method, mut method_routes) in routes_by_method {
-		// Sort routes to ensure literals match before params
+		// Sort routes: Literal < Param < Rest
 		method_routes.sort_by(|a, b| {
 			let a_path = a.path.value();
 			let b_path = b.path.value();
-			let a_segments: Vec<&str> = a_path.split('/').filter(|s| !s.is_empty()).collect();
-			let b_segments: Vec<&str> = b_path.split('/').filter(|s| !s.is_empty()).collect();
+			let mut a_segments = a_path.split('/').filter(|s| !s.is_empty());
+			let mut b_segments = b_path.split('/').filter(|s| !s.is_empty());
 
 			// Iterate segments
-			for (seg_a, seg_b) in a_segments.iter().zip(b_segments.iter()) {
-				let a_is_param = seg_a.starts_with(':');
-				let b_is_param = seg_b.starts_with(':');
+			for (seg_a, seg_b) in (&mut a_segments).zip(&mut b_segments) {
+				let type_a = if seg_a.starts_with(':') {
+					1
+				} else if seg_a.starts_with('*') {
+					2
+				} else {
+					0
+				};
+				let type_b = if seg_b.starts_with(':') {
+					1
+				} else if seg_b.starts_with('*') {
+					2
+				} else {
+					0
+				};
 
-				if !a_is_param && b_is_param {
-					return Ordering::Less;
-				}
-				if a_is_param && !b_is_param {
-					return Ordering::Greater;
+				if type_a != type_b {
+					return type_a.cmp(&type_b);
 				}
 			}
 
-			// If prefix matches, longer path (more specific) should be checked first?
-			// Actually slice matching handles length, so disjoint lengths are fine.
-			// But for consistency:
-			a_segments.len().cmp(&b_segments.len())
+			// If prefix matches, sort longer one first
+			if a_segments.next().is_some() {
+				std::cmp::Ordering::Less
+			} else {
+				std::cmp::Ordering::Greater
+			}
 		});
 
 		let mut path_match_arms = TokenStream::new();
@@ -204,23 +216,42 @@ fn generate_route_logic(routes: &[RouteEntry], has_state: bool) -> TokenStream {
 
 			for (i, segment) in segments.iter().enumerate() {
 				if segment.starts_with(':') {
-					// Use a unique name for the match binding to avoid collisions
+					// Named parameter
 					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
 					pattern_tokens.push(quote! { #bind_name });
+					params_items.push(quote! { *#bind_name });
+				} else if segment.starts_with('*') {
+					// Rest parameter
+					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
+					pattern_tokens.push(quote! { #bind_name @ .. });
 
+					// Calculate the substring from the original path
+					// We need to use unsafe pointer arithmetic logic (but in safe code via usize)
+					// to find the range in the original string that these segments cover.
 					params_items.push(quote! {
-						*#bind_name
+						if #bind_name.is_empty() {
+							""
+						} else {
+							let start = #bind_name[0].as_ptr() as usize - path.as_ptr() as usize;
+							let last = #bind_name.last().unwrap();
+							let end = last.as_ptr() as usize + last.len() - path.as_ptr() as usize;
+							&path[start..end]
+						}
 					});
 				} else {
+					// Literal
 					pattern_tokens.push(quote! { #segment });
 				}
 			}
 
 			let pattern = quote! { [ #(#pattern_tokens),* ] };
+			let params_block = quote! {
+				let params = [ #(#params_items),* ];
+			};
 
 			path_match_arms.extend(quote! {
 				#pattern => {
-					let params = [ #(#params_items),* ];
+					#params_block
 					return ::moonbeam::router::RouteHandler::call(&#handler, req, &params, #state).await;
 				}
 			});

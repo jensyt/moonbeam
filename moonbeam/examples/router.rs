@@ -27,10 +27,16 @@ async fn hello_two(
 	)
 }
 
+#[route]
+async fn files(PathParams(path): PathParams<&str>) -> Response {
+	Response::new_with_body(format!("Serving file: {path}"), Some("text/plain"))
+}
+
 fn main() {
 	router!(MyRouter<State> {
 		get("/hello/:name") => hello,
 		get("/hello/:first/:last") => hello_two,
+		get("/static/*path") => files,
 	});
 
 	let router = MyRouter::new(State {
