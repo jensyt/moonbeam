@@ -47,25 +47,20 @@ pub fn route_impl(
 						.path
 						.segments
 						.last()
-						.map(|s| s.ident.to_string().contains("PathParams"))
+						.map(|s| s.ident == "PathParams")
 						.unwrap_or(false)
 				} else {
 					false
 				};
 
-				// Check for State reference: &'static State
-				let is_state = if let Type::Reference(type_ref) = &**ty {
-					if type_ref
-						.lifetime
-						.as_ref()
-						.map(|l| l.ident == "static")
+				// Check for Request
+				let is_request = if let Type::Path(type_path) = &**ty {
+					type_path
+						.path
+						.segments
+						.last()
+						.map(|s| s.ident == "Request")
 						.unwrap_or(false)
-					{
-						state_type = Some(*type_ref.elem.clone());
-						true
-					} else {
-						false
-					}
 				} else {
 					false
 				};
@@ -77,11 +72,21 @@ pub fn route_impl(
 						);
 					});
 					call_args.push(quote!(arg_params));
-				} else if is_state {
-					call_args.push(quote!(state));
-				} else {
-					// Default to request
+				} else if is_request {
 					call_args.push(quote!(req));
+				} else {
+					// Default to state
+					if let Type::Reference(type_ref) = &**ty {
+						state_type = Some(*type_ref.elem.clone());
+						call_args.push(quote!(state));
+					} else {
+						return syn::Error::new(
+							ty.span(),
+							"State arguments must be references (e.g. &State)",
+						)
+						.to_compile_error()
+						.into();
+					}
 				}
 			}
 			FnArg::Receiver(_) => {
