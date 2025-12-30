@@ -112,7 +112,10 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 		};
 
 		match listener.accept().or(signal_err).await {
-			Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, server)),
+			Ok((socket, addr)) => {
+				let _ = socket.set_nodelay(true);
+				new_local_task(handle_socket(socket, addr, server));
+			}
 			#[allow(unused_variables)]
 			Err(err) => {
 				if err.kind() == ErrorKind::Interrupted {
@@ -141,7 +144,10 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 	loop {
 		match listener.accept().await {
-			Ok((socket, addr)) => new_local_task(handle_socket(socket, addr, server)),
+			Ok((socket, addr)) => {
+				let _ = socket.set_nodelay(true);
+				new_local_task(handle_socket(socket, addr, server));
+			}
 			#[allow(unused_variables)]
 			Err(err) => {
 				tracing::error!(?err, "Failed to accept connection, shutting down");
