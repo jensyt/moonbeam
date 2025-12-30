@@ -250,7 +250,7 @@ fn generate_route_logic(routes: &[RouteEntry], has_state: bool) -> TokenStream {
 			path_match_arms.extend(quote! {
 				#pattern => {
 					#params_block
-					return ::moonbeam::router::RouteHandler::call(&#handler, req, &params, #state).await;
+					return ::moonbeam::router::RouteHandler::call(&#handler, req, &params, #state).await.into();
 				}
 			});
 		}

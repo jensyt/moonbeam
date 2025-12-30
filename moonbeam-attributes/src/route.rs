@@ -120,7 +120,7 @@ pub fn route_impl(
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
 			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &'_[&'b str], state: &'static #state_ty_path)
-				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
+				-> impl ::std::future::Future<Output = impl ::core::convert::Into<::moonbeam::http::Response>>
 			{
 				#(#params_extraction)*
 				#call_expr

@@ -12,3 +12,5 @@
 - Handle panics in server
 - Content encoding (gzip, brotli)
 - Better routing
+- Support returning `impl Into<Response>` and `Result<impl Into<Response>, impl Into<Response>>`
+  from routes
