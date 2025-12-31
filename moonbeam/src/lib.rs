@@ -68,4 +68,4 @@ pub use httparse::Header;
 #[cfg(feature = "macros")]
 pub use moonbeam_attributes::server;
 #[cfg(feature = "router")]
-pub use moonbeam_attributes::{route, router};
+pub use moonbeam_attributes::{middleware, route, router};

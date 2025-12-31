@@ -12,6 +12,8 @@ use syn::{
 };
 
 #[cfg(feature = "router")]
+mod middleware;
+#[cfg(feature = "router")]
 mod route;
 #[cfg(feature = "router")]
 mod router;
@@ -225,4 +227,11 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn router(item: TokenStream) -> TokenStream {
 	router::router_impl(item)
+}
+
+/// Simplifies middleware signature.
+#[cfg(feature = "router")]
+#[proc_macro_attribute]
+pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {
+	middleware::middleware_impl(attr, item)
 }

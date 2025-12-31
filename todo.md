@@ -14,3 +14,5 @@
 - Better routing
 - Support returning `impl Into<Response>` and `Result<impl Into<Response>, impl Into<Response>>`
   from routes
+- Middleware support
+- Route prefixes
