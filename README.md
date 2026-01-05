@@ -9,7 +9,7 @@ Moonbeam is designed to be simple, efficient, and free of synchronization overhe
 - **Single-threaded Architecture**: No `Arc` or `Mutex` needed for shared state.
 - **Async I/O**: Efficiently handles many connections using non-blocking I/O.
 - **Simple API**: Use the `#[server]` macro to turn functions into server handlers.
-- **Basic Routing**: `router!` macro with path parameters (`:id`) and wildcards (`*path`).
+- **Advanced Routing**: `router!` macro supports nested groups, middleware chaining, fallbacks, path parameters, and wildcards.
 - **Static Assets**: Built-in support for serving files with ETags and MIME type detection.
 - **HTTP/1.1**: Supports persistent connections, chunked transfer encoding, and common headers.
 - **Standard Features**: Includes support for Cookies, Query Parameters, Headers, and Bodies.
@@ -100,42 +100,72 @@ async fn serve(req: Request<'_, '_>) -> Response {
 
 ## Routing
 
-Moonbeam offers a flexible routing system via the `router` feature (enabled by default).
+Moonbeam offers a flexible routing system via the `router` feature (enabled by default). It supports nested routes, middleware, and path extractors.
 
 ```rust
-use moonbeam::{Response, route, router, serve};
+use moonbeam::{Response, route, router, serve, middleware};
 use moonbeam::router::PathParams;
 
 struct AppState {
-    name: String,
+    api_key: String,
+}
+
+// Define middleware using the #[middleware] attribute
+#[middleware]
+async fn logger(req: Request, _state: &AppState, next: Next) -> Response {
+    println!("Log: {} {}", req.method, req.url());
+    next(req).await
+}
+
+#[middleware]
+async fn auth(req: Request, state: &AppState, next: Next) -> Response {
+    if let Some(key) = req.find_header("X-Api-Key") {
+        if key == state.api_key.as_bytes() {
+            return next(req).await;
+        }
+    }
+    Response::new_with_code(401).with_body("Unauthorized", Some("text/plain"))
 }
 
 #[route]
 async fn hello(PathParams(name): PathParams<&str>) -> Response {
-    Response::new_with_body(format!("Hello, {}!", name), None)
+    Response::new_with_body(format!("Hello, {}!", name), Some("text/plain"))
 }
 
 #[route]
-async fn greet(PathParams((first, last)): PathParams<(&str, &str)>, state: &'static AppState) -> Response {
-    Response::new_with_body(format!("Greetings, {} {} from {}!", first, last, state.name), None)
-}
-
-#[route]
-async fn serve_files(PathParams(path): PathParams<&str>) -> Response {
-    Response::new_with_body(format!("Requesting file: {}", path), None)
+async fn not_found() -> Response {
+    Response::new_with_code(404).with_body("Custom 404", Some("text/plain"))
 }
 
 fn main() {
-    // Define the router and map paths to handlers
+    // Define the router
     router!(MyRouter<AppState> {
+        // Global middleware
+        with logger
+
         get("/hello/:name") => hello,
-        get("/greet/:first/:last") => greet,
-        get("/static/*path") => serve_files,
+
+        // Route group with prefix
+        "/api" => {
+            // Middleware for this group
+            with auth
+
+            get("/status") => hello, // Reusing handler for demo
+            
+            // Nested group
+            "/v1" => {
+                post("/save") => hello
+            }
+            
+            // Fallback for /api/* (matches if no other route in /api matches)
+            _ => ! // ! means standard 404
+        }
+        
+        // Global fallback
+        _ => not_found
     });
 
-    let state = AppState { name: "Moonbeam".to_string() };
-    
-    // Initialize the router with state
+    let state = AppState { api_key: "secret".to_string() };
     let app = MyRouter::new(state);
     
     serve("127.0.0.1:8080", app);

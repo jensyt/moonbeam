@@ -42,6 +42,11 @@ async fn api_v1_status(_state: &State) -> Response {
 	Response::new_with_body("V1 Status OK", Some("text/plain"))
 }
 
+#[route]
+async fn not_found(_state: &State) -> Response {
+	Response::new_with_code(404).with_body("Custom Not Found", Some("text/plain"))
+}
+
 mod api {
 	use moonbeam::{Response, route};
 	#[route]
@@ -66,7 +71,10 @@ fn main() {
 			"/v1" => {
 				get("/status") => api_v1_status,
 			}
+			_ => !
 		}
+
+		_ => not_found
 	});
 
 	let router = MyRouter::new(State {

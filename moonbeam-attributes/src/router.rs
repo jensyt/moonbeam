@@ -18,6 +18,18 @@ enum RouterItem {
 	Route(RouteEntry),
 	Group(RouteGroup),
 	Middleware(MiddlewareEntry),
+	CatchAll(CatchAllEntry),
+}
+
+struct CatchAllEntry {
+	_underscore: Token![_],
+	_fat_arrow: Token![=>],
+	handler: Handler,
+}
+
+enum Handler {
+	Path(Path),
+	Bang(Token![!]),
 }
 
 struct RouteGroup {
@@ -72,10 +84,26 @@ impl Parse for RouterInput {
 	}
 }
 
+impl Parse for Handler {
+	fn parse(input: ParseStream) -> syn::Result<Self> {
+		if input.peek(Token![!]) {
+			Ok(Handler::Bang(input.parse()?))
+		} else {
+			Ok(Handler::Path(input.parse()?))
+		}
+	}
+}
+
 impl Parse for RouterItem {
 	fn parse(input: ParseStream) -> syn::Result<Self> {
 		if input.peek(LitStr) {
 			Ok(RouterItem::Group(input.parse()?))
+		} else if input.peek(Token![_]) {
+			Ok(RouterItem::CatchAll(CatchAllEntry {
+				_underscore: input.parse()?,
+				_fat_arrow: input.parse()?,
+				handler: input.parse()?,
+			}))
 		} else if input.peek(Ident) {
 			let ident: Ident = input.parse()?;
 			if ident == "with" {
@@ -90,7 +118,7 @@ impl Parse for RouterItem {
 				)?))
 			}
 		} else {
-			Err(input.error("expected route group, route, or middleware"))
+			Err(input.error("expected route group, route, middleware, or catch-all"))
 		}
 	}
 }
@@ -163,10 +191,11 @@ impl Parse for RouteEntry {
 }
 
 struct FinalRoute {
-	method: Ident,
+	method: String,
 	path: String,
-	handler: Path,
+	handler: Handler,
 	middleware_stack: Vec<Path>,
+	is_fallback: bool,
 }
 
 fn flatten_items(
@@ -176,6 +205,7 @@ fn flatten_items(
 	flat_routes: &mut Vec<FinalRoute>,
 ) {
 	let mut local_middleware = current_middleware.to_vec();
+	let mut has_catchall = false;
 
 	for item in items {
 		match item {
@@ -188,16 +218,54 @@ fn flatten_items(
 
 				let full_path = format!("{}{}", current_prefix, r.path.value());
 				flat_routes.push(FinalRoute {
-					method: r.method.clone(),
+					method: r.method.to_string().to_uppercase(),
 					path: full_path,
-					handler: r.handler.clone(),
+					handler: Handler::Path(r.handler.clone()),
 					middleware_stack: route_middleware,
+					is_fallback: false,
+				});
+			}
+			RouterItem::CatchAll(c) => {
+				has_catchall = true;
+				let route_middleware = local_middleware.clone();
+				// CatchAll applies to the current prefix
+				// We represent the path as the prefix itself
+				// If prefix is empty (root), path is empty string
+				let full_path = current_prefix.to_string();
+				flat_routes.push(FinalRoute {
+					method: "ANY".to_string(), // Special method
+					path: full_path,
+					handler: c.handler.match_cloned(),
+					middleware_stack: route_middleware,
+					is_fallback: true,
 				});
 			}
 			RouterItem::Group(g) => {
 				let new_prefix = format!("{}{}", current_prefix, g.prefix.value());
 				flatten_items(&g.items, &new_prefix, &local_middleware, flat_routes);
 			}
+		}
+	}
+
+	// Insert default catchall at root level if needed
+	if !has_catchall && current_prefix.is_empty() {
+		let route_middleware = local_middleware.clone();
+		let full_path = current_prefix.to_string();
+		flat_routes.push(FinalRoute {
+			method: "ANY".to_string(),
+			path: full_path,
+			handler: Handler::Bang(Default::default()),
+			middleware_stack: route_middleware,
+			is_fallback: true,
+		});
+	}
+}
+
+impl Handler {
+	fn match_cloned(&self) -> Self {
+		match self {
+			Handler::Path(p) => Handler::Path(p.clone()),
+			Handler::Bang(b) => Handler::Bang(*b),
 		}
 	}
 }
@@ -264,19 +332,23 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 			}
 
 			impl ::moonbeam::Server for #router_name {
-				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) -> impl ::std::future::Future<Output = ::moonbeam::http::Response> {
+				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) ->
+					impl ::std::future::Future<Output = ::moonbeam::http::Response>
+				{
 					async move {
 						let method = req.method;
 						let path = req.url();
 						let mut path_segments = [""; 8];
-						let len: usize = path.split('/').filter(|s| !s.is_empty()).zip(&mut path_segments).fold(0, |count, (src, dst)| {
-							*dst = src;
-							count + 1
-						});
+						let len: usize = path
+							.split('/')
+							.filter(|s| !s.is_empty())
+							.zip(&mut path_segments)
+							.fold(0, |count, (src, dst)| {
+								*dst = src;
+								count + 1
+							});
 
 						#route_logic
-
-						::moonbeam::http::Response::not_found()
 					}
 				}
 			}
@@ -286,11 +358,18 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 fn generate_route_logic(routes: &[FinalRoute], has_state: bool) -> TokenStream {
-	let mut routes_by_method: HashMap<String, Vec<&FinalRoute>> = HashMap::new();
+	let mut specific_routes_by_method: HashMap<String, Vec<&FinalRoute>> = HashMap::new();
+	let mut fallback_routes: Vec<&FinalRoute> = Vec::new();
 
 	for route in routes {
-		let method = route.method.to_string().to_uppercase();
-		routes_by_method.entry(method).or_default().push(route);
+		if route.is_fallback {
+			fallback_routes.push(route);
+		} else {
+			specific_routes_by_method
+				.entry(route.method.clone())
+				.or_default()
+				.push(route);
+		}
 	}
 
 	let mut method_match_arms = TokenStream::new();
@@ -300,89 +379,179 @@ fn generate_route_logic(routes: &[FinalRoute], has_state: bool) -> TokenStream {
 		quote! { self }
 	};
 
-	for (method, mut method_routes) in routes_by_method {
-		// Sort routes: Literal < Param < Rest
-		method_routes.sort_by(|a, b| {
-			let a_path = &a.path;
-			let b_path = &b.path;
-			let mut a_segments = a_path.split('/').filter(|s| !s.is_empty());
-			let mut b_segments = b_path.split('/').filter(|s| !s.is_empty());
+	let mut all_methods: Vec<&str> = specific_routes_by_method
+		.keys()
+		.map(String::as_str)
+		.collect();
+	all_methods.sort();
 
-			// Iterate segments
-			for (seg_a, seg_b) in (&mut a_segments).zip(&mut b_segments) {
-				let type_a = if seg_a.starts_with(':') {
-					1
-				} else if seg_a.starts_with('*') {
-					2
-				} else {
-					0
-				};
-				let type_b = if seg_b.starts_with(':') {
-					1
-				} else if seg_b.starts_with('*') {
-					2
-				} else {
-					0
-				};
+	for method in all_methods {
+		let mut method_routes = specific_routes_by_method.get(method).unwrap().clone();
+		// Add all fallbacks to this method's list
+		method_routes.extend(fallback_routes.iter().cloned());
 
-				if type_a != type_b {
-					return type_a.cmp(&type_b);
+		sort_routes(&mut method_routes);
+
+		let path_match_arms = generate_path_arms(&method_routes, &state);
+
+		method_match_arms.extend(quote! {
+			if method.eq_ignore_ascii_case(#method) {
+				match &path_segments[..len] {
+					#path_match_arms
 				}
-			}
-
-			// If prefix matches, sort longer one first
-			if a_segments.next().is_some() {
-				std::cmp::Ordering::Less
-			} else {
-				std::cmp::Ordering::Greater
-			}
+			} else
 		});
+	}
 
-		let mut path_match_arms = TokenStream::new();
+	// Final else block for unmatched methods (fallbacks only)
+	assert!(!fallback_routes.is_empty()); // Should never be empty because we inject a default fallback
+	sort_routes(&mut fallback_routes);
+	let path_match_arms = generate_path_arms(&fallback_routes, &state);
 
-		for route in method_routes {
-			let path_str = &route.path;
-			let handler = &route.handler;
-			let segments = path_str.split('/').filter(|s| !s.is_empty());
+	method_match_arms.extend(quote! {
+		{
+			match &path_segments[..len] {
+				#path_match_arms
+			}
+		}
+	});
 
-			let mut pattern_tokens = Vec::new();
-			let mut params_items = Vec::new();
+	method_match_arms
+}
 
-			for (i, segment) in segments.enumerate() {
-				if segment.starts_with(':') {
-					// Named parameter
-					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
-					pattern_tokens.push(quote! { #bind_name });
-					params_items.push(quote! { *#bind_name });
-				} else if segment.starts_with('*') {
-					// Rest parameter
-					let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
-					pattern_tokens.push(quote! { #bind_name @ .. });
+fn sort_routes(routes: &mut Vec<&FinalRoute>) {
+	routes.sort_by(|a, b| {
+		// Fallbacks always come after specific routes if paths are otherwise similar/prefix
 
-					params_items.push(quote! {
-						if #bind_name.is_empty() {
-							""
-						} else {
-							let start = #bind_name[0].as_ptr() as usize - path.as_ptr() as usize;
-							&path[start..]
-						}
-					});
-				} else {
-					// Literal
-					pattern_tokens.push(quote! { #segment });
+		let a_path = &a.path;
+		let b_path = &b.path;
+		let mut a_segments = a_path.split('/').filter(|s| !s.is_empty());
+		let mut b_segments = b_path.split('/').filter(|s| !s.is_empty());
+
+		// Iterate segments
+		loop {
+			match (a_segments.next(), b_segments.next()) {
+				(Some(sa), Some(sb)) => {
+					let type_a = if sa.starts_with(':') {
+						1
+					} else if sa.starts_with('*') {
+						2
+					} else {
+						0
+					};
+					let type_b = if sb.starts_with(':') {
+						1
+					} else if sb.starts_with('*') {
+						2
+					} else {
+						0
+					};
+
+					if type_a != type_b {
+						return type_a.cmp(&type_b);
+					}
+				}
+				(Some(_), None) => {
+					return std::cmp::Ordering::Less;
+				}
+				(None, Some(_)) => {
+					return std::cmp::Ordering::Greater;
+				}
+				(None, None) => {
+					if a.is_fallback && !b.is_fallback {
+						return std::cmp::Ordering::Greater;
+					} else if !a.is_fallback && b.is_fallback {
+						return std::cmp::Ordering::Less;
+					}
+					return std::cmp::Ordering::Equal;
 				}
 			}
+		}
+	});
+}
 
-			let pattern = quote! { [ #(#pattern_tokens),* ] };
-			let params_block = quote! {
-				let params = [ #(#params_items),* ];
-			};
+fn make_rest_param(
+	bind_name: Ident,
+	pattern_tokens: &mut Vec<TokenStream>,
+	params_items: &mut Vec<TokenStream>,
+) {
+	pattern_tokens.push(quote! { #bind_name @ .. });
 
-			// Build the middleware chain
-			// Start with the handler wrapped in a future that converts output to Response
-			let mut call_chain = quote! {
+	params_items.push(quote! {
+		if #bind_name.is_empty() {
+			""
+		} else {
+			let start = #bind_name[0].as_ptr() as usize - path.as_ptr() as usize;
+			&path[start..]
+		}
+	});
+}
+
+fn generate_path_arms(routes: &[&FinalRoute], state: &TokenStream) -> TokenStream {
+	let mut path_match_arms = TokenStream::new();
+
+	for route in routes {
+		let path_str = &route.path;
+		let handler = &route.handler;
+		let segments = path_str.split('/').filter(|s| !s.is_empty());
+
+		let mut pattern_tokens = Vec::new();
+		let mut params_items = Vec::new();
+
+		for (i, segment) in segments.enumerate() {
+			if segment.starts_with(':') {
+				// Named parameter
+				let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
+				pattern_tokens.push(quote! { #bind_name });
+				params_items.push(quote! { *#bind_name });
+			} else if segment.starts_with('*') {
+				// Rest parameter
+				let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
+				make_rest_param(bind_name, &mut pattern_tokens, &mut params_items);
+			} else {
+				// Literal
+				pattern_tokens.push(quote! { #segment });
+			}
+		}
+
+		if route.is_fallback {
+			match handler {
+				Handler::Path(_) => {
+					let bind_name = Ident::new("rest", proc_macro2::Span::call_site());
+					make_rest_param(bind_name, &mut pattern_tokens, &mut params_items);
+				}
+				Handler::Bang(_) => {
+					pattern_tokens.push(quote! { .. });
+				}
+			}
+		}
+
+		let pattern = quote! { [ #(#pattern_tokens),* ] };
+		let params_block = if route.is_fallback
+			&& let Handler::Bang(_) = handler
+		{
+			// Default fallback doesn't use params
+			quote! {}
+		} else {
+			quote! { let params = [ #(#params_items),* ]; }
+		};
+
+		// Build the middleware chain
+		let mut call_chain = match handler {
+			Handler::Path(p) => {
+				quote! {
+					::moonbeam::router::RouteHandler::call(&#p, req, &params, #state).await.into()
+				}
+			}
+			Handler::Bang(_) => quote! {
+				::moonbeam::http::Response::not_found()
+			},
+		};
+
+		if route.middleware_stack.len() > 0 {
+			call_chain = quote! {
 				async move {
-					::moonbeam::router::RouteHandler::call(&#handler, req, &params, #state).await.into()
+					#call_chain
 				}
 			};
 
@@ -393,27 +562,18 @@ fn generate_route_logic(routes: &[FinalRoute], has_state: bool) -> TokenStream {
 				};
 			}
 
-			path_match_arms.extend(quote! {
-				#pattern => {
-					#params_block
-					return #call_chain.await.into();
-				}
-			});
+			call_chain = quote! {
+				#call_chain.await
+			}
 		}
 
-		// Add default arm for path match
 		path_match_arms.extend(quote! {
-			_ => {}
-		});
-
-		method_match_arms.extend(quote! {
-			if method.eq_ignore_ascii_case(#method) {
-				match &path_segments[..len] {
-					#path_match_arms
-				}
+			#pattern => {
+				#params_block
+				#call_chain
 			}
 		});
 	}
 
-	method_match_arms
+	path_match_arms
 }
