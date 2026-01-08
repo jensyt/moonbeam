@@ -4,12 +4,12 @@ use moonbeam::{Body, Request, Response, Server, route, router};
 struct TestState;
 
 #[route]
-async fn ok_handler(_req: Request<'_, '_>) -> Result<Response, Response> {
+async fn ok_handler(_req: Request) -> Result<Response, Response> {
 	Ok(Response::ok().with_body("ok", None))
 }
 
 #[route]
-async fn err_handler(_req: Request<'_, '_>) -> Result<Response, Response> {
+async fn err_handler(_req: Request) -> Result<Response, Response> {
 	Err(Response::bad_request().with_body("error", None))
 }
 

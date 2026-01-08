@@ -14,7 +14,7 @@ struct State {
 }
 
 #[server(StatefulServer)]
-async fn handle_request(req: Request<'_, '_>, state: &State) -> Response {
+async fn handle_request(req: Request, state: &State) -> Response {
 	// Update atomic counter
 	let count = state.count.fetch_add(1, Ordering::Relaxed);
 

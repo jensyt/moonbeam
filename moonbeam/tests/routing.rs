@@ -11,7 +11,7 @@ struct TestState {
 // --- Handlers ---
 
 #[route]
-async fn index(_req: Request<'_, '_>) -> Response {
+async fn index(_req: Request) -> Response {
 	Response::ok().with_body("index", None)
 }
 
@@ -26,12 +26,12 @@ async fn get_post(PathParams((user_id, post_id)): PathParams<(&str, &str)>) -> R
 }
 
 #[route]
-async fn with_state(_req: Request<'_, '_>, state: &'static TestState) -> Response {
+async fn with_state(_req: Request, state: &'static TestState) -> Response {
 	Response::ok().with_body(format!("state: {}", state.value), None)
 }
 
 #[route]
-async fn create_item(_req: Request<'_, '_>) -> Response {
+async fn create_item(_req: Request) -> Response {
 	Response::new_with_code(201).with_body("created", None)
 }
 

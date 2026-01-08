@@ -7,8 +7,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-	FnArg, Ident, ItemFn, ReturnType, Type, TypeImplTrait, parse::Parse, parse::ParseStream,
-	parse_macro_input,
+	FnArg, Ident, ItemFn, PathArguments, ReturnType, Type, TypeImplTrait, TypeReference,
+	parse::{Parse, ParseStream},
+	parse_macro_input, parse_quote,
 };
 
 #[cfg(feature = "router")]
@@ -50,7 +51,7 @@ impl Parse for ServerArgs {
 /// use moonbeam::{Request, Response, server};
 ///
 /// #[server(MyServer)]
-/// async fn handle_request(req: Request<'_, '_>) -> Response {
+/// async fn handle_request(req: Request) -> Response {
 ///     Response::ok().with_body("Hello World!", None)
 /// }
 ///
@@ -60,11 +61,10 @@ impl Parse for ServerArgs {
 #[proc_macro_attribute]
 pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 	let args = parse_macro_input!(attr as ServerArgs);
-	let input_fn = parse_macro_input!(item as ItemFn);
+	let mut input_fn = parse_macro_input!(item as ItemFn);
 
 	let wrapper_name = args.name;
-	let sig = &input_fn.sig;
-	let fn_name = &sig.ident;
+	let sig = &mut input_fn.sig;
 
 	// Check if return type is async or impl Future
 	let is_async = sig.asyncness.is_some()
@@ -73,41 +73,32 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 			ReturnType::Default => false,
 		};
 
-	// Extract first parameter (request)
-	match sig.inputs.first() {
-		Some(FnArg::Typed(_)) => (),
-		_ => {
+	if let None = check_request(sig.inputs.first_mut()) {
+		return syn::Error::new_spanned(&input_fn.sig.inputs, "First parameter must be Request")
+			.to_compile_error()
+			.into();
+	}
+
+	let second_param = if sig.inputs.len() > 1 {
+		if let None = check_state(sig.inputs.iter_mut().nth(1)) {
 			return syn::Error::new_spanned(
-				&sig.inputs.first(),
-				"First parameter must be Request<'_, '_>",
+				&sig.inputs,
+				"Second parameter must be: state: &'static State",
 			)
 			.to_compile_error()
 			.into();
-		}
-	};
-
-	// Extract second parameter (state)
-	let second_param = if sig.inputs.len() > 1 {
-		match sig.inputs.iter().nth(1) {
-			Some(FnArg::Typed(pat_type)) => Some(pat_type),
-			_ => {
-				return syn::Error::new_spanned(
-					&sig.inputs,
-					"Second parameter must be: state: &'static State",
-				)
-				.to_compile_error()
-				.into();
-			}
+		} else {
+			Some(get_state(input_fn.sig.inputs.iter().nth(1)))
 		}
 	} else {
 		None
 	};
 
-	let output = if let Some(second_param) = second_param {
-		let state_type = &second_param.ty;
+	let fn_name = &input_fn.sig.ident;
 
-		// Extract the State type from &'static State
-		let inner_state_type = extract_static_ref_type(state_type);
+	let output = if let Some(ref_type) = second_param {
+		// State type
+		let elem = &ref_type.elem;
 
 		// Generate the route implementation based on async status
 		let route_impl = if is_async {
@@ -137,7 +128,7 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 			#input_fn
 
 			#[repr(transparent)]
-			pub(crate) struct #wrapper_name(#inner_state_type);
+			pub(crate) struct #wrapper_name(#elem);
 
 			impl ::moonbeam::Server for #wrapper_name {
 				#route_impl
@@ -182,6 +173,46 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 	output.into()
 }
 
+fn check_request(arg: Option<&mut FnArg>) -> Option<()> {
+	if let FnArg::Typed(pat_type) = arg?
+		&& let Type::Path(type_path) = &mut *pat_type.ty
+		&& let segment = type_path.path.segments.last_mut()?
+		&& segment.ident == "Request"
+	{
+		if segment.arguments.is_empty() {
+			// Inject default lifetime parameters if needed
+			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
+		}
+		Some(())
+	} else {
+		None
+	}
+}
+
+fn check_state(arg: Option<&mut FnArg>) -> Option<()> {
+	if let FnArg::Typed(pat_type) = arg?
+		&& let Type::Reference(type_ref) = &mut *pat_type.ty
+	{
+		if type_ref.lifetime.is_none() {
+			// Inject static lifetime if needed
+			type_ref.lifetime = Some(parse_quote!('static));
+		}
+		Some(())
+	} else {
+		None
+	}
+}
+
+fn get_state(arg: Option<&FnArg>) -> &TypeReference {
+	if let Some(FnArg::Typed(pat_type)) = arg
+		&& let Type::Reference(type_ref) = &*pat_type.ty
+	{
+		type_ref
+	} else {
+		unreachable!("call to check_state first should ensure this never happens")
+	}
+}
+
 // Helper function to check if a type is impl Future
 fn is_impl_future(ty: &Type) -> bool {
 	match ty {
@@ -198,20 +229,6 @@ fn is_impl_future(ty: &Type) -> bool {
 			}
 		}),
 		_ => false,
-	}
-}
-
-// Helper function to extract State from &'static State
-fn extract_static_ref_type(ty: &Type) -> proc_macro2::TokenStream {
-	match ty {
-		Type::Reference(type_ref) => {
-			let elem = &type_ref.elem;
-			quote! { #elem }
-		}
-		_ => {
-			// Fallback if it's not a reference type
-			quote! { #ty }
-		}
 	}
 }
 

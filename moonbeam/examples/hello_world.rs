@@ -1,7 +1,7 @@
 use moonbeam::{Request, Response, server};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request<'_, '_>) -> Response {
+async fn serve(_request: Request) -> Response {
 	Response::new_with_body("Hello, World!", Some("text/plain"))
 }
 

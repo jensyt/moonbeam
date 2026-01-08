@@ -48,7 +48,7 @@ Moonbeam provides several feature flags to configure functionality and dependenc
 use moonbeam::{Request, Response, server};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request<'_, '_>) -> Response {
+async fn serve(_request: Request) -> Response {
     Response::new_with_body("Hello, World!", Some("text/plain"))
 }
 
@@ -71,7 +71,7 @@ struct State {
 }
 
 #[server(CounterServer)]
-async fn serve(_req: Request<'_, '_>, state: &'static State) -> Response {
+async fn serve(_req: Request, state: &'static State) -> Response {
     let count = state.count.get();
     state.count.set(count + 1);
     Response::new_with_body(format!("Request #{}", count), None)
@@ -91,7 +91,7 @@ Moonbeam includes a helper for serving static assets.
 use moonbeam::{Request, Response, server, assets::get_asset};
 
 #[server(FileServer)]
-async fn serve(req: Request<'_, '_>) -> Response {
+async fn serve(req: Request) -> Response {
     // Serve files from the current directory
     let etag = req.find_header("If-None-Match");
     get_asset(req.path, etag, ".")

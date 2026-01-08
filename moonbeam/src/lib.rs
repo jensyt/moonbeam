@@ -17,7 +17,7 @@
 //! use moonbeam::{Request, Response, server, serve};
 //!
 //! #[server(MyServer)]
-//! async fn handle_request(_req: Request<'_, '_>) -> Response {
+//! async fn handle_request(_req: Request) -> Response {
 //!     Response::ok().with_body("Hello, World!", None)
 //! }
 //!
@@ -36,7 +36,7 @@
 //! }
 //!
 //! #[server(MyStatefulServer)]
-//! async fn handle_request(_req: Request<'_, '_>, state: &State) -> Response {
+//! async fn handle_request(_req: Request, state: &State) -> Response {
 //!     let count = state.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 //!     Response::ok().with_body(format!("Request count: {}", count), None)
 //! }

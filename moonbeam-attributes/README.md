@@ -31,7 +31,7 @@ The function can be `async` or return `impl Future`.
 use moonbeam::{Request, Response, server, serve};
 
 #[server(MyServer)]
-async fn handle_request(_req: Request<'_, '_>) -> Response {
+async fn handle_request(_req: Request) -> Response {
     Response::ok().with_body("Hello, World!", None)
 }
 
@@ -51,7 +51,7 @@ struct State {
 }
 
 #[server(MyStatefulServer)]
-async fn handle_request(_req: Request<'_, '_>, state: &'static State) -> Response {
+async fn handle_request(_req: Request, state: &'static State) -> Response {
     let count = state.count.fetch_add(1, Ordering::Relaxed);
     Response::ok().with_body(format!("Request count: {}", count), None)
 }
@@ -64,4 +64,62 @@ fn main() {
     // Pass the state to the generated struct constructor.
     serve("127.0.0.1:8080", MyStatefulServer(state));
 }
+```
+
+### `#[route]`
+
+The `#[route]` macro defines a route handler that can be used within a `router!`. It automatically handles parameter extraction (like `PathParams`) and state injection.
+
+#### Example
+
+```rust
+use moonbeam::{Response, route};
+use moonbeam::router::PathParams;
+
+#[route]
+async fn hello_user(PathParams(name): PathParams<&str>) -> Response {
+    Response::ok().with_body(format!("Hello, {}!", name), None)
+}
+```
+
+### `#[middleware]`
+
+The `#[middleware]` macro simplifies the creation of middleware. It injects the necessary lifetimes and types for the `Request` and the `Next` function.
+
+#### Example
+
+```rust
+use moonbeam::{Request, Response, middleware};
+
+#[middleware]
+async fn logger(req: Request, state: &AppState, next: Next) -> Response {
+    println!("Request: {} {}", req.method, req.path);
+    next(req).await
+}
+```
+
+### `router!`
+
+The `router!` macro provides a declarative DSL for defining complex routing trees, including nesting, middleware, and fallbacks.
+
+#### Example
+
+```rust
+router!(MyRouter<AppState> {
+    // Apply global middleware
+    with logger
+
+    // Define routes
+    get("/") => index_handler,
+    get("/hello/:name") => hello_user,
+
+    // Nested groups with prefixes
+    "/api" => {
+        with auth_middleware
+        get("/data") => data_handler
+    }
+
+    // Fallback route
+    _ => not_found_handler
+});
 ```

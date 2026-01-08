@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{FnArg, ItemFn, Type, parse_macro_input, spanned::Spanned};
+use syn::{FnArg, ItemFn, PathArguments, Type, parse_macro_input, parse_quote, spanned::Spanned};
 
 /// Implementation logic for the `#[route]` attribute macro.
 ///
@@ -13,7 +13,7 @@ use syn::{FnArg, ItemFn, Type, parse_macro_input, spanned::Spanned};
 ///
 /// ```ignore
 /// #[route]
-/// async fn get_user(req: Request<'_, '_>, PathParams(id): PathParams<&str>) -> Response {
+/// async fn get_user(req: Request, PathParams(id): PathParams<&str>) -> Response {
 ///     // ...
 /// }
 /// ```
@@ -26,76 +26,87 @@ pub fn route_impl(
 	_attr: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-	let input_fn = parse_macro_input!(item as ItemFn);
-	let vis = &input_fn.vis;
-	let sig = &input_fn.sig;
-	let fn_name = &sig.ident;
-	let inputs = &sig.inputs;
+	let mut input_fn = parse_macro_input!(item as ItemFn);
 
 	let mut params_extraction = Vec::new();
 	let mut call_args = Vec::new();
 	let mut state_type: Option<Type> = None;
 
-	for arg in inputs {
-		match arg {
-			FnArg::Typed(pat_type) => {
-				let ty = &pat_type.ty;
+	for arg in &mut input_fn.sig.inputs {
+		if let FnArg::Typed(pat_type) = arg {
+			let ty = &mut pat_type.ty;
 
-				// Check for PathParams
-				let is_path_params = if let Type::Path(type_path) = &**ty {
-					type_path
-						.path
-						.segments
-						.last()
-						.map(|s| s.ident == "PathParams")
-						.unwrap_or(false)
-				} else {
-					false
-				};
+			// Check for PathParams
+			let is_path_params = if let Type::Path(type_path) = &**ty {
+				type_path
+					.path
+					.segments
+					.last()
+					.map(|s| s.ident == "PathParams")
+					.unwrap_or(false)
+			} else {
+				false
+			};
 
-				// Check for Request
-				let is_request = if let Type::Path(type_path) = &**ty {
-					type_path
-						.path
-						.segments
-						.last()
-						.map(|s| s.ident == "Request")
-						.unwrap_or(false)
-				} else {
-					false
-				};
+			// Check for Request
+			let is_request = if let Type::Path(type_path) = &mut **ty {
+				type_path
+					.path
+					.segments
+					.last_mut()
+					.map(|s| {
+						if s.ident == "Request" {
+							// Add lifetime parameters if needed
+							if s.arguments.is_empty() {
+								s.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
+							}
+							true
+						} else {
+							false
+						}
+					})
+					.unwrap_or(false)
+			} else {
+				false
+			};
 
-				if is_path_params {
-					params_extraction.push(quote! {
-						let arg_params = <#ty as ::moonbeam::router::FromParams>::from_params(
-							params
-						);
-					});
-					call_args.push(quote!(arg_params));
-				} else if is_request {
-					call_args.push(quote!(req));
-				} else {
-					// Default to state
-					if let Type::Reference(type_ref) = &**ty {
-						state_type = Some(*type_ref.elem.clone());
-						call_args.push(quote!(state));
-					} else {
-						return syn::Error::new(
-							ty.span(),
-							"State arguments must be references (e.g. &State)",
-						)
-						.to_compile_error()
-						.into();
+			if is_path_params {
+				params_extraction.push(quote! {
+					let arg_params = <#ty as ::moonbeam::router::FromParams>::from_params(
+						params
+					);
+				});
+				call_args.push(quote!(arg_params));
+			} else if is_request {
+				call_args.push(quote!(req));
+			} else {
+				// Default to state
+				if let Type::Reference(type_ref) = &mut **ty {
+					if type_ref.lifetime.is_none() {
+						// Inject static lifetime if needed
+						type_ref.lifetime = Some(parse_quote!('static));
 					}
-				}
-			}
-			FnArg::Receiver(_) => {
-				return syn::Error::new(arg.span(), "Route handlers cannot take 'self'")
+					state_type = Some(*type_ref.elem.clone());
+					call_args.push(quote!(state));
+				} else {
+					return syn::Error::new(
+						ty.span(),
+						"State arguments must be references (e.g. &State)",
+					)
 					.to_compile_error()
 					.into();
+				}
 			}
+		} else {
+			return syn::Error::new(arg.span(), "Route handlers cannot take 'self'")
+				.to_compile_error()
+				.into();
 		}
 	}
+
+	let vis = &input_fn.vis;
+	let sig = &input_fn.sig;
+	let fn_name = &sig.ident;
 
 	let is_async = sig.asyncness.is_some();
 	let call_expr = if is_async {
