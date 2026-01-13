@@ -1,21 +1,22 @@
 # Moonbeam
 
-A single-threaded async HTTP server written in Rust.
+A single-threaded-first async HTTP/1.1 server written in Rust.
 
-Moonbeam is designed to be simple, efficient, and free of synchronization overhead by running on a single thread. It leverages `async-io` and `futures-lite` to handle concurrent connections asynchronously.
+Moonbeam is designed to be simple, efficient, and free of synchronization overhead by running on a single thread, with the ability to extend to multiple threads using a "share nothing" philosophy if desired. It leverages `async-io` and `futures-lite` to handle concurrent connections asynchronously.
 
 ## Features
 
-- **Single-threaded Architecture**: No `Arc` or `Mutex` needed for shared state.
+- **Single-threaded by default**: No `Arc` or `Mutex` needed for shared state.
+- **Multi-threaded support**: Each thread gets a copy of state by default, but you can add synchronization of shared state if needed.
 - **Async I/O**: Efficiently handles many connections using non-blocking I/O.
 - **Simple API**: Use the `#[server]` macro to turn functions into server handlers.
-- **Advanced Routing**: `router!` macro supports nested groups, middleware chaining, fallbacks, path parameters, and wildcards.
+- **Routing**: `router!` macro supports nested groups, middleware chaining, fallbacks, path parameters, and wildcards.
 - **Static Assets**: Built-in support for serving files with ETags and MIME type detection.
 - **HTTP/1.1**: Supports persistent connections, chunked transfer encoding, and common headers.
 - **Standard Features**: Includes support for Cookies, Query Parameters, Headers, and Bodies.
-- **Panic Handling**: Robust server that catches panics in request handlers.
+- **Panic Handling**: Can catch panics in request handlers if desired.
 - **Response Compression**: Supports automatic compression of responses (Gzip, Brotli, Zlib).
-- **Graceful Shutdown**: Handles signals for clean shutdown.
+- **Graceful Shutdown**: Optionally handles signals for clean shutdown.
 
 ## Installation
 
@@ -23,7 +24,7 @@ Add `moonbeam` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.2.2"
+moonbeam = "0.2.3"
 ```
 
 ## Feature Flags
@@ -39,6 +40,7 @@ Moonbeam provides several feature flags to configure functionality and dependenc
 - **tracing**: Enables `tracing` instrumentation.
 - **compress**: Enables HTTP response compression (gzip, brotli, zlib).
 - **router**: Enables the routing system (`#[route]` and `router!` macros).
+- **mt**: Enables multi-threading support (`serve_multi`).
 
 ## Usage
 
@@ -60,7 +62,7 @@ fn main() {
 
 ### State Management
 
-Since Moonbeam is single-threaded, you can use `Cell` or `RefCell` for interior mutability without thread-safe primitives.
+Since Moonbeam is single-threaded by default, you can use `Cell` or `RefCell` for interior mutability without thread-safe primitives.
 
 ```rust
 use std::cell::Cell;

@@ -1,6 +1,6 @@
 [package]
 name = "moonbeam"
-version = "0.2.2"
+version = "0.2.3"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -23,6 +23,7 @@ async-fs = {version = "2.2", optional = true}
 percent-encoding = "2.3"
 moonbeam-attributes = {path = "../moonbeam-attributes", optional = true}
 async-compression = {version = "0.4", features = ["gzip", "brotli", "zlib", "futures-io"], optional = true}
+flume = {version = "0.12", default-features = false, features = ["async"], optional = true}
 
 [features]
 default = ["asyncfs", "assets", "macros", "catchpanic", "signals", "router"]
@@ -34,6 +35,7 @@ macros = ["dep:moonbeam-attributes"]
 catchpanic = []
 compress = ["dep:async-compression"]
 router = ["macros", "moonbeam-attributes/router"]
+mt = ["dep:flume"]
 
 [dev-dependencies]
 piper = "0.2"

@@ -22,6 +22,8 @@ const BUFSIZE: usize = 16 * 1024;
 // mod bufpool;
 #[cfg(feature = "compress")]
 mod compress;
+#[cfg(feature = "mt")]
+pub mod mt;
 mod parsing;
 pub mod task;
 #[cfg(feature = "signals")]
@@ -53,7 +55,8 @@ where
 	/// Clean up resources.
 	///
 	/// # Safety
-	/// This function drops the static reference to self. It should only be called when the server is shutting down.
+	/// This function drops the static reference to self. It should only be called when the server
+	/// is shutting down.
 	unsafe fn destroy(&'static self) {
 		unsafe {
 			drop(Box::from_raw(&raw const *self as *mut Self));
