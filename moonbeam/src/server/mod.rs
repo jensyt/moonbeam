@@ -15,7 +15,6 @@ use std::{
 };
 use std::{mem::MaybeUninit, net::SocketAddr, time::Duration};
 use task::{get_local_executor, new_local_task};
-use writer::BodyWriteFuture;
 
 const BUFSIZE: usize = 16 * 1024;
 
@@ -28,7 +27,6 @@ mod parsing;
 pub mod task;
 #[cfg(feature = "signals")]
 mod task_tracker;
-mod writer;
 
 /// Represents an HTTP server that can handle requests.
 ///
@@ -181,7 +179,7 @@ where
 	let (reqbuf, respbuf) = buf.split_at_mut(BUFSIZE / 2);
 	let mut total = 0;
 
-	while total < reqbuf.len() {
+	'outer: while total < reqbuf.len() {
 		let mut start = match read_from_socket(&mut socket, &mut reqbuf[total..], total).await {
 			Ok((start, end)) => {
 				total = end;
@@ -208,8 +206,13 @@ where
 			let mut req = match parse_http_request(head, &mut headers) {
 				Err(e) => {
 					tracing::error!(error = ?e, "Failed to parse HTTP header");
-					write_error_response(&mut socket, Response::bad_request(), respbuf).await;
-					break;
+					write_error_response(
+						&mut socket,
+						Response::bad_request().with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					break 'outer;
 				}
 				Ok(req) => req,
 			};
@@ -220,15 +223,20 @@ where
 			req.body = {
 				if contentlength > body.len() {
 					tracing::error!(error = "too big", "Failed to read HTTP body");
-					write_error_response(&mut socket, Response::content_too_large(), respbuf).await;
-					break;
+					write_error_response(
+						&mut socket,
+						Response::content_too_large().with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					break 'outer;
 				} else if contentlength > total - offset {
 					if let Err(e) = socket
 						.read_exact(&mut body[total - offset..contentlength])
 						.await
 					{
 						tracing::error!(error = ?e, "Failed to read HTTP body");
-						break;
+						break 'outer;
 					}
 				}
 
@@ -268,7 +276,7 @@ where
 				Ok(buf) => buf,
 				Err(e) => {
 					tracing::error!("Failed to write response: {:?}", e);
-					break;
+					break 'outer;
 				}
 			};
 
@@ -293,22 +301,56 @@ where
 					socket_write!(socket.write_all(body.as_slice()));
 					tracing::trace!(body_len = body.len(), "Wrote headers and body separately");
 				}
-				Some(Body::Stream { data, len }) => {
-					let preread = head.len();
-					socket_write!(BodyWriteFuture::new(
-						respbuf,
-						preread,
-						data,
-						len.map(|v| v as usize),
-						&mut socket,
-					));
+				Some(Body::Stream { mut data, len }) => {
+					struct Buffer {
+						data: Vec<u8>,
+						len: usize,
+					}
+
+					let headlen = head.len();
+					let mut respbufcopy = vec![0; BUFSIZE];
+					respbufcopy[0..headlen].copy_from_slice(&respbuf[0..headlen]);
+					let (send_full, recv_full) = flume::bounded(2);
+					let (send_empty, recv_empty) = flume::bounded(2);
+					send_empty
+						.send(Buffer {
+							data: respbufcopy,
+							len: headlen,
+						})
+						.unwrap();
+					send_empty
+						.send(Buffer {
+							data: vec![0; BUFSIZE],
+							len: 0,
+						})
+						.unwrap();
+
+					let _reader = blocking::unblock(move || -> std::io::Result<()> {
+						while let Ok(mut buf) = recv_empty.recv() {
+							let n = data.read(&mut buf.data[buf.len..])?;
+							if n == 0 {
+								break;
+							}
+							buf.len += n;
+							if send_full.send(buf).is_err() {
+								break;
+							}
+						}
+						Ok(())
+					});
+
+					while let Ok(mut buf) = recv_full.recv_async().await {
+						socket_write!(socket.write_all(&buf.data[0..buf.len]));
+						buf.len = 0;
+						let _ = send_empty.send_async(buf).await;
+					}
 					tracing::trace!(len, "Streamed body");
 				}
 			}
 
 			if close {
 				tracing::trace!("Got Connection: close header");
-				break;
+				break 'outer;
 			}
 
 			// Reset the request buffer
@@ -319,6 +361,7 @@ where
 		}
 	}
 
+	// TODO: this can be triggered even if it's not true! Needs a fix.
 	if total == reqbuf.len() {
 		write_error_response(&mut socket, Response::headers_too_large(), respbuf).await;
 		tracing::error!(
@@ -784,35 +827,20 @@ mod tests {
 		});
 	}
 
-	// Helper to create a stream body from a string
-	fn stream_body(content: impl Into<Vec<u8>>) -> Box<dyn AsyncRead + Unpin + 'static> {
-		let (reader, mut writer) = piper::pipe(1024);
-		let content = content.into();
-
-		std::thread::spawn(move || {
-			futures_lite::future::block_on(async move {
-				writer.write_all(&content).await.unwrap();
-				writer.close().await.unwrap();
-			});
-		});
-
-		Box::new(reader)
-	}
-
 	struct StreamServer;
 	impl Server for StreamServer {
 		async fn route(&'static self, req: Request<'_, '_>) -> Response {
 			if req.path == "/stream" {
 				let content = "Streamed Content";
 				let body = Body::Stream {
-					data: stream_body(content),
 					len: Some(content.len() as u64),
+					data: Box::new(std::io::Cursor::new(content)),
 				};
 				Response::ok().with_body(body, None)
 			} else if req.path == "/chunked" {
 				let content = "Chunked Content";
 				let body = Body::Stream {
-					data: stream_body(content),
+					data: Box::new(std::io::Cursor::new(content)),
 					len: None,
 				};
 				Response::ok().with_body(body, None)
@@ -881,7 +909,7 @@ mod tests {
 
 		let test_future = async move {
 			client_tx
-				.write_all(b"GET /chunked HTTP/1.1\r\n\r\n")
+				.write_all(b"GET /chunked HTTP/1.1\r\nConnection: close\r\n\r\n")
 				.await
 				.unwrap();
 
@@ -904,11 +932,11 @@ mod tests {
 				}
 			}
 			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+			println!("{}", response);
 
 			assert!(response.contains("HTTP/1.1 200 OK"));
 			assert!(response.contains("Transfer-Encoding: chunked"));
-			assert!(response.contains("Chunked Content"));
-			assert!(response.ends_with("0\r\n\r\n"));
+			assert!(response.ends_with("f\r\nChunked Content\r\n0\r\n\r\n"));
 		};
 
 		futures_lite::future::block_on(async {

@@ -1,10 +1,10 @@
 use crate::http::{cookies::Cookies, params::Params};
-use futures_lite::AsyncRead;
 use httparse::{Header, Request as RawRequest};
 use percent_encoding::percent_decode_str;
 use std::{
 	borrow::{Borrow, Cow},
 	fmt::Debug,
+	io::Read,
 };
 
 pub mod cookies;
@@ -322,7 +322,7 @@ pub enum Body {
 	/// In-memory body data.
 	Immediate(Vec<u8>),
 	Stream {
-		data: Box<dyn AsyncRead + Unpin + 'static>,
+		data: Box<dyn Read + Send + 'static>,
 		/// The length of the body, if known.
 		len: Option<u64>,
 	},
@@ -377,23 +377,12 @@ impl From<Box<[u8]>> for Body {
 	}
 }
 
-#[cfg(feature = "asyncfs")]
 impl From<std::fs::File> for Body {
 	fn from(file: std::fs::File) -> Self {
 		let len = file.metadata().map(|meta| meta.len()).ok();
 		Body::Stream {
-			data: Box::new(async_fs::File::from(file)),
-			len,
-		}
-	}
-}
-
-#[cfg(feature = "asyncfs")]
-impl From<async_fs::File> for Body {
-	fn from(file: async_fs::File) -> Self {
-		Body::Stream {
 			data: Box::new(file),
-			len: None,
+			len,
 		}
 	}
 }
