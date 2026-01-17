@@ -22,7 +22,8 @@ async-signal = {version = "0.2", optional = true}
 blocking = "1.6"
 percent-encoding = "2.3"
 moonbeam-attributes = {path = "../moonbeam-attributes", optional = true}
-async-compression = {version = "0.4", features = ["gzip", "brotli", "zlib", "futures-io"], optional = true}
+flate2 = {version = "1.1", optional = true}
+brotli = {version = "8", optional = true, features = ["std"]}
 flume = {version = "0.12", default-features = false, features = ["async"]}
 
 [features]
@@ -32,11 +33,9 @@ tracing = ["dep:tracing"]
 assets = []
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
-compress = ["dep:async-compression"]
+compress = ["dep:flate2", "dep:brotli"]
 router = ["macros", "moonbeam-attributes/router"]
 mt = []
 
 [dev-dependencies]
 piper = "0.2"
-flate2 = "1.0"
-brotli = "6"

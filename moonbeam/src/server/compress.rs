@@ -1,6 +1,5 @@
 use crate::http::{Body, Request, Response};
-use futures_lite::AsyncRead;
-use futures_lite::io::{BufReader, Cursor};
+use std::io::{Cursor, Read};
 
 pub fn apply_compression(req: &Request, resp: &mut Response) {
 	if resp.body.is_none() && resp.status != 304 {
@@ -45,30 +44,55 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 			resp.headers
 				.retain(|(n, _)| !n.eq_ignore_ascii_case("content-length"));
 
-			let body_stream: Box<dyn AsyncRead + Unpin + 'static> = match resp.body.take() {
-				Some(Body::Immediate(data)) => Box::new(Cursor::new(data)),
-				Some(Body::Stream { data, .. }) => data,
-				None => {
-					unreachable!("Compression applied to empty body (checked at function start)")
+			let compressed_stream: Box<dyn Read + Send + 'static> = if use_brotli {
+				match resp.body.take() {
+					Some(Body::Immediate(data)) => Box::new(brotli::CompressorReader::new(
+						Cursor::new(data),
+						4 * 1024,
+						5,
+						20,
+					)),
+					Some(Body::Stream { data, .. }) => {
+						Box::new(brotli::CompressorReader::new(data, 8 * 1024, 5, 20))
+					}
+					None => {
+						unreachable!(
+							"Compression applied to empty body (checked at function start)"
+						)
+					}
 				}
-			};
-
-			// Wrap in BufReader to satisfy AsyncBufRead with controlled capacity
-			// 8KB is a standard buffer size for IO
-			let reader = BufReader::with_capacity(8 * 1024, body_stream);
-
-			let compressed_stream: Box<dyn AsyncRead + Unpin + 'static> = if use_brotli {
-				Box::new(async_compression::futures::bufread::BrotliEncoder::new(
-					reader,
-				))
 			} else if use_gzip {
-				Box::new(async_compression::futures::bufread::GzipEncoder::new(
-					reader,
-				))
+				match resp.body.take() {
+					Some(Body::Immediate(data)) => Box::new(flate2::bufread::GzEncoder::new(
+						Cursor::new(data),
+						flate2::Compression::default(),
+					)),
+					Some(Body::Stream { data, .. }) => Box::new(flate2::read::GzEncoder::new(
+						data,
+						flate2::Compression::default(),
+					)),
+					None => {
+						unreachable!(
+							"Compression applied to empty body (checked at function start)"
+						)
+					}
+				}
 			} else {
-				Box::new(async_compression::futures::bufread::ZlibEncoder::new(
-					reader,
-				))
+				match resp.body.take() {
+					Some(Body::Immediate(data)) => Box::new(flate2::bufread::ZlibEncoder::new(
+						Cursor::new(data),
+						flate2::Compression::default(),
+					)),
+					Some(Body::Stream { data, .. }) => Box::new(flate2::read::ZlibEncoder::new(
+						data,
+						flate2::Compression::default(),
+					)),
+					None => {
+						unreachable!(
+							"Compression applied to empty body (checked at function start)"
+						)
+					}
+				}
 			};
 
 			resp.body = Some(Body::Stream {
