@@ -10,7 +10,7 @@ use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
 #[cfg(feature = "catchpanic")]
 use std::panic::AssertUnwindSafe;
 use std::{
-	io::{Error, ErrorKind, Write},
+	io::{Error, ErrorKind, Read, Write},
 	time::SystemTime,
 };
 use std::{mem::MaybeUninit, net::SocketAddr, time::Duration};
@@ -301,49 +301,8 @@ where
 					socket_write!(socket.write_all(body.as_slice()));
 					tracing::trace!(body_len = body.len(), "Wrote headers and body separately");
 				}
-				Some(Body::Stream { mut data, len }) => {
-					struct Buffer {
-						data: Vec<u8>,
-						len: usize,
-					}
-
-					let headlen = head.len();
-					let mut respbufcopy = vec![0; BUFSIZE];
-					respbufcopy[0..headlen].copy_from_slice(&respbuf[0..headlen]);
-					let (send_full, recv_full) = flume::bounded(2);
-					let (send_empty, recv_empty) = flume::bounded(2);
-					send_empty
-						.send(Buffer {
-							data: respbufcopy,
-							len: headlen,
-						})
-						.unwrap();
-					send_empty
-						.send(Buffer {
-							data: vec![0; BUFSIZE],
-							len: 0,
-						})
-						.unwrap();
-
-					let _reader = blocking::unblock(move || -> std::io::Result<()> {
-						while let Ok(mut buf) = recv_empty.recv() {
-							let n = data.read(&mut buf.data[buf.len..])?;
-							if n == 0 {
-								break;
-							}
-							buf.len += n;
-							if send_full.send(buf).is_err() {
-								break;
-							}
-						}
-						Ok(())
-					});
-
-					while let Ok(mut buf) = recv_full.recv_async().await {
-						socket_write!(socket.write_all(&buf.data[0..buf.len]));
-						buf.len = 0;
-						let _ = send_empty.send_async(buf).await;
-					}
+				Some(Body::Stream { data, len }) => {
+					socket_write!(write_stream_body(&mut socket, data, len, head));
 					tracing::trace!(len, "Streamed body");
 				}
 			}
@@ -503,6 +462,116 @@ fn write_response<'a, 'b>(
 	Ok((header, remaining))
 }
 
+async fn write_stream_body<S>(
+	socket: &mut S,
+	data: Box<dyn Read + Send + 'static>,
+	len: Option<u64>,
+	head: &[u8],
+) -> std::io::Result<()>
+where
+	S: AsyncWrite + Unpin,
+{
+	struct Buffer {
+		data: Vec<u8>,
+		len: usize,
+	}
+
+	let headlen = head.len();
+	let mut respbufcopy = vec![0; BUFSIZE];
+	respbufcopy[0..headlen].copy_from_slice(head);
+
+	let (send_full, recv_full) = flume::bounded(2);
+	let (send_empty, recv_empty) = flume::bounded(2);
+	send_empty
+		.send(Buffer {
+			data: respbufcopy,
+			len: headlen,
+		})
+		.unwrap();
+	send_empty
+		.send(Buffer {
+			data: vec![0; BUFSIZE],
+			len: 0,
+		})
+		.unwrap();
+
+	let _reader = if len.is_none() {
+		// Chunked transfer encoding
+		blocking::unblock(move || -> std::io::Result<()> {
+			let mut data = data;
+			while let Ok(mut buf) = recv_empty.recv() {
+				let start = buf.len;
+
+				if BUFSIZE - start < 16 {
+					if send_full.send(buf).is_err() {
+						break;
+					}
+					continue;
+				}
+
+				let data_start = start + 7;
+				let n = data.read(&mut buf.data[data_start..BUFSIZE - 2])?;
+
+				if n == 0 {
+					let term = b"0\r\n\r\n";
+					buf.data[start..start + 5].copy_from_slice(term);
+					buf.len += 5;
+					let _ = send_full.send(buf);
+					break;
+				}
+
+				let mut slice = &mut buf.data[start..data_start];
+				write!(slice, "{:0>5x}\r\n", n).unwrap();
+
+				buf.data[data_start + n] = b'\r';
+				buf.data[data_start + n + 1] = b'\n';
+
+				buf.len += 9 + n;
+
+				if send_full.send(buf).is_err() {
+					break;
+				}
+			}
+			Ok(())
+		})
+	} else {
+		// Known length
+		blocking::unblock(move || -> std::io::Result<()> {
+			let mut data = data;
+			while let Ok(mut buf) = recv_empty.recv() {
+				let n = if buf.len > 0 {
+					data.read(&mut buf.data[buf.len..])?
+				} else {
+					data.read(&mut buf.data)?
+				};
+
+				if n == 0 {
+					break;
+				}
+
+				buf.len += n;
+
+				if send_full.send(buf).is_err() {
+					break;
+				}
+			}
+			Ok(())
+		})
+	};
+
+	// Write filled buffers to the socket
+	while let Ok(mut buf) = recv_full.recv_async().await {
+		socket.write_all(&buf.data[0..buf.len]).await?;
+		buf.len = 0;
+		let _ = send_empty.send_async(buf).await;
+	}
+
+	// _reader will drop to ensure the background task is cancelled if writing the socket fails for
+	// some reason.
+
+	Ok(())
+}
+
 async fn write_error_response<W>(socket: &mut W, response: Response, buffer: &mut [u8])
 where
 	W: AsyncWrite + Unpin,
@@ -550,7 +619,7 @@ mod tests {
 		assert!(response_str.contains("X-Custom: test"));
 
 		// Should contain default headers
-		assert!(response_str.contains("Server: moonbeam/0.2"));
+		assert!(response_str.contains("Server: moonbeam/0.3"));
 		assert!(response_str.contains("Content-Type: application/octet-stream"));
 		assert!(response_str.contains("Content-Length: 9"));
 		assert!(response_str.contains("Date:"));
