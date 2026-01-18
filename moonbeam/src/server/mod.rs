@@ -162,7 +162,7 @@ macro_rules! socket_write {
 	($e:expr) => {
 		if let Err(e) = $e.await {
 			tracing::error!("Failed to write response: {:?}", e);
-			break;
+			return;
 		}
 	};
 }
@@ -187,13 +187,22 @@ pub async fn handle_socket<R: Server, S>(mut socket: S, addr: SocketAddr, router
 where
 	S: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-	// let mut buf = get_local_bufpool().get();
-	// let (reqbuf, respbuf) = buf.get_mut().split_at_mut(bufpool::BUFSIZE / 2);
+	#[cfg(feature = "tracing")]
+	struct CloseLogger;
+	#[cfg(feature = "tracing")]
+	impl Drop for CloseLogger {
+		fn drop(&mut self) {
+			tracing::debug!("Shutting down socket");
+		}
+	}
+	#[cfg(feature = "tracing")]
+	let _closelogger = CloseLogger;
+
 	let mut buf = vec![0; BUFSIZE];
 	let (reqbuf, respbuf) = buf.split_at_mut(BUFSIZE / 2);
 	let mut total = 0;
 
-	'outer: while total < reqbuf.len() {
+	while total < reqbuf.len() {
 		let mut start = match read_from_socket(&mut socket, &mut reqbuf[total..], total).await {
 			Ok((start, end)) => {
 				total = end;
@@ -203,7 +212,7 @@ where
 				if let Some(r) = r {
 					write_error_response(&mut socket, r, respbuf).await;
 				}
-				break;
+				return;
 			}
 		};
 
@@ -226,7 +235,7 @@ where
 						respbuf,
 					)
 					.await;
-					break 'outer;
+					return;
 				}
 				Ok(req) => req,
 			};
@@ -243,14 +252,14 @@ where
 						respbuf,
 					)
 					.await;
-					break 'outer;
+					return;
 				} else if contentlength > total - offset {
 					if let Err(e) = socket
 						.read_exact(&mut body[total - offset..contentlength])
 						.await
 					{
 						tracing::error!(error = ?e, "Failed to read HTTP body");
-						break 'outer;
+						return;
 					}
 				}
 
@@ -266,9 +275,13 @@ where
 				Ok(resp) => resp,
 				Err(e) => {
 					tracing::error!(request = %path, error = ?e, "Panic in response handler");
-					write_error_response(&mut socket, Response::internal_server_error(), respbuf)
-						.await;
-					break;
+					write_error_response(
+						&mut socket,
+						Response::internal_server_error().with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					return;
 				}
 			};
 
@@ -290,7 +303,13 @@ where
 				Ok(buf) => buf,
 				Err(e) => {
 					tracing::error!("Failed to write response: {:?}", e);
-					break 'outer;
+					write_error_response(
+						&mut socket,
+						Response::internal_server_error().with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					return;
 				}
 			};
 
@@ -323,7 +342,7 @@ where
 
 			if close {
 				tracing::trace!("Got Connection: close header");
-				break 'outer;
+				return;
 			}
 
 			// Reset the request buffer
@@ -334,17 +353,16 @@ where
 		}
 	}
 
-	// TODO: this can be triggered even if it's not true! Needs a fix.
-	if total == reqbuf.len() {
-		write_error_response(&mut socket, Response::headers_too_large(), respbuf).await;
-		tracing::error!(
-			error = "request headers too large",
-			"Failed to read HTTP request"
-		);
-	}
-
-	tracing::debug!("Shutting down socket");
-	let _ = socket.close().await;
+	write_error_response(
+		&mut socket,
+		Response::headers_too_large().with_header("Connection", "close"),
+		respbuf,
+	)
+	.await;
+	tracing::error!(
+		error = "request headers too large",
+		"Failed to read HTTP request"
+	);
 }
 
 async fn read_from_socket<R>(
