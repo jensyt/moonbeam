@@ -167,6 +167,20 @@ macro_rules! socket_write {
 	};
 }
 
+/// Handles a single connection socket.
+///
+/// This function reads HTTP requests from the socket, routes them using the provided `router`,
+/// and writes back the response. It handles:
+/// - HTTP parsing
+/// - Response compression (if enabled)
+/// - Response writing
+/// - Keep-alive connections
+///
+/// # Arguments
+///
+/// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
+/// * `addr` - The remote address of the connection (used for logging only).
+/// * `router` - The server implementation to route requests to.
 #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
 #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(remote = %addr)))]
 pub async fn handle_socket<R: Server, S>(mut socket: S, addr: SocketAddr, router: &'static R)

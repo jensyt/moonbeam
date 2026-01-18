@@ -6,6 +6,27 @@ use std::{
 	time::SystemTime,
 };
 
+/// Serves a static asset from the file system.
+///
+/// This function attempts to serve a file from the `root` directory matching the given `path`.
+/// It handles:
+/// - Path normalization and sanitization (preventing directory traversal)
+/// - ETag generation and validation (handling `If-None-Match` for 304 Not Modified)
+/// - Content-Type detection based on file extension
+///
+/// # Arguments
+///
+/// * `path` - The relative path of the asset to serve (e.g., "/css/style.css").
+/// * `etag` - The value of the `If-None-Match` header from the request, if present.
+/// * `root` - The root directory to serve assets from.
+///
+/// # Returns
+///
+/// Returns a `Response` which can be:
+/// - `200 OK` with the file body and correct `Content-Type`.
+/// - `304 Not Modified` if the ETag matches.
+/// - `404 Not Found` if the file doesn't exist or is outside the root.
+/// - `500 Internal Server Error` if file access fails.
 pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Response {
 	let root = match root.as_ref().canonicalize() {
 		Ok(p) => p,
@@ -59,13 +80,15 @@ fn make_etag(path: &Path) -> Option<String> {
 	Some(format!("\"{:x}\"", hasher.finish()))
 }
 
-/// Returns the MIME type for a given file path.
+/// Returns the MIME type for a given file path based on its extension.
 ///
 /// # Arguments
-/// * `path` - A reference to a Path
+///
+/// * `path` - The path to the file.
 ///
 /// # Returns
-/// * `Option<&'static str>` - The MIME type if recognized, None otherwise
+///
+/// Returns `Some(mime_type)` if the extension is recognized, or `None` otherwise.
 pub fn get_mime_type<P>(path: &P) -> Option<&'static str>
 where
 	P: AsRef<Path> + ?Sized,

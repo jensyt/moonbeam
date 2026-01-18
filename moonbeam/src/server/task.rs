@@ -11,6 +11,12 @@ pub(super) fn get_local_executor() -> &'static StaticLocalExecutor {
 	})
 }
 
+/// Spawns a new task on the local executor.
+///
+/// This function spawns a task that runs on the current thread's executor.
+/// The task is detached and will run concurrently with other tasks.
+///
+/// If the `signals` feature is enabled, this task is tracked for graceful shutdown.
 #[cfg(feature = "signals")]
 pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
 	use super::task_tracker::get_local_tracker;
@@ -24,6 +30,10 @@ pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
 		.detach();
 }
 
+/// Spawns a new task on the local executor.
+///
+/// This function spawns a task that runs on the current thread's executor.
+/// The task is detached and will run concurrently with other tasks.
 #[cfg(not(feature = "signals"))]
 pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
 	get_local_executor().spawn(future).detach();

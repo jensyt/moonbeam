@@ -24,17 +24,16 @@ Add `moonbeam` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.2.3"
+moonbeam = "0.3.0"
 ```
 
 ## Feature Flags
 
 Moonbeam provides several feature flags to configure functionality and dependencies:
 
-- **default**: Enables `macros`, `assets`, `asyncfs`, `catchpanic`, `signals`, and `router`.
+- **default**: Enables `macros`, `assets`, `catchpanic`, `signals`, and `router`.
 - **macros**: Enables the `#[server]` attribute macro.
-- **assets**: Enables static file serving utilities (implies `asyncfs`).
-- **asyncfs**: Enables asynchronous file system support.
+- **assets**: Enables static file serving utilities.
 - **signals**: Enables signal handling (e.g., for graceful shutdown).
 - **catchpanic**: Wraps handlers to catch panics and return 500 errors.
 - **tracing**: Enables `tracing` instrumentation.
@@ -82,6 +81,38 @@ async fn serve(_req: Request, state: &'static State) -> Response {
 fn main() {
     let state = State { count: Cell::new(0) };
     moonbeam::serve("127.0.0.1:8080", CounterServer(state));
+}
+```
+
+### Multi-threaded Server
+
+To utilize multiple cores, use `serve_multi` (requires `mt` feature). Moonbeam uses a "share-nothing" approach by default where the server state is replicated for each thread. To share between threads, you can optionally use `Arc` or atomics.
+
+```rust
+use moonbeam::{Request, Response, ThreadCount, server, serve_multi};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct State {
+    thread_id: usize,
+}
+
+#[server(Worker)]
+async fn serve(_req: Request, state: &State) -> Response {
+    Response::new_with_body(format!("Hello from thread {}", state.thread_id), None)
+}
+
+fn main() {
+    let next_id = AtomicUsize::new(0);
+
+    serve_multi(
+        "127.0.0.1:8080",
+        ThreadCount::Default, // Uses available parallelism
+        || {
+            let id = next_id.fetch_add(1, Ordering::Relaxed);
+            Worker(State { thread_id: id })
+        },
+        |_| {} // No cleanup needed
+    );
 }
 ```
 

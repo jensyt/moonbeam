@@ -2,6 +2,7 @@
 - Support for HTML forms
 - TRACE requests
 - Make tracing meaningful
+- Improve documentation (README and module/function documentation)
 
 # Done
 - ETags for assets
