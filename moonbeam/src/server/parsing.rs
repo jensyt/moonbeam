@@ -150,7 +150,7 @@ fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 /// This is a hypothetical implementation for demonstration.
 /// It requires the `sse4.2` target feature.
 #[cfg(all(target_arch = "x86_64", target_feature = "sse4.2"))]
-fn scan_for_header_end_simd_sse42(buffer: &[u8]) -> Option<usize> {
+fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 	use core::arch::x86_64::*;
 
 	const MODE: i32 = _SIDD_CMP_EQUAL_ORDERED | _SIDD_UBYTE_OPS;
@@ -200,12 +200,19 @@ fn scan_for_header_end_simple(buffer: &[u8]) -> Option<usize> {
 }
 
 pub(super) fn scan_for_header_end(buffer: &[u8]) -> Option<usize> {
-	if cfg!(any(
+	#[cfg(any(
 		all(target_arch = "aarch64", target_feature = "neon"),
 		all(target_arch = "x86_64", target_feature = "sse2")
-	)) {
+	))]
+	{
 		scan_for_header_end_simd(buffer)
-	} else {
+	}
+
+	#[cfg(not(any(
+		all(target_arch = "aarch64", target_feature = "neon"),
+		all(target_arch = "x86_64", target_feature = "sse2")
+	)))]
+	{
 		scan_for_header_end_simple(buffer)
 	}
 }
