@@ -12,7 +12,11 @@ use std::mem::MaybeUninit;
 /// let buffer = b"GET /file HTTP/1.1\r\nHost: example.com\r\n\r\n";
 /// assert_eq!(scan_for_header_end(buffer), Some(41));
 /// ```
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(all(
+	target_arch = "aarch64",
+	target_feature = "neon",
+	not(feature = "disable-simd")
+))]
 fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 	use core::arch::aarch64::*;
 
@@ -96,7 +100,8 @@ fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 #[cfg(all(
 	target_arch = "x86_64",
 	target_feature = "sse2",
-	not(target_feature = "sse4.2")
+	not(target_feature = "sse4.2"),
+	not(feature = "disable-simd")
 ))]
 fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 	use core::arch::x86_64::*;
@@ -149,7 +154,11 @@ fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 
 /// This is a hypothetical implementation for demonstration.
 /// It requires the `sse4.2` target feature.
-#[cfg(all(target_arch = "x86_64", target_feature = "sse4.2"))]
+#[cfg(all(
+	target_arch = "x86_64",
+	target_feature = "sse4.2",
+	not(feature = "disable-simd")
+))]
 fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 	use core::arch::x86_64::*;
 
@@ -200,18 +209,24 @@ fn scan_for_header_end_simple(buffer: &[u8]) -> Option<usize> {
 }
 
 pub(super) fn scan_for_header_end(buffer: &[u8]) -> Option<usize> {
-	#[cfg(any(
-		all(target_arch = "aarch64", target_feature = "neon"),
-		all(target_arch = "x86_64", target_feature = "sse2")
+	#[cfg(all(
+		any(
+			all(target_arch = "aarch64", target_feature = "neon"),
+			all(target_arch = "x86_64", target_feature = "sse2")
+		),
+		not(feature = "disable-simd")
 	))]
 	{
 		scan_for_header_end_simd(buffer)
 	}
 
-	#[cfg(not(any(
-		all(target_arch = "aarch64", target_feature = "neon"),
-		all(target_arch = "x86_64", target_feature = "sse2")
-	)))]
+	#[cfg(any(
+		not(any(
+			all(target_arch = "aarch64", target_feature = "neon"),
+			all(target_arch = "x86_64", target_feature = "sse2")
+		)),
+		feature = "disable-simd"
+	))]
 	{
 		scan_for_header_end_simple(buffer)
 	}

@@ -36,6 +36,7 @@ catchpanic = []
 compress = ["dep:flate2", "dep:brotli"]
 router = ["macros", "moonbeam-attributes/router", "moonbeam-attributes/autohead"]
 mt = []
+disable-simd = []
 
 [dev-dependencies]
 piper = "0.2"
