@@ -35,9 +35,8 @@ impl<'a> Cookies<'a> {
 	/// ```
 	pub fn find(&self, cookie: &str) -> Option<&'a [u8]> {
 		for mut c in self.cookies.split(|&v| v == b';') {
-			match c.split_first() {
-				Some((b' ', rest)) => c = rest,
-				_ => {}
+			if let Some((b' ', rest)) = c.split_first() {
+				c = rest;
 			}
 			let mut split = c.split(|&v| v == b'=');
 			match split.next() {

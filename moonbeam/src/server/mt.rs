@@ -5,15 +5,11 @@ use async_net::{AsyncToSocketAddrs, TcpListener, TcpStream};
 use std::io::ErrorKind;
 use std::{net::SocketAddr, num::NonZeroUsize, thread};
 
+#[derive(Default)]
 pub enum ThreadCount {
+	#[default]
 	Default,
 	Count(usize),
-}
-
-impl Default for ThreadCount {
-	fn default() -> Self {
-		ThreadCount::Default
-	}
 }
 
 /// Starts the server on the specified address.

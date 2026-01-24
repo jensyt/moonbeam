@@ -1,4 +1,5 @@
 #[cfg(feature = "tracing")]
+#[allow(unused_imports)]
 pub use tracing::{Instrument, debug, error, info, info_span, trace, trace_span, warn};
 
 #[cfg(not(feature = "tracing"))]

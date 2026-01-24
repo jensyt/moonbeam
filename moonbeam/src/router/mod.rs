@@ -40,36 +40,36 @@ pub trait RouteHandler<S>: 'static {
 	) -> impl Future<Output = impl Into<Response>>;
 }
 
-impl Into<Response> for () {
-	fn into(self) -> Response {
+impl From<()> for Response {
+	fn from(_: ()) -> Response {
 		Response::empty()
 	}
 }
 
-impl Into<Response> for Body {
-	fn into(self) -> Response {
-		Response::new_with_body(self, None)
+impl From<Body> for Response {
+	fn from(body: Body) -> Response {
+		Response::new_with_body(body, None)
 	}
 }
 
-impl Into<Response> for (Body, Option<&str>) {
-	fn into(self) -> Response {
-		Response::new_with_body(self.0, self.1)
+impl From<(Body, Option<&str>)> for Response {
+	fn from((body, content_type): (Body, Option<&str>)) -> Response {
+		Response::new_with_body(body, content_type)
 	}
 }
 
-impl<T: Into<Response>> Into<Response> for Option<T> {
-	fn into(self) -> Response {
-		match self {
+impl<T: Into<Response>> From<Option<T>> for Response {
+	fn from(val: Option<T>) -> Response {
+		match val {
 			Some(val) => val.into(),
 			None => Response::not_found(),
 		}
 	}
 }
 
-impl<T: Into<Response>, E: Into<Response>> Into<Response> for Result<T, E> {
-	fn into(self) -> Response {
-		match self {
+impl<T: Into<Response>, E: Into<Response>> From<Result<T, E>> for Response {
+	fn from(val: Result<T, E>) -> Response {
+		match val {
 			Ok(val) => val.into(),
 			Err(err) => err.into(),
 		}

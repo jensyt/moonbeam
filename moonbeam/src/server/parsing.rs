@@ -204,9 +204,9 @@ pub(super) fn scan_for_header_end(buffer: &[u8]) -> Option<usize> {
 		all(target_arch = "aarch64", target_feature = "neon"),
 		all(target_arch = "x86_64", target_feature = "sse2")
 	)) {
-		return scan_for_header_end_simd(buffer);
+		scan_for_header_end_simd(buffer)
 	} else {
-		return scan_for_header_end_simple(buffer);
+		scan_for_header_end_simple(buffer)
 	}
 }
 
@@ -248,7 +248,7 @@ pub(super) fn get_important_headers(request: &Request) -> (usize, bool) {
 		} else if name.eq_ignore_ascii_case("connection") {
 			close = std::str::from_utf8(value)
 				.ok()
-				.map_or(false, |v| v.eq_ignore_ascii_case("close"));
+				.is_some_and(|v| v.eq_ignore_ascii_case("close"));
 		}
 	}
 	(contentlength, close)

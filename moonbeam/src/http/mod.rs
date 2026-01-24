@@ -273,11 +273,10 @@ impl Response {
 		H: Into<String> + Borrow<str>,
 		V: Into<String>,
 	{
-		if self
+		if !self
 			.headers
 			.iter()
-			.find(|(n, _)| n.eq_ignore_ascii_case(name.borrow()))
-			.is_none()
+			.any(|(n, _)| n.eq_ignore_ascii_case(name.borrow()))
 		{
 			self.headers.push((name.into(), value.into()));
 		}
@@ -339,6 +338,7 @@ impl Body {
 		Self::Immediate(data.into())
 	}
 
+	#[allow(clippy::len_without_is_empty)]
 	pub fn len(&self) -> Option<u64> {
 		match self {
 			Body::Immediate(data) => Some(data.len() as u64),
@@ -557,11 +557,6 @@ mod tests {
 
 		// Test removing content type
 		let r = r.with_body("data", None);
-		assert!(
-			r.headers
-				.iter()
-				.find(|(n, _)| n == "Content-Type")
-				.is_none()
-		);
+		assert!(!r.headers.iter().any(|(n, _)| n == "Content-Type"));
 	}
 }

@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{FnArg, ItemFn, Type, parse_macro_input, parse_quote};
+use syn::{FnArg, ItemFn, PathArguments, Type, parse_macro_input, parse_quote};
 
 pub fn middleware_impl(
 	_attr: proc_macro::TokenStream,
@@ -24,16 +24,17 @@ pub fn middleware_impl(
 			// Check arg name to guess purpose, or type
 			// We look for specific types to replace.
 
-			if let Type::Path(tp) = &*pat_type.ty {
+			if let Type::Path(tp) = &mut *pat_type.ty {
 				if tp
 					.path
 					.segments
 					.last()
-					.map(|s| s.ident == "Request")
+					.map(|s| s.ident == "Request" && s.arguments.is_empty())
 					.unwrap_or(false)
 				{
-					// Replace Request with Request<'a, 'b>
-					pat_type.ty = parse_quote!(::moonbeam::Request<'a, 'b>);
+					// Add <'a, 'b>
+					tp.path.segments.last_mut().unwrap().arguments =
+						PathArguments::AngleBracketed(parse_quote!(<'a, 'b>));
 				} else if tp
 					.path
 					.segments

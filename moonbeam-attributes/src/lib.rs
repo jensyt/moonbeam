@@ -73,14 +73,14 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 			ReturnType::Default => false,
 		};
 
-	if let None = check_request(sig.inputs.first_mut()) {
+	if check_request(sig.inputs.first_mut()).is_none() {
 		return syn::Error::new_spanned(&input_fn.sig.inputs, "First parameter must be Request")
 			.to_compile_error()
 			.into();
 	}
 
 	let second_param = if sig.inputs.len() > 1 {
-		if let None = check_state(sig.inputs.iter_mut().nth(1)) {
+		if check_state(sig.inputs.iter_mut().nth(1)).is_none() {
 			return syn::Error::new_spanned(
 				&sig.inputs,
 				"Second parameter must be: state: &'static State",

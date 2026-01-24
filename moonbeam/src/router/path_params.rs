@@ -45,21 +45,21 @@ pub trait FromParams<'a> {
 
 impl<'a> FromParams<'a> for PathParams<&'a str> {
 	fn from_params(params: &[&'a str]) -> Self {
-		let p1 = params.get(0).copied().unwrap_or_default();
+		let p1 = params.first().copied().unwrap_or_default();
 		PathParams(p1)
 	}
 }
 
 impl<'a> FromParams<'a> for PathParams<(&'a str,)> {
 	fn from_params(params: &[&'a str]) -> Self {
-		let p1 = params.get(0).copied().unwrap_or_default();
+		let p1 = params.first().copied().unwrap_or_default();
 		PathParams((p1,))
 	}
 }
 
 impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str)> {
 	fn from_params(params: &[&'a str]) -> Self {
-		let p1 = params.get(0).copied().unwrap_or_default();
+		let p1 = params.first().copied().unwrap_or_default();
 		let p2 = params.get(1).copied().unwrap_or_default();
 		PathParams((p1, p2))
 	}
@@ -67,7 +67,7 @@ impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str)> {
 
 impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str, &'a str)> {
 	fn from_params(params: &[&'a str]) -> Self {
-		let p1 = params.get(0).copied().unwrap_or_default();
+		let p1 = params.first().copied().unwrap_or_default();
 		let p2 = params.get(1).copied().unwrap_or_default();
 		let p3 = params.get(2).copied().unwrap_or_default();
 		PathParams((p1, p2, p3))
@@ -76,7 +76,7 @@ impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str, &'a str)> {
 
 impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str, &'a str, &'a str)> {
 	fn from_params(params: &[&'a str]) -> Self {
-		let p1 = params.get(0).copied().unwrap_or_default();
+		let p1 = params.first().copied().unwrap_or_default();
 		let p2 = params.get(1).copied().unwrap_or_default();
 		let p3 = params.get(2).copied().unwrap_or_default();
 		let p4 = params.get(3).copied().unwrap_or_default();
@@ -86,7 +86,7 @@ impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str, &'a str, &'a str)> {
 
 impl<'a> FromParams<'a> for PathParams<(&'a str, &'a str, &'a str, &'a str, &'a str)> {
 	fn from_params(params: &[&'a str]) -> Self {
-		let p1 = params.get(0).copied().unwrap_or_default();
+		let p1 = params.first().copied().unwrap_or_default();
 		let p2 = params.get(1).copied().unwrap_or_default();
 		let p3 = params.get(2).copied().unwrap_or_default();
 		let p4 = params.get(3).copied().unwrap_or_default();

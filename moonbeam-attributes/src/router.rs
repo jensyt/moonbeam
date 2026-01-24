@@ -560,7 +560,7 @@ fn generate_path_arms(routes: &[&FinalRoute], state: &TokenStream) -> TokenStrea
 			},
 		};
 
-		if route.middleware_stack.len() > 0 {
+		if !route.middleware_stack.is_empty() {
 			call_chain = quote! {
 				async move {
 					#call_chain

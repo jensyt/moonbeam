@@ -104,11 +104,8 @@ where
 			}
 		};
 
-		loop {
-			let offset = match scan_for_header_end(&reqbuf[start..total]) {
-				Some(n) => start + n,
-				None => break,
-			};
+		while let Some(n) = scan_for_header_end(&reqbuf[start..total]) {
+			let offset = start + n;
 			tracing::trace!(offset, total, "HTTP header read");
 
 			let (head, body) = reqbuf.split_at_mut(offset);
@@ -182,6 +179,7 @@ where
 	tracing::trace!(reason = "Error", "Closing connection");
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn process_request<'a, 'b, R: Server, S>(
 	mut req: Request<'a, 'b>,
 	socket: &mut S,
@@ -212,14 +210,13 @@ where
 			)
 			.await;
 			return Err(());
-		} else if contentlength > valid_body_len {
-			if let Err(_error) = socket
+		} else if contentlength > valid_body_len
+			&& let Err(_error) = socket
 				.read_exact(&mut body[valid_body_len..contentlength])
 				.await
-			{
-				tracing::error!(?_error, "Failed to read HTTP body");
-				return Err(());
-			}
+		{
+			tracing::error!(?_error, "Failed to read HTTP body");
+			return Err(());
 		}
 
 		&body[..contentlength]
@@ -336,8 +333,8 @@ where
 	}
 }
 
-fn write_response<'a, 'b>(
-	response: &'a Response,
+fn write_response<'b>(
+	response: &Response,
 	buffer: &'b mut [u8],
 ) -> Result<(&'b [u8], &'b mut [u8]), Error> {
 	let mut writer = &mut buffer[..];
@@ -349,10 +346,7 @@ fn write_response<'a, 'b>(
 		canonical_reason(response.status)
 	)?;
 
-	let nobody = match response.status {
-		100..200 | 204 | 205 | 304 => true,
-		_ => false,
-	};
+	let nobody = matches!(response.status, 100..200 | 204 | 205 | 304);
 
 	let mut server = false;
 	let mut date = false;
@@ -381,7 +375,7 @@ fn write_response<'a, 'b>(
 
 	// Add headers
 	if !server {
-		writer.write(
+		writer.write_all(
 			concat!(
 				"Server: ",
 				env!("CARGO_PKG_NAME"),
@@ -397,13 +391,8 @@ fn write_response<'a, 'b>(
 		write!(writer, "Date: {}\r\n", fmt_http_date(SystemTime::now()))?;
 	}
 
-	if !content_type {
-		match response.body.as_ref() {
-			Some(_) => {
-				writer.write(b"Content-Type: application/octet-stream\r\n")?;
-			}
-			None => (),
-		}
+	if !content_type && response.body.is_some() {
+		writer.write_all(b"Content-Type: application/octet-stream\r\n")?;
 	}
 
 	if !content_length {
@@ -416,7 +405,7 @@ fn write_response<'a, 'b>(
 		}
 	}
 
-	writer.write(b"\r\n")?;
+	writer.write_all(b"\r\n")?;
 
 	let writerlen = writer.len();
 	let (header, remaining) = buffer.split_at_mut(buffer.len() - writerlen);
@@ -791,6 +780,7 @@ mod tests {
 	}
 
 	#[test]
+	#[cfg(feature = "catchpanic")]
 	fn test_handle_socket_route_panic() {
 		let (reader, mut client_tx) = piper::pipe(1024);
 		let (mut client_rx, writer) = piper::pipe(1024);

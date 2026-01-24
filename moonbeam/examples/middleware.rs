@@ -1,4 +1,4 @@
-use moonbeam::http::Response;
+use moonbeam::http::{Request, Response};
 use moonbeam::router::PathParams;
 use moonbeam::{middleware, route, router, serve};
 
@@ -14,10 +14,10 @@ async fn logger(req: Request, _state: &State, next: Next) -> Response {
 
 #[middleware]
 async fn auth(req: Request, state: &State, next: Next) -> Response {
-	if let Some(auth_header) = req.find_header("Authorization") {
-		if auth_header == state.api_key.as_bytes() {
-			return next(req).await;
-		}
+	if let Some(auth_header) = req.find_header("Authorization")
+		&& auth_header == state.api_key.as_bytes()
+	{
+		return next(req).await;
 	}
 	Response::new_with_code(401).with_body("Unauthorized", Some("text/plain"))
 }

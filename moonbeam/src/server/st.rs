@@ -2,11 +2,6 @@ use super::task::{get_local_executor, new_local_task};
 use super::{Server, handle_socket};
 use crate::tracing;
 use async_net::{AsyncToSocketAddrs, TcpListener};
-use futures_lite::FutureExt;
-use std::{
-	io::{Error, ErrorKind},
-	time::Duration,
-};
 
 /// Starts the server on the specified address.
 ///
@@ -44,7 +39,11 @@ pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T 
 async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 	use super::task_tracker::get_local_tracker;
 	use async_signal::{Signal, Signals};
-	use futures_lite::StreamExt;
+	use futures_lite::{FutureExt, StreamExt};
+	use std::{
+		io::{Error, ErrorKind},
+		time::Duration,
+	};
 
 	let mut signals =
 		Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
@@ -86,6 +85,7 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 }
 
 #[cfg(not(feature = "signals"))]
+#[allow(clippy::while_let_loop)]
 async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 	loop {
 		match listener.accept().await {
@@ -130,10 +130,9 @@ mod test {
 
 		let server = MockServer;
 
-		let serve_addr = addr.clone();
 		// Spawn server in a thread
 		std::thread::spawn(move || {
-			serve(serve_addr, server);
+			serve(addr, server);
 		});
 
 		// Give it a moment to start
