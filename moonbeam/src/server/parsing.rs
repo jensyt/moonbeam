@@ -176,7 +176,7 @@ fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 		let block = unsafe { _mm_loadu_si128(ptr.add(offset) as *const _) };
 
 		// Search for the 4-byte pattern in the 16-byte block.
-		let index = unsafe { _mm_cmpistri(pattern, block, MODE) };
+		let index = unsafe { _mm_cmpestri(pattern, 4, block, 16, MODE) };
 
 		if index < 16 {
 			// A match was found at `index` within the block.
