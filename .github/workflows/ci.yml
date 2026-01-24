@@ -53,6 +53,6 @@ jobs:
 
     - name: Run Tests
       working-directory: moonbeam
-      run: cargo test --lib -- server::parsing ${{ matrix.features }}
+      run: cargo test --lib ${{ matrix.features }} -- server::parsing
       env:
         RUSTFLAGS: ${{ env.RUSTFLAGS }} ${{ matrix.rustflags }}
