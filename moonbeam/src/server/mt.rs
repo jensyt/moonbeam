@@ -67,21 +67,21 @@ pub fn serve_multi_impl<F, C, T: Server>(
 	use futures_lite::FutureExt;
 	use std::time::Duration;
 
+	let _span = tracing::trace_span!("thread", id = "main").entered();
 	let num_threads = match num_threads {
 		ThreadCount::Default => thread::available_parallelism()
 			.map(NonZeroUsize::get)
 			.unwrap_or(1),
 		ThreadCount::Count(n) => n,
 	};
-	tracing::debug!("Starting {} worker threads", num_threads);
+	tracing::debug!(num_threads, "Starting worker threads");
 
 	thread::scope(|scope| {
 		let (send, recv) = flume::bounded::<(TcpStream, SocketAddr)>(num_threads * 100);
 		let (main_done_shutdown, worker_force_shutdown) = flume::bounded::<()>(0);
 		let (worker_done_shutdown, all_workers_shutdown) = flume::bounded::<()>(0);
 
-		#[allow(unused_variables)]
-		for i in 0..num_threads {
+		for _i in 0..num_threads {
 			let server = server.clone();
 			let cleanup = cleanup.clone();
 			let worker_done_shutdown = worker_done_shutdown.clone();
@@ -90,13 +90,14 @@ pub fn serve_multi_impl<F, C, T: Server>(
 			scope.spawn(move || {
 				let server = Box::leak(Box::new(server()));
 
+				let _span = tracing::trace_span!("thread", id = _i).entered();
 				async_io::block_on(get_local_executor().run(async {
 					while let Ok((socket, addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
 						new_local_task(handle_socket(socket, addr, server));
 					}
 
-					tracing::debug!("Worker thread {i} shutting down");
+					tracing::debug!(id = _i, "Worker thread shutting down");
 
 					get_local_tracker()
 						.wait_until_empty(Duration::from_secs(60))
@@ -108,7 +109,7 @@ pub fn serve_multi_impl<F, C, T: Server>(
 
 				cleanup(server);
 
-				tracing::debug!("Worker thread {i} shut down");
+				tracing::debug!(id = _i, "Worker thread shut down");
 				drop(worker_done_shutdown);
 			});
 		}
@@ -153,20 +154,17 @@ async fn accept_loop(listener: TcpListener, sender: flume::Sender<(TcpStream, So
 		};
 
 		match listener.accept().or(signal_err).await {
-			Ok(v) =>
-			{
-				#[allow(unused_variables)]
-				if let Err(e) = sender.send_async(v).await {
-					tracing::error!("Failed to send socket to thread: {:?}, shutting down", e);
+			Ok(v) => {
+				if let Err(_error) = sender.send_async(v).await {
+					tracing::error!(?_error, "Failed to send socket to thread, shutting down");
 					break;
 				}
 			}
-			#[allow(unused_variables)]
-			Err(err) => {
-				if err.kind() == ErrorKind::Interrupted {
-					tracing::debug!(?err, "Got signal to shut down");
+			Err(error) => {
+				if error.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?error, "Got signal to shut down");
 				} else {
-					tracing::error!(?err, "Failed to accept connection, shutting down");
+					tracing::error!(?error, "Failed to accept connection, shutting down");
 				}
 				break;
 			}
@@ -177,9 +175,8 @@ async fn accept_loop(listener: TcpListener, sender: flume::Sender<(TcpStream, So
 	let wait_for_tasks = get_local_tracker().wait_until_empty(Duration::from_secs(60));
 
 	let force_shutdown = async {
-		#[allow(unused_variables)]
-		if let Some(signal) = signals.next().await {
-			tracing::warn!("Received signal {:?}, forcing shutdown", signal);
+		if let Some(_signal) = signals.next().await {
+			tracing::warn!(?_signal, "Received signal, forcing shutdown");
 		}
 	};
 
@@ -196,25 +193,26 @@ pub fn serve_multi_impl<F, C, T: Server>(
 	F: FnOnce() -> T + Send + Clone,
 	C: FnOnce(&'static T) + Send + Clone,
 {
+	let _span = tracing::trace_span!("thread", id = "main").entered();
 	let num_threads = match num_threads {
 		ThreadCount::Default => thread::available_parallelism()
 			.map(NonZeroUsize::get)
 			.unwrap_or(1),
 		ThreadCount::Count(n) => n,
 	};
-	tracing::debug!("Starting {} worker threads", num_threads);
+	tracing::debug!(num_threads, "Starting worker threads");
 
 	thread::scope(|scope| {
 		let (send, recv) = flume::bounded::<(TcpStream, SocketAddr)>(num_threads * 100);
 
-		#[allow(unused_variables)]
-		for i in 0..num_threads {
+		for _i in 0..num_threads {
 			let server = server.clone();
 			let cleanup = cleanup.clone();
 			let recv = recv.clone();
 			scope.spawn(move || {
 				let server = Box::leak(Box::new(server()));
 
+				let _span = tracing::trace_span!("thread", id = _i).entered();
 				async_io::block_on(get_local_executor().run(async {
 					while let Ok((socket, addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
@@ -240,20 +238,17 @@ pub fn serve_multi_impl<F, C, T: Server>(
 async fn accept_loop(listener: TcpListener, sender: flume::Sender<(TcpStream, SocketAddr)>) {
 	loop {
 		match listener.accept().await {
-			Ok(v) =>
-			{
-				#[allow(unused_variables)]
-				if let Err(e) = sender.send_async(v).await {
-					tracing::error!("Failed to send socket to thread: {:?}, shutting down", e);
+			Ok(v) => {
+				if let Err(_error) = sender.send_async(v).await {
+					tracing::error!(?_error, "Failed to send socket to thread, shutting down");
 					break;
 				}
 			}
-			#[allow(unused_variables)]
-			Err(err) => {
-				if err.kind() == ErrorKind::Interrupted {
-					tracing::debug!(?err, "Got signal to shut down");
+			Err(error) => {
+				if error.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?error, "Got signal to shut down");
 				} else {
-					tracing::error!(?err, "Failed to accept connection, shutting down");
+					tracing::error!(?error, "Failed to accept connection, shutting down");
 				}
 				break;
 			}

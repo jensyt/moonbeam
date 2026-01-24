@@ -63,7 +63,7 @@ pub use crate::http::{Body, Request, Response};
 #[cfg(feature = "mt")]
 pub use crate::server::mt::{ThreadCount, serve_multi};
 pub use crate::server::task::new_local_task;
-pub use crate::server::{Server, serve};
+pub use crate::server::{Server, st::serve};
 pub use httparse::Header;
 
 /// Attribute macro to simplify creating server implementations.

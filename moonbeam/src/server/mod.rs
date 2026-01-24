@@ -1,8 +1,6 @@
 use crate::http::{Body, Request, Response, canonical_reason};
-// use crate::server::bufpool::get_local_bufpool;
-use crate::tracing;
+use crate::tracing::{self, Instrument};
 use async_io::Timer;
-use async_net::{AsyncToSocketAddrs, TcpListener};
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
 use httparse::Header;
 use httpdate::fmt_http_date;
@@ -13,17 +11,16 @@ use std::{
 	io::{Error, ErrorKind, Read, Write},
 	time::SystemTime,
 };
-use std::{mem::MaybeUninit, net::SocketAddr, time::Duration};
-use task::{get_local_executor, new_local_task};
+use std::{mem::MaybeUninit, net::SocketAddr, time::Duration, time::Instant};
 
 const BUFSIZE: usize = 16 * 1024;
 
-// mod bufpool;
 #[cfg(feature = "compress")]
 mod compress;
 #[cfg(feature = "mt")]
 pub mod mt;
 mod parsing;
+pub mod st;
 pub mod task;
 #[cfg(feature = "signals")]
 mod task_tracker;
@@ -62,107 +59,11 @@ where
 	}
 }
 
-/// Starts the server on the specified address.
-///
-/// This function blocks the current thread and runs the server loop.
-/// It takes ownership of the server instance and leaks it to create a static reference,
-/// which is required for the `Server` trait.
-///
-/// # Example
-/// ```no_run
-/// use moonbeam::{Server, Request, Response, serve};
-/// use std::future::Future;
-///
-/// struct MyServer;
-///
-/// impl Server for MyServer {
-///     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
-///         async { Response::ok() }
-///     }
-/// }
-///
-/// serve("127.0.0.1:8080", MyServer);
-/// ```
-pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T {
-	let static_server = Box::leak(Box::new(server));
-	async_io::block_on(get_local_executor().run(async {
-		let listener = TcpListener::bind(addr)
-			.await
-			.expect("Failed to bind to socket");
-		accept_loop(listener, static_server).await;
-	}));
-	static_server
-}
-
-#[cfg(feature = "signals")]
-async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
-	use async_signal::{Signal, Signals};
-	use futures_lite::StreamExt;
-	use task_tracker::get_local_tracker;
-
-	let mut signals =
-		Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
-
-	loop {
-		let signal_err = async {
-			let signal = signals.next().await;
-			Err(Error::new(
-				ErrorKind::Interrupted,
-				format!("Signal: {signal:?}"),
-			))
-		};
-
-		match listener.accept().or(signal_err).await {
-			Ok((socket, addr)) => {
-				let _ = socket.set_nodelay(true);
-				new_local_task(handle_socket(socket, addr, server));
-			}
-			#[allow(unused_variables)]
-			Err(err) => {
-				if err.kind() == ErrorKind::Interrupted {
-					tracing::debug!(?err, "Got signal to shut down");
-				} else {
-					tracing::error!(?err, "Failed to accept connection, shutting down");
-				}
-				break;
-			}
-		}
-	}
-
-	let wait_for_tasks = get_local_tracker().wait_until_empty(Duration::from_secs(60));
-
-	let force_shutdown = async {
-		#[allow(unused_variables)]
-		if let Some(signal) = signals.next().await {
-			tracing::warn!("Received signal {:?}, forcing shutdown", signal);
-		}
-	};
-
-	wait_for_tasks.or(force_shutdown).await;
-}
-
-#[cfg(not(feature = "signals"))]
-async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
-	loop {
-		match listener.accept().await {
-			Ok((socket, addr)) => {
-				let _ = socket.set_nodelay(true);
-				new_local_task(handle_socket(socket, addr, server));
-			}
-			#[allow(unused_variables)]
-			Err(err) => {
-				tracing::error!(?err, "Failed to accept connection, shutting down");
-				break;
-			}
-		}
-	}
-}
-
 macro_rules! socket_write {
 	($e:expr) => {
-		if let Err(e) = $e.await {
-			tracing::error!("Failed to write response: {:?}", e);
-			return;
+		if let Err(_error) = $e.await {
+			tracing::error!(?_error, "Failed to write response");
+			return Err(());
 		}
 	};
 }
@@ -181,23 +82,10 @@ macro_rules! socket_write {
 /// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
 /// * `addr` - The remote address of the connection (used for logging only).
 /// * `router` - The server implementation to route requests to.
-#[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
-#[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(remote = %addr)))]
-pub async fn handle_socket<R: Server, S>(mut socket: S, addr: SocketAddr, router: &'static R)
+async fn handle_socket<R: Server, S>(mut socket: S, _addr: SocketAddr, router: &'static R)
 where
 	S: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-	#[cfg(feature = "tracing")]
-	struct CloseLogger;
-	#[cfg(feature = "tracing")]
-	impl Drop for CloseLogger {
-		fn drop(&mut self) {
-			tracing::debug!("Shutting down socket");
-		}
-	}
-	#[cfg(feature = "tracing")]
-	let _closelogger = CloseLogger;
-
 	let mut buf = vec![0; BUFSIZE];
 	let (reqbuf, respbuf) = buf.split_at_mut(BUFSIZE / 2);
 	let mut total = 0;
@@ -226,9 +114,9 @@ where
 			let (head, body) = reqbuf.split_at_mut(offset);
 
 			let mut headers = [MaybeUninit::<Header>::uninit(); 32];
-			let mut req = match parse_http_request(head, &mut headers) {
-				Err(e) => {
-					tracing::error!(error = ?e, "Failed to parse HTTP header");
+			let req = match parse_http_request(head, &mut headers) {
+				Err(_error) => {
+					tracing::error!(?_error, "Failed to parse HTTP header");
 					write_error_response(
 						&mut socket,
 						Response::bad_request().with_header("Connection", "close"),
@@ -241,107 +129,35 @@ where
 			};
 
 			let (contentlength, close) = get_important_headers(&req);
-			tracing::trace!(contentlength);
 
-			req.body = {
-				if contentlength > body.len() {
-					tracing::error!(error = "too big", "Failed to read HTTP body");
-					write_error_response(
-						&mut socket,
-						Response::content_too_large().with_header("Connection", "close"),
-						respbuf,
-					)
-					.await;
-					return;
-				} else if contentlength > total - offset {
-					if let Err(e) = socket
-						.read_exact(&mut body[total - offset..contentlength])
-						.await
-					{
-						tracing::error!(error = ?e, "Failed to read HTTP body");
-						return;
-					}
-				}
+			let result = process_request(
+				req,
+				&mut socket,
+				router,
+				respbuf,
+				body,
+				total - offset,
+				contentlength,
+				Instant::now(),
+			)
+			.instrument(tracing::info_span!(
+				"request",
+				method = req.method,
+				path = req.path,
+				remote = %_addr,
+			))
+			.await;
 
-				&body[..contentlength]
-			};
-
-			let path = req.path;
-			let head_method = req.method.eq_ignore_ascii_case("head");
-			#[cfg(not(feature = "catchpanic"))]
-			let mut resp = router.route(req).await;
-			#[cfg(feature = "catchpanic")]
-			let mut resp = match AssertUnwindSafe(router.route(req)).catch_unwind().await {
-				Ok(resp) => resp,
-				Err(e) => {
-					tracing::error!(request = %path, error = ?e, "Panic in response handler");
-					write_error_response(
-						&mut socket,
-						Response::internal_server_error().with_header("Connection", "close"),
-						respbuf,
-					)
-					.await;
-					return;
-				}
-			};
-
-			#[cfg(feature = "compress")]
-			compress::apply_compression(&req, &mut resp);
-
-			tracing::info!(
-				request = %path,
-				response.status = resp.status,
-				response.content_type = resp
-					.headers
-					.iter()
-					.find(|&(n, _)| n.eq_ignore_ascii_case("content-type"))
-					.map(|(_, v)| v),
-				response.body = ?resp.body
-			);
-
-			let (head, mut rest) = match write_response(&resp, respbuf) {
-				Ok(buf) => buf,
-				Err(e) => {
-					tracing::error!("Failed to write response: {:?}", e);
-					write_error_response(
-						&mut socket,
-						Response::internal_server_error().with_header("Connection", "close"),
-						respbuf,
-					)
-					.await;
-					return;
-				}
-			};
-
-			if head_method {
-				let body = resp.body.take();
-				tracing::trace!(removed_body = body.is_some(), "Processing HEAD request");
-			}
-
-			match resp.body {
-				None => {
-					socket_write!(socket.write_all(head));
-					tracing::trace!("Wrote headers only");
-				}
-				Some(Body::Immediate(body)) if body.len() < rest.len() => {
-					let _ = rest.write_all(body.as_slice());
-					let len = head.len() + body.len();
-					socket_write!(socket.write_all(&respbuf[..len]));
-					tracing::trace!("Wrote headers and body in one shot");
-				}
-				Some(Body::Immediate(body)) => {
-					socket_write!(socket.write_all(head));
-					socket_write!(socket.write_all(body.as_slice()));
-					tracing::trace!(body_len = body.len(), "Wrote headers and body separately");
-				}
-				Some(Body::Stream { data, len }) => {
-					socket_write!(write_stream_body(&mut socket, data, len, head));
-					tracing::trace!(len, "Streamed body");
-				}
+			if result.is_err() {
+				tracing::trace!(reason = "Error", "Closing connection");
+				return;
 			}
 
 			if close {
-				tracing::trace!("Got Connection: close header");
+				tracing::trace!(
+					reason = "Got Connection: close header",
+					"Closing connection"
+				);
 				return;
 			}
 
@@ -363,6 +179,119 @@ where
 		error = "request headers too large",
 		"Failed to read HTTP request"
 	);
+	tracing::trace!(reason = "Error", "Closing connection");
+}
+
+async fn process_request<'a, 'b, R: Server, S>(
+	mut req: Request<'a, 'b>,
+	socket: &mut S,
+	router: &'static R,
+	respbuf: &mut [u8],
+	body: &'b mut [u8],
+	valid_body_len: usize,
+	contentlength: usize,
+	_start_time: Instant,
+) -> Result<(), ()>
+where
+	S: AsyncRead + AsyncWrite + Unpin,
+{
+	tracing::trace!("Processing request");
+	tracing::trace!(content_length = contentlength);
+
+	req.body = {
+		if contentlength > body.len() {
+			tracing::error!(
+				content_length = contentlength,
+				buffer_len = body.len(),
+				"Failed to read HTTP body: too big"
+			);
+			write_error_response(
+				socket,
+				Response::content_too_large().with_header("Connection", "close"),
+				respbuf,
+			)
+			.await;
+			return Err(());
+		} else if contentlength > valid_body_len {
+			if let Err(_error) = socket
+				.read_exact(&mut body[valid_body_len..contentlength])
+				.await
+			{
+				tracing::error!(?_error, "Failed to read HTTP body");
+				return Err(());
+			}
+		}
+
+		&body[..contentlength]
+	};
+
+	let head_method = req.method.eq_ignore_ascii_case("head");
+	#[cfg(not(feature = "catchpanic"))]
+	let mut resp = router.route(req).await;
+	#[cfg(feature = "catchpanic")]
+	let mut resp = match AssertUnwindSafe(router.route(req)).catch_unwind().await {
+		Ok(resp) => resp,
+		Err(_error) => {
+			tracing::error!(?_error, "Panic in response handler");
+			write_error_response(socket, Response::internal_server_error(), respbuf).await;
+			// We can process additional requests after this, so return Ok
+			return Ok(());
+		}
+	};
+
+	#[cfg(feature = "compress")]
+	compress::apply_compression(&req, &mut resp);
+
+	tracing::info!(
+		response.status = resp.status,
+		response.content_type = resp
+			.headers
+			.iter()
+			.find(|&(n, _)| n.eq_ignore_ascii_case("content-type"))
+			.map(|(_, v)| v),
+		response.body_len = resp.body.as_ref().and_then(|b| b.len()),
+		latency_ms = _start_time.elapsed().as_millis() as u64,
+		"Request processed"
+	);
+
+	let (head, mut rest) = match write_response(&resp, respbuf) {
+		Ok(buf) => buf,
+		Err(_error) => {
+			tracing::error!(?_error, "Failed to write response");
+			write_error_response(socket, Response::internal_server_error(), respbuf).await;
+			// We can try to process additional requests after this, so return Ok
+			return Ok(());
+		}
+	};
+
+	if head_method {
+		let _body = resp.body.take();
+		tracing::trace!(removed_body = _body.is_some(), "Processing HEAD request");
+	}
+
+	match resp.body {
+		None => {
+			socket_write!(socket.write_all(head));
+			tracing::trace!("Wrote headers only");
+		}
+		Some(Body::Immediate(body)) if body.len() < rest.len() => {
+			let _ = rest.write_all(body.as_slice());
+			let len = head.len() + body.len();
+			socket_write!(socket.write_all(&respbuf[..len]));
+			tracing::trace!("Wrote headers and body in one shot");
+		}
+		Some(Body::Immediate(body)) => {
+			socket_write!(socket.write_all(head));
+			socket_write!(socket.write_all(body.as_slice()));
+			tracing::trace!(body_len = body.len(), "Wrote headers and body separately");
+		}
+		Some(Body::Stream { data, len }) => {
+			socket_write!(write_stream_body(socket, data, len, head));
+			tracing::trace!(len, "Streamed body");
+		}
+	}
+
+	Ok(())
 }
 
 async fn read_from_socket<R>(
@@ -385,7 +314,7 @@ where
 			if total > 0 {
 				tracing::warn!(unused_bytes = total, "Remote closed connection");
 			} else {
-				tracing::info!("Remote closed connection");
+				tracing::trace!("Remote closed connection");
 			}
 			Err(None)
 		}
@@ -393,14 +322,14 @@ where
 			tracing::trace!(n, total, "Successful socket read");
 			Ok((total, total + n))
 		}
-		Err(e) => {
-			if e.kind() == std::io::ErrorKind::TimedOut {
-				tracing::warn!("Socket read timed out");
+		Err(error) => {
+			if error.kind() == std::io::ErrorKind::TimedOut {
+				tracing::trace!("Socket read timed out");
 				Err(Some(
 					Response::request_timeout().with_header("Connection", "close"),
 				))
 			} else {
-				tracing::error!(error = ?e, "Error reading socket");
+				tracing::error!(?error, "Error reading socket");
 				Err(None)
 			}
 		}
@@ -610,16 +539,14 @@ where
 {
 	let (head, _) = match write_response(&response, buffer) {
 		Ok(buf) => buf,
-		#[allow(unused_variables)]
-		Err(e) => {
-			tracing::error!("Failed to write response: {:?}", e);
+		Err(_error) => {
+			tracing::error!(?_error, "Failed to write response");
 			return;
 		}
 	};
 
-	#[allow(unused_variables)]
-	if let Err(e) = socket.write_all(head).await {
-		tracing::error!("Failed to write response: {:?}", e);
+	if let Err(_error) = socket.write_all(head).await {
+		tracing::error!(?_error, "Failed to write response");
 	}
 }
 
@@ -887,44 +814,6 @@ mod tests {
 
 		futures_lite::future::block_on(async {
 			futures_lite::future::zip(handle_future, test_future).await;
-		});
-	}
-
-	#[test]
-	fn test_serve() {
-		use async_net::TcpListener;
-		use std::time::Duration;
-
-		// Pick a random port by binding to 0 and getting the address
-		let addr = futures_lite::future::block_on(async {
-			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-			listener.local_addr().unwrap()
-		});
-
-		let server = MockServer;
-
-		let serve_addr = addr.clone();
-		// Spawn server in a thread
-		std::thread::spawn(move || {
-			serve(serve_addr, server);
-		});
-
-		// Give it a moment to start
-		std::thread::sleep(Duration::from_millis(100));
-
-		// Connect
-		futures_lite::future::block_on(async {
-			let mut stream = async_net::TcpStream::connect(addr).await.unwrap();
-			stream
-				.write_all(b"GET /serve HTTP/1.1\r\n\r\n")
-				.await
-				.unwrap();
-
-			let mut buf = vec![0u8; 1024];
-			let n = stream.read(&mut buf).await.unwrap();
-			let response = std::str::from_utf8(&buf[..n]).unwrap();
-
-			assert!(response.contains("Hello /serve"));
 		});
 	}
 
