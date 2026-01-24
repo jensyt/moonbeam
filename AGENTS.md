@@ -1,29 +1,79 @@
 # Moonbeam Project Context for Agents
 
 ## Project Overview
-**Moonbeam** is a single-threaded-first, asynchronous HTTP server written in Rust. It is designed to be simple and efficient by running on a single thread by default, eliminating the need for thread synchronization primitives like `Arc` and `Mutex`. However, it also supports a "share-nothing" multi-threaded mode via the `mt` feature.
+**Moonbeam** is a single-threaded-first, asynchronous HTTP server written in Rust. It prioritizes simplicity and performance by running on a single thread by default, leveraging the `async-io` and `smol` ecosystem. It avoids the complexity of thread synchronization primitives like `Arc` and `Mutex` in favor of a "share-nothing" architecture.
+
+## Tech Stack & Dependencies
+- **Runtime**: `async-executor` (LocalExecutor), `async-io`, `futures-lite`.
+- **Networking**: `async-net`.
+- **Parsing**: `httparse`.
+- **Utilities**: `blocking` (for synchronous I/O), `flume` (async-ready channels), `percent-encoding`.
+- **Compression**: `flate2` (gzip), `brotli`.
+- **Testing**: `piper` (for mock async streams).
+- **Log**: `tracing`.
+
+**CRITICAL**: This project does **NOT** use `tokio`. Do not introduce `tokio` dependencies, `tokio::spawn`, or `#[tokio::main]`. Use `async_io::block_on` or the project's own `serve`/`serve_multi` functions.
 
 ## Core Philosophy
-1.  **Single-Threaded by Default**: The server runs on a single thread to avoid context switching and synchronization overhead.
-2.  **Async I/O**: It uses `async-io` and `futures-lite` for non-blocking operations.
-3.  **No Synchronization Needed**: State management should rely on `std::cell::Cell` or `std::cell::RefCell` for interior mutability, rather than thread-safe alternatives. Multi-threading is achieved by replicating state across threads.
+1.  **Single-Threaded by Default**: Uses a `LocalExecutor` on the main thread. State can be stored in `RefCell` or `Cell` as no thread-sharing is required.
+2.  **Share-Nothing Multi-Threading**: The `mt` feature enables multi-threading by spawning independent server "isolates" on worker threads. Each thread leaks its own copy of the state to create a `'static` reference.
+3.  **Macro-Driven DSL**: Heavy use of procedural macros (`router!`, `#[route]`) to eliminate boilerplate and provide dependency injection for handlers.
 
 ## Workspace Structure
-The project is a Cargo workspace with the following members:
-- **`moonbeam/`**: The core server library. Contains HTTP handling, server logic, routing, and utilities.
-- **`moonbeam-attributes/`**: Procedural macros, including `#[server]`, `#[route]`, and `router!`.
+- **`moonbeam/`**: Core library.
+    - `src/server/st.rs`: Single-threaded runtime implementation.
+    - `src/server/mt.rs`: Multi-threaded runtime (requires `mt` feature).
+    - `src/router/`: Routing logic and `PathParams` extraction.
+    - `src/http/`: `Request`, `Response`, `Body`, `Cookies`, and `Params` (query strings).
+    - `src/assets.rs`: Static file serving with ETag (SHA-based) and MIME detection.
+- **`moonbeam-attributes/`**: Procedural macros (`router!`, `#[server]`, `#[route]`, `#[middleware]`).
 
 ## Key Components
-- **`#[server]` Macro**: Used to define simple request handlers.
-- **Routing System**: `#[route]`, `#[middleware]`, and `router!` macros for defining complex routing trees with middleware support.
-- **`Request` & `Response`**: Core types for HTTP exchange.
-- **`assets`**: Utilities for serving static files with ETag support. Now uses blocking I/O for robustness.
-- **`serve_multi`**: Function to run the server in multi-threaded mode (requires `mt` feature).
+
+### Routing DSL (`router!`)
+The `router!` macro defines the routing tree.
+```rust
+router!(MyRouter<State> {
+    with logger_middleware // Global middleware
+
+    get("/") => index_handler,
+    get("/users/:id") => user_handler, // Extracted via PathParams
+
+    "/api" => {
+        with auth_middleware
+        post("/submit") => submit_handler,
+        _ => ! // 404 for this sub-tree
+    }
+    _ => not_found_handler // Global 404
+});
+```
+
+### Handlers & State
+Handlers are async functions. The `#[route]` macro allows them to accept:
+- `Request`
+- `&State` (The application state)
+- `PathParams<(T1, T2, ...)>` (Tuple struct for extracted path variables)
+
+Handlers can return anything that implements `Into<Response>`, including `Result<T, E>` where both `T` and `E` are `Into<Response>`.
+
+### Middleware
+Middleware signatures are simplified via `#[middleware]`:
+```rust
+#[middleware]
+async fn my_middleware(req: Request, state: &State, next: Next) -> Response {
+    // next(req) returns a Future<Output = Response>
+    next(req).await
+}
+```
 
 ## Development Guidelines
-- **Concurrency**: Do NOT introduce `std::sync::Arc`, `std::sync::Mutex`, or `tokio::spawn` unless absolutely necessary. For multi-threading, rely on the "share-nothing" architecture where state is cloned per thread.
-- **Async Runtime**: The project uses `async-executor` (via `async-io` ecosystem), not Tokio.
-- **Error Handling**: Panics in handlers are caught by the server (if `catchpanic` feature is enabled), but prefer returning proper error responses.
+- **Interior Mutability**: Use `std::rc::Rc` and `std::cell::RefCell` for state. Avoid `std::sync` unless explicitly required for cross-thread channels (`flume`).
+- **Memory Management**: Server instances are typically boxed and leaked (`Box::leak`) to provide the `'static` lifetime required by the executor.
+- **Error Handling**: Prefer returning `Response::internal_server_error()` or similar over panicking. The `catchpanic` feature (if enabled) will catch panics in handlers and return a 500 response.
+
+## Testing Strategy
+- **Unit Tests**: Use `piper::pipe` to create connected `Reader`/`Writer` pairs to simulate sockets.
+- **Mocking**: Handlers can be tested by manually constructing `Request` objects and calling `handler(req, state).await`.
 
 ## Development Workflow
 - **Formatting**: Always format code using `cargo fmt`.
