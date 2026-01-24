@@ -34,7 +34,7 @@ assets = []
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
 compress = ["dep:flate2", "dep:brotli"]
-router = ["macros", "moonbeam-attributes/router"]
+router = ["macros", "moonbeam-attributes/router", "moonbeam-attributes/autohead"]
 mt = []
 
 [dev-dependencies]

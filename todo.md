@@ -1,5 +1,4 @@
 # Todo
-- Automatic support for HEAD requests -> GET handler in router
 - Support for HTML forms
 - TRACE requests
 - Make tracing meaningful
@@ -18,3 +17,4 @@
   from routes
 - Middleware support
 - Route prefixes
+- Automatic support for HEAD requests -> GET handler in router

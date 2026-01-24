@@ -372,6 +372,18 @@ fn generate_route_logic(routes: &[FinalRoute], has_state: bool) -> TokenStream {
 		}
 	}
 
+	#[cfg(feature = "autohead")]
+	if let Some(get_routes) = specific_routes_by_method.get("GET").cloned() {
+		let head_routes = specific_routes_by_method
+			.entry("HEAD".to_string())
+			.or_default();
+		for get_route in get_routes {
+			if !head_routes.iter().any(|r| r.path == get_route.path) {
+				head_routes.push(get_route);
+			}
+		}
+	}
+
 	let mut method_match_arms = TokenStream::new();
 	let state = if has_state {
 		quote! { &self.0 }
