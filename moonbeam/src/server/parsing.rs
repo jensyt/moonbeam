@@ -100,7 +100,6 @@ fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 #[cfg(all(
 	target_arch = "x86_64",
 	target_feature = "sse2",
-	not(target_feature = "sse4.2"),
 	not(feature = "disable-simd")
 ))]
 fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
@@ -145,49 +144,6 @@ fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
 	}
 
 	// Fallback for the remaining part of the buffer
-	if offset < len {
-		scan_for_header_end_simple(&buffer[offset..]).map(|v| v + offset)
-	} else {
-		None
-	}
-}
-
-/// This is a hypothetical implementation for demonstration.
-/// It requires the `sse4.2` target feature.
-#[cfg(all(
-	target_arch = "x86_64",
-	target_feature = "sse4.2",
-	not(feature = "disable-simd")
-))]
-fn scan_for_header_end_simd(buffer: &[u8]) -> Option<usize> {
-	use core::arch::x86_64::*;
-
-	const MODE: i32 = _SIDD_CMP_EQUAL_ORDERED | _SIDD_UBYTE_OPS;
-
-	let len = buffer.len();
-	let mut offset = 0;
-	let ptr = buffer.as_ptr();
-
-	// The pattern to search for: \r\n\r\n
-	let pattern =
-		unsafe { _mm_loadu_si128(b"\r\n\r\n\0\0\0\0\0\0\0\0\0\0\0\0".as_ptr() as *const _) };
-
-	while offset + 16 <= len {
-		let block = unsafe { _mm_loadu_si128(ptr.add(offset) as *const _) };
-
-		// Search for the 4-byte pattern in the 16-byte block.
-		let index = unsafe { _mm_cmpestri(pattern, 4, block, 16, MODE) };
-
-		if index < 16 {
-			// A match was found at `index` within the block.
-			return Some(offset + index as usize + 4);
-		}
-
-		// If no match, jump ahead. A jump of 13 is safe for a 4-byte pattern.
-		offset += 13;
-	}
-
-	// Fallback for the remainder of the buffer.
 	if offset < len {
 		scan_for_header_end_simple(&buffer[offset..]).map(|v| v + offset)
 	} else {
