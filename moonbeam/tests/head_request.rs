@@ -4,15 +4,15 @@ use moonbeam::{Body, Request, Response, Server, route, router};
 #[route]
 async fn get_handler(req: Request) -> Response {
 	if req.method == "HEAD" {
-		Response::ok().with_body("HEAD processed by GET handler", None)
+		Response::ok().with_body("HEAD processed by GET handler", Body::DEFAULT_CONTENT_TYPE)
 	} else {
-		Response::ok().with_body("GET processed", None)
+		Response::ok().with_body("GET processed", Body::DEFAULT_CONTENT_TYPE)
 	}
 }
 
 #[route]
 async fn head_handler(_req: Request) -> Response {
-	Response::ok().with_body("HEAD explicit", None)
+	Response::ok().with_body("HEAD explicit", Body::DEFAULT_CONTENT_TYPE)
 }
 
 router! {

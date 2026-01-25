@@ -1,6 +1,5 @@
 use futures_lite::future::block_on;
-use moonbeam::router::PathParams;
-use moonbeam::{Body, Request, Response, Server, route, router};
+use moonbeam::{Body, Request, Response, Server, route, router, router::PathParams};
 
 // --- State Definition ---
 
@@ -12,27 +11,33 @@ struct TestState {
 
 #[route]
 async fn index(_req: Request) -> Response {
-	Response::ok().with_body("index", None)
+	Response::ok().with_body("index", Body::DEFAULT_CONTENT_TYPE)
 }
 
 #[route]
 async fn get_user(PathParams(id): PathParams<&str>) -> Response {
-	Response::ok().with_body(format!("user: {}", id), None)
+	Response::ok().with_body(format!("user: {}", id), Body::DEFAULT_CONTENT_TYPE)
 }
 
 #[route]
 async fn get_post(PathParams((user_id, post_id)): PathParams<(&str, &str)>) -> Response {
-	Response::ok().with_body(format!("user: {}, post: {}", user_id, post_id), None)
+	Response::ok().with_body(
+		format!("user: {}, post: {}", user_id, post_id),
+		Body::DEFAULT_CONTENT_TYPE,
+	)
 }
 
 #[route]
 async fn with_state(_req: Request, state: &'static TestState) -> Response {
-	Response::ok().with_body(format!("state: {}", state.value), None)
+	Response::ok().with_body(
+		format!("state: {}", state.value),
+		Body::DEFAULT_CONTENT_TYPE,
+	)
 }
 
 #[route]
 async fn create_item(_req: Request) -> Response {
-	Response::new_with_code(201).with_body("created", None)
+	Response::new_with_code(201).with_body("created", Body::DEFAULT_CONTENT_TYPE)
 }
 
 // --- Router Definition ---

@@ -6,12 +6,15 @@ use moonbeam::{Body, Request, Response, Server, route, router};
 
 #[route]
 async fn rest_handler(PathParams(path): PathParams<&str>) -> Response {
-	Response::ok().with_body(path, None)
+	Response::ok().with_body(path, Body::DEFAULT_CONTENT_TYPE)
 }
 
 #[route]
 async fn mixed_handler(PathParams((id, path)): PathParams<(&str, &str)>) -> Response {
-	Response::ok().with_body(format!("id: {}, path: {}", id, path), None)
+	Response::ok().with_body(
+		format!("id: {}, path: {}", id, path),
+		Body::DEFAULT_CONTENT_TYPE,
+	)
 }
 
 // --- Router Definition ---

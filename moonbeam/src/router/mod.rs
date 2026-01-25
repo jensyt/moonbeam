@@ -48,12 +48,30 @@ impl From<()> for Response {
 
 impl From<Body> for Response {
 	fn from(body: Body) -> Response {
-		Response::new_with_body(body, None)
+		Response::new_with_body(body, Body::DEFAULT_CONTENT_TYPE)
 	}
 }
 
-impl From<(Body, Option<&str>)> for Response {
-	fn from((body, content_type): (Body, Option<&str>)) -> Response {
+impl From<(Body, &'static str)> for Response {
+	fn from((body, content_type): (Body, &'static str)) -> Response {
+		Response::new_with_body(body, Some(content_type))
+	}
+}
+
+impl From<(Body, Option<&'static str>)> for Response {
+	fn from((body, content_type): (Body, Option<&'static str>)) -> Response {
+		Response::new_with_body(body, content_type)
+	}
+}
+
+impl From<(Body, String)> for Response {
+	fn from((body, content_type): (Body, String)) -> Response {
+		Response::new_with_body(body, Some(content_type))
+	}
+}
+
+impl From<(Body, Option<String>)> for Response {
+	fn from((body, content_type): (Body, Option<String>)) -> Response {
 		Response::new_with_body(body, content_type)
 	}
 }

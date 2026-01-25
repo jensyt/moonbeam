@@ -47,11 +47,11 @@ pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Res
 	let ext = get_mime_type(&path);
 
 	if let Some(etag) = etag
-		&& let Some(tag) = tag.as_ref()
-		&& etag == tag.as_bytes()
+		&& let Some(t) = &tag
+		&& etag == t.as_bytes()
 	{
 		// Not changed
-		return Response::not_modified(ext).with_header("ETag", tag);
+		return Response::not_modified(ext).with_header("ETag", tag.unwrap());
 	}
 
 	let file = match File::open(path) {

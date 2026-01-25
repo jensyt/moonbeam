@@ -48,11 +48,11 @@ impl Parse for ServerArgs {
 ///
 /// # Example
 /// ```rust,ignore
-/// use moonbeam::{Request, Response, server};
+/// use moonbeam::{Body, Request, Response, server};
 ///
 /// #[server(MyServer)]
 /// async fn handle_request(req: Request) -> Response {
-///     Response::ok().with_body("Hello World!", None)
+///     Response::ok().with_body("Hello World!", Body::TEXT)
 /// }
 ///
 /// // Usage:

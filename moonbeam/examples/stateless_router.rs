@@ -1,5 +1,5 @@
 use moonbeam::router::PathParams;
-use moonbeam::{Request, Response, middleware, route, router, serve};
+use moonbeam::{Body, Request, Response, middleware, route, router, serve};
 
 #[route]
 async fn index(req: Request) -> Response {
@@ -9,15 +9,12 @@ async fn index(req: Request) -> Response {
 		.next()
 		.map(|v| format!("Got x = {v}"))
 		.unwrap_or_else(|| "Did not get x param".into());
-	Response::ok().with_body(
-		format!("Welcome to the stateless router! {x}"),
-		Some("text/plain"),
-	)
+	Response::ok().with_body(format!("Welcome to the stateless router! {x}"), Body::TEXT)
 }
 
 #[route]
 fn hello(PathParams(name): PathParams<&str>) -> Response {
-	Response::new_with_body(format!("Hello {name}!"), Some("text/plain"))
+	Response::new_with_body(format!("Hello {name}!"), Body::TEXT)
 }
 
 #[middleware]

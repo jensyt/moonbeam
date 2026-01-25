@@ -1,11 +1,7 @@
 use crate::http::{cookies::Cookies, params::Params};
 use httparse::{Header, Request as RawRequest};
 use percent_encoding::percent_decode_str;
-use std::{
-	borrow::{Borrow, Cow},
-	fmt::Debug,
-	io::Read,
-};
+use std::{borrow::Cow, fmt::Debug, io::Read};
 
 pub mod cookies;
 pub mod params;
@@ -126,13 +122,69 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	}
 }
 
+/// Represents the collection of HTTP headers.
+#[derive(Debug, Clone, Default)]
+pub struct Headers {
+	inner: Vec<(Cow<'static, str>, Cow<'static, str>)>,
+}
+
+impl Headers {
+	/// Creates a new empty headers collection.
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// Adds a header.
+	pub fn push(
+		&mut self,
+		name: impl Into<Cow<'static, str>>,
+		value: impl Into<Cow<'static, str>>,
+	) {
+		self.inner.push((name.into(), value.into()));
+	}
+
+	/// Iterates over the headers.
+	pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+		self.inner.iter().map(|(k, v)| (k.as_ref(), v.as_ref()))
+	}
+
+	/// Retains only the elements specified by the predicate.
+	pub fn retain<F>(&mut self, mut f: F)
+	where
+		F: FnMut(&str, &str) -> bool,
+	{
+		self.inner.retain(|(k, v)| f(k, v));
+	}
+
+	/// Returns the number of headers.
+	pub fn len(&self) -> usize {
+		self.inner.len()
+	}
+
+	/// Returns true if there are no headers.
+	pub fn is_empty(&self) -> bool {
+		self.inner.is_empty()
+	}
+}
+
+impl std::ops::Index<usize> for Headers {
+	type Output = (Cow<'static, str>, Cow<'static, str>);
+
+	fn index(&self, index: usize) -> &Self::Output {
+		&self.inner[index]
+	}
+}
+
+/// Type alias for MIME types (Content-Type), using Copy-on-Write strings.
+pub type MimeType = Cow<'static, str>;
+
 /// Represents an HTTP response.
 ///
 /// # Example
 /// ```
-/// use moonbeam::http::Response;
+/// use moonbeam::http::{Response, Body};
 ///
-/// let resp = Response::ok().with_body("Hello", None);
+/// let resp = Response::ok().with_body("Hello", Body::TEXT);
 /// assert_eq!(resp.status, 200);
 /// ```
 #[derive(Debug)]
@@ -140,7 +192,7 @@ pub struct Response {
 	/// The HTTP status code (e.g., 200, 404).
 	pub status: u16,
 	/// The response headers.
-	pub headers: Vec<(String, String)>,
+	pub headers: Headers,
 	/// The response body.
 	pub body: Option<Body>,
 }
@@ -151,17 +203,22 @@ impl Response {
 	pub fn new_with_code(status: u16) -> Self {
 		Self {
 			status,
-			headers: Vec::new(),
+			headers: Headers::new(),
 			body: None,
 		}
 	}
 
 	/// Creates a new response with a body and optional content type.
-	pub fn new_with_body(body: impl Into<Body>, content_type: Option<&str>) -> Self {
-		let headers = if let Some(c) = content_type {
-			vec![("Content-Type".to_string(), c.to_string())]
+	pub fn new_with_body(
+		body: impl Into<Body>,
+		content_type: Option<impl Into<Cow<'static, str>>>,
+	) -> Self {
+		let headers = if let Some(content_type) = content_type {
+			Headers {
+				inner: vec![("Content-Type".into(), content_type.into())],
+			}
 		} else {
-			Vec::new()
+			Headers::new()
 		};
 		Self {
 			status: 200,
@@ -184,7 +241,7 @@ impl Response {
 
 	/// 304 Not Modified
 	#[inline]
-	pub fn not_modified(content_type: Option<&str>) -> Self {
+	pub fn not_modified(content_type: Option<impl Into<Cow<'static, str>>>) -> Self {
 		let mut resp = Self::new_with_code(304);
 		if let Some(ct) = content_type {
 			resp.set_header("Content-Type", ct);
@@ -196,7 +253,7 @@ impl Response {
 	///
 	/// Sets the `Location` header to the given location.
 	#[inline]
-	pub fn temporary_redirect(location: impl Into<String>) -> Self {
+	pub fn temporary_redirect(location: impl Into<Cow<'static, str>>) -> Self {
 		Self::new_with_code(307).with_header("Location", location)
 	}
 
@@ -252,14 +309,18 @@ impl Response {
 	///
 	/// This overwrites the body and `Content-Type` header if they already exist.
 	#[inline]
-	pub fn with_body(mut self, body: impl Into<Body>, content_type: Option<&str>) -> Self {
+	pub fn with_body(
+		mut self,
+		body: impl Into<Body>,
+		content_type: Option<impl Into<Cow<'static, str>>>,
+	) -> Self {
 		match content_type {
 			Some(v) => {
 				self.set_header("Content-Type", v);
 			}
 			None => {
 				self.headers
-					.retain(|(n, _)| !n.eq_ignore_ascii_case("Content-Type"));
+					.retain(|n, _| !n.eq_ignore_ascii_case("Content-Type"));
 			}
 		}
 		self.body = Some(body.into());
@@ -268,17 +329,18 @@ impl Response {
 
 	/// Adds a header if it doesn't already exist.
 	#[inline]
-	pub fn with_header<H, V>(mut self, name: H, value: V) -> Self
-	where
-		H: Into<String> + Borrow<str>,
-		V: Into<String>,
-	{
+	pub fn with_header(
+		mut self,
+		name: impl Into<Cow<'static, str>>,
+		value: impl Into<Cow<'static, str>>,
+	) -> Self {
+		let name = name.into();
 		if !self
 			.headers
 			.iter()
-			.any(|(n, _)| n.eq_ignore_ascii_case(name.borrow()))
+			.any(|(n, _)| n.eq_ignore_ascii_case(name.as_ref()))
 		{
-			self.headers.push((name.into(), value.into()));
+			self.headers.push(name, value);
 		}
 		self
 	}
@@ -287,24 +349,25 @@ impl Response {
 	///
 	/// If multiple headers with the same name exist, they are all removed and replaced
 	/// by the new single header. The value of the first removed header is returned.
-	pub fn set_header<H, V>(&mut self, name: H, value: V) -> Option<String>
-	where
-		H: Into<String> + Borrow<str>,
-		V: Into<String>,
-	{
-		let name_str = name.borrow();
+	pub fn set_header(
+		&mut self,
+		name: impl Into<Cow<'static, str>>,
+		value: impl Into<Cow<'static, str>>,
+	) -> Option<Cow<'static, str>> {
+		let name = name.into();
 		let old_value = self
 			.headers
+			.inner
 			.iter()
-			.find(|(n, _)| n.eq_ignore_ascii_case(name_str))
+			.find(|(n, _)| n.eq_ignore_ascii_case(name.as_ref()))
 			.map(|(_, v)| v.clone());
 
 		if old_value.is_some() {
 			self.headers
-				.retain(|(n, _)| !n.eq_ignore_ascii_case(name_str));
+				.retain(|n, _| !n.eq_ignore_ascii_case(name.as_ref()));
 		}
 
-		self.headers.push((name.into(), value.into()));
+		self.headers.push(name, value);
 		old_value
 	}
 }
@@ -332,6 +395,10 @@ impl Body {
 	pub const HTML: Option<&'static str> = Some("text/html; charset=utf-8");
 	/// Content-Type for JSON.
 	pub const JSON: Option<&'static str> = Some("application/json");
+	/// Content-Type for Text.
+	pub const TEXT: Option<&'static str> = Some("text/plain; charset=utf-8");
+	/// Default Content-Type.
+	pub const DEFAULT_CONTENT_TYPE: Option<&'static str> = None;
 
 	/// Creates a body from a vector.
 	pub fn from_vec(data: impl Into<Vec<u8>>) -> Self {
@@ -404,24 +471,20 @@ mod tests {
 	fn test_response_add_header() {
 		let response = Response {
 			status: 200,
-			headers: vec![],
+			headers: Headers::new(),
 			body: None,
 		};
 
 		let response = response.with_header("Content-Type", "text/html");
 		assert_eq!(response.headers.len(), 1);
-		assert_eq!(
-			response.headers[0],
-			("Content-Type".to_string(), "text/html".to_string())
-		);
+		assert_eq!(response.headers[0].0, "Content-Type");
+		assert_eq!(response.headers[0].1, "text/html");
 
 		// Adding same header should not duplicate
 		let response = response.with_header("content-type", "application/json");
 		assert_eq!(response.headers.len(), 1);
-		assert_eq!(
-			response.headers[0],
-			("Content-Type".to_string(), "text/html".to_string())
-		);
+		assert_eq!(response.headers[0].0, "Content-Type");
+		assert_eq!(response.headers[0].1, "text/html");
 
 		// Adding different header should work
 		let response = response.with_header("X-Custom", "value");
@@ -432,13 +495,15 @@ mod tests {
 	fn test_response_set_header() {
 		let mut response = Response {
 			status: 200,
-			headers: vec![("Content-Type".to_string(), "text/html".to_string())],
+			headers: Headers {
+				inner: vec![("Content-Type".into(), "text/html".into())],
+			},
 			body: None,
 		};
 
 		// Setting existing header should replace
 		let old_value = response.set_header("Content-Type", "application/json");
-		assert_eq!(old_value, Some("text/html".to_string()));
+		assert_eq!(old_value, Some(Cow::Borrowed("text/html")));
 		assert_eq!(response.headers[0].1, "application/json");
 
 		// Setting new header should add
@@ -451,20 +516,20 @@ mod tests {
 	fn test_response_set_header_removes_duplicates() {
 		let mut response = Response {
 			status: 200,
-			headers: vec![
-				("X-Custom".to_string(), "v1".to_string()),
-				("X-Custom".to_string(), "v2".to_string()),
-			],
+			headers: Headers {
+				inner: vec![
+					("X-Custom".into(), "v1".into()),
+					("X-Custom".into(), "v2".into()),
+				],
+			},
 			body: None,
 		};
 
 		let old_value = response.set_header("X-Custom", "v3");
-		assert_eq!(old_value, Some("v1".to_string()));
+		assert_eq!(old_value, Some(Cow::Borrowed("v1")));
 		assert_eq!(response.headers.len(), 1);
-		assert_eq!(
-			response.headers[0],
-			("X-Custom".to_string(), "v3".to_string())
-		);
+		assert_eq!(response.headers[0].0, "X-Custom");
+		assert_eq!(response.headers[0].1, "v3");
 	}
 
 	#[test]
@@ -520,7 +585,8 @@ mod tests {
 
 		let r = Response::temporary_redirect("/foo");
 		assert_eq!(r.status, 307);
-		assert_eq!(r.headers[0], ("Location".to_string(), "/foo".to_string()));
+		assert_eq!(r.headers[0].0, "Location");
+		assert_eq!(r.headers[0].1, "/foo");
 	}
 
 	#[test]
@@ -531,7 +597,7 @@ mod tests {
 		assert_eq!(
 			r.headers
 				.iter()
-				.find(|(n, _)| n == "Content-Type")
+				.find(|&(n, _)| n == "Content-Type")
 				.unwrap()
 				.1,
 			"text/plain"
@@ -542,7 +608,7 @@ mod tests {
 		assert_eq!(
 			r.headers
 				.iter()
-				.find(|(n, _)| n == "Content-Type")
+				.find(|&(n, _)| n == "Content-Type")
 				.unwrap()
 				.1,
 			"application/json"
@@ -550,13 +616,13 @@ mod tests {
 		assert_eq!(
 			r.headers
 				.iter()
-				.filter(|(n, _)| n == "Content-Type")
+				.filter(|&(n, _)| n == "Content-Type")
 				.count(),
 			1
 		);
 
 		// Test removing content type
-		let r = r.with_body("data", None);
+		let r = r.with_body("data", Body::DEFAULT_CONTENT_TYPE);
 		assert!(!r.headers.iter().any(|(n, _)| n == "Content-Type"));
 	}
 }

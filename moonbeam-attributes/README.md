@@ -28,11 +28,11 @@ The function can be `async` or return `impl Future`.
 **Stateless Server**
 
 ```rust
-use moonbeam::{Request, Response, server, serve};
+use moonbeam::{Body, Request, Response, server, serve};
 
 #[server(MyServer)]
 async fn handle_request(_req: Request) -> Response {
-    Response::ok().with_body("Hello, World!", None)
+    Response::ok().with_body("Hello, World!", Body::TEXT)
 }
 
 fn main() {
@@ -43,7 +43,7 @@ fn main() {
 **Stateful Server**
 
 ```rust
-use moonbeam::{Request, Response, server, serve};
+use moonbeam::{Body, Request, Response, server, serve};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct State {
@@ -53,7 +53,7 @@ struct State {
 #[server(MyStatefulServer)]
 async fn handle_request(_req: Request, state: &'static State) -> Response {
     let count = state.count.fetch_add(1, Ordering::Relaxed);
-    Response::ok().with_body(format!("Request count: {}", count), None)
+    Response::ok().with_body(format!("Request count: {}", count), Body::TEXT)
 }
 
 fn main() {
@@ -73,12 +73,12 @@ The `#[route]` macro defines a route handler that can be used within a `router!`
 #### Example
 
 ```rust
-use moonbeam::{Response, route};
+use moonbeam::{Body, Response, route};
 use moonbeam::router::PathParams;
 
 #[route]
 async fn hello_user(PathParams(name): PathParams<&str>) -> Response {
-    Response::ok().with_body(format!("Hello, {}!", name), None)
+    Response::ok().with_body(format!("Hello, {}!", name), Body::TEXT)
 }
 ```
 

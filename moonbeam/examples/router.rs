@@ -1,5 +1,5 @@
 use moonbeam::router::PathParams;
-use moonbeam::{Response, route, router, serve};
+use moonbeam::{Body, Response, route, router, serve};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 struct State {
@@ -9,10 +9,7 @@ struct State {
 #[route]
 async fn hello(PathParams(name): PathParams<&str>, state: &'static State) -> Response {
 	let count = state.count.fetch_add(1, Ordering::Relaxed);
-	Response::new_with_body(
-		format!("Hello {name}! Request #{count}."),
-		Some("text/plain"),
-	)
+	Response::new_with_body(format!("Hello {name}! Request #{count}."), Body::TEXT)
 }
 
 #[route]
@@ -23,13 +20,13 @@ async fn hello_two(
 	let count = state.count.fetch_add(1, Ordering::Relaxed);
 	Response::new_with_body(
 		format!("Hello {first} {last}! Request #{count}."),
-		Some("text/plain"),
+		Body::TEXT,
 	)
 }
 
 #[route]
 async fn files(PathParams(path): PathParams<&str>) -> Response {
-	Response::new_with_body(format!("Serving file: {path}"), Some("text/plain"))
+	Response::new_with_body(format!("Serving file: {path}"), Body::TEXT)
 }
 
 fn main() {

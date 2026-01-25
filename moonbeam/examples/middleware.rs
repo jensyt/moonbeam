@@ -1,6 +1,6 @@
 use moonbeam::http::{Request, Response};
 use moonbeam::router::PathParams;
-use moonbeam::{middleware, route, router, serve};
+use moonbeam::{Body, middleware, route, router, serve};
 
 struct State {
 	api_key: String,
@@ -19,39 +19,39 @@ async fn auth(req: Request, state: &State, next: Next) -> Response {
 	{
 		return next(req).await;
 	}
-	Response::new_with_code(401).with_body("Unauthorized", Some("text/plain"))
+	Response::new_with_code(401).with_body("Unauthorized", Body::TEXT)
 }
 
 #[route]
 async fn public_index(_state: &State) -> Response {
-	Response::new_with_body("Public Index", Some("text/plain"))
+	Response::new_with_body("Public Index", Body::TEXT)
 }
 
 #[route]
 async fn api_index(PathParams(id): PathParams<&str>, _state: &State) -> Response {
-	Response::new_with_body(format!("API Index for {}", id), Some("text/plain"))
+	Response::new_with_body(format!("API Index for {}", id), Body::TEXT)
 }
 
 #[route]
 async fn api_save(_state: &State) -> Response {
-	Response::new_with_body("Saved", Some("text/plain"))
+	Response::new_with_body("Saved", Body::TEXT)
 }
 
 #[route]
 async fn api_v1_status(_state: &State) -> Response {
-	Response::new_with_body("V1 Status OK", Some("text/plain"))
+	Response::new_with_body("V1 Status OK", Body::TEXT)
 }
 
 #[route]
 async fn not_found(_state: &State) -> Response {
-	Response::new_with_code(404).with_body("Custom Not Found", Some("text/plain"))
+	Response::new_with_code(404).with_body("Custom Not Found", Body::TEXT)
 }
 
 mod api {
-	use moonbeam::{Response, route};
+	use moonbeam::{Body, Response, route};
 	#[route]
 	pub async fn version() -> Response {
-		Response::new_with_body("1.0.0", Some("text/plain"))
+		Response::new_with_body("1.0.0", Body::TEXT)
 	}
 }
 

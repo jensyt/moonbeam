@@ -1,8 +1,8 @@
-use moonbeam::{Request, Response, server};
+use moonbeam::{Body, Request, Response, server};
 
 #[server(HelloWorld)]
 async fn serve(_request: Request) -> Response {
-	Response::new_with_body("Hello, World!", Some("text/plain"))
+	Response::new_with_body("Hello, World!", Body::TEXT)
 }
 
 fn main() {

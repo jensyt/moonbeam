@@ -104,7 +104,7 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 #[cfg(test)]
 mod test {
 	use super::*;
-	use crate::http::{Request, Response};
+	use crate::http::{Body, Request, Response};
 	use futures_lite::{AsyncReadExt, AsyncWriteExt};
 
 	struct MockServer;
@@ -113,7 +113,7 @@ mod test {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}
-			Response::ok().with_body(format!("Hello {}", req.path), None)
+			Response::ok().with_body(format!("Hello {}", req.path), Body::DEFAULT_CONTENT_TYPE)
 		}
 	}
 

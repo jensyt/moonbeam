@@ -14,11 +14,11 @@
 //! ## Stateless Server
 //!
 //! ```no_run
-//! use moonbeam::{Request, Response, server, serve};
+//! use moonbeam::{Body, Request, Response, server, serve};
 //!
 //! #[server(MyServer)]
 //! async fn handle_request(_req: Request) -> Response {
-//!     Response::ok().with_body("Hello, World!", None)
+//!     Response::ok().with_body("Hello, World!", Body::TEXT)
 //! }
 //!
 //! fn main() {
@@ -29,7 +29,7 @@
 //! ## Stateful Server
 //!
 //! ```no_run
-//! use moonbeam::{Request, Response, server, serve};
+//! use moonbeam::{Body, Request, Response, server, serve};
 //!
 //! struct State {
 //!     count: std::sync::atomic::AtomicUsize,
@@ -38,7 +38,7 @@
 //! #[server(MyStatefulServer)]
 //! async fn handle_request(_req: Request, state: &State) -> Response {
 //!     let count = state.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-//!     Response::ok().with_body(format!("Request count: {}", count), None)
+//!     Response::ok().with_body(format!("Request count: {}", count), Body::TEXT)
 //! }
 //!
 //! fn main() {

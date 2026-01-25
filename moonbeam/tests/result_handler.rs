@@ -5,12 +5,12 @@ struct TestState;
 
 #[route]
 async fn ok_handler(_req: Request) -> Result<Response, Response> {
-	Ok(Response::ok().with_body("ok", None))
+	Ok(Response::ok().with_body("ok", Body::DEFAULT_CONTENT_TYPE))
 }
 
 #[route]
 async fn err_handler(_req: Request) -> Result<Response, Response> {
-	Err(Response::bad_request().with_body("error", None))
+	Err(Response::bad_request().with_body("error", Body::DEFAULT_CONTENT_TYPE))
 }
 
 router! {

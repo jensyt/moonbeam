@@ -24,7 +24,7 @@ Add `moonbeam` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.3.0"
+moonbeam = "0.3"
 ```
 
 ## Feature Flags
@@ -46,11 +46,11 @@ Moonbeam provides several feature flags to configure functionality and dependenc
 ### Basic Example
 
 ```rust
-use moonbeam::{Request, Response, server};
+use moonbeam::{Body, Request, Response, server};
 
 #[server(HelloWorld)]
 async fn serve(_request: Request) -> Response {
-    Response::new_with_body("Hello, World!", Some("text/plain"))
+    Response::new_with_body("Hello, World!", Body::Text)
 }
 
 fn main() {
@@ -65,7 +65,7 @@ Since Moonbeam is single-threaded by default, you can use `Cell` or `RefCell` fo
 
 ```rust
 use std::cell::Cell;
-use moonbeam::{Request, Response, server};
+use moonbeam::{Body, Request, Response, server};
 
 struct State {
     count: Cell<u64>,
@@ -75,7 +75,7 @@ struct State {
 async fn serve(_req: Request, state: &'static State) -> Response {
     let count = state.count.get();
     state.count.set(count + 1);
-    Response::new_with_body(format!("Request #{}", count), None)
+    Response::new_with_body(format!("Request #{}", count), Body::DEFAULT_CONTENT_TYPE)
 }
 
 fn main() {
@@ -98,7 +98,7 @@ struct State {
 
 #[server(Worker)]
 async fn serve(_req: Request, state: &State) -> Response {
-    Response::new_with_body(format!("Hello from thread {}", state.thread_id), None)
+    Response::new_with_body(format!("Hello from thread {}", state.thread_id), Body::DEFAULT_CONTENT_TYPE)
 }
 
 fn main() {
@@ -136,7 +136,7 @@ async fn serve(req: Request) -> Response {
 Moonbeam offers a flexible routing system via the `router` feature (enabled by default). It supports nested routes, middleware, and path extractors.
 
 ```rust
-use moonbeam::{Response, route, router, serve, middleware};
+use moonbeam::{Body, Request, Response, route, router, serve, middleware};
 use moonbeam::router::PathParams;
 
 struct AppState {
@@ -157,17 +157,17 @@ async fn auth(req: Request, state: &AppState, next: Next) -> Response {
             return next(req).await;
         }
     }
-    Response::new_with_code(401).with_body("Unauthorized", Some("text/plain"))
+    Response::new_with_code(401).with_body("Unauthorized", Body::Text)
 }
 
 #[route]
 async fn hello(PathParams(name): PathParams<&str>) -> Response {
-    Response::new_with_body(format!("Hello, {}!", name), Some("text/plain"))
+    Response::new_with_body(format!("Hello, {}!", name), Body::Text)
 }
 
 #[route]
 async fn not_found() -> Response {
-    Response::new_with_code(404).with_body("Custom 404", Some("text/plain"))
+    Response::new_with_code(404).with_body("Custom 404", Body::Text)
 }
 
 fn main() {

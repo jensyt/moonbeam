@@ -1,4 +1,4 @@
-use moonbeam::{Request, Response, server};
+use moonbeam::{Body, Request, Response, server};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -41,7 +41,7 @@ async fn handle_request(req: Request, state: &State) -> Response {
 		log_output
 	);
 
-	Response::new_with_body(body, Some("text/plain"))
+	Response::new_with_body(body, Body::TEXT)
 }
 
 fn main() {

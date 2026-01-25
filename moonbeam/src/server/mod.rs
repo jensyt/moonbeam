@@ -549,11 +549,9 @@ mod tests {
 
 	#[test]
 	fn test_write_response() {
-		let response = Response {
-			status: 201,
-			headers: vec![("X-Custom".to_string(), "test".to_string())],
-			body: Some(b"test body".to_vec().into()),
-		};
+		let response = Response::new_with_code(201)
+			.with_header("X-Custom", "test")
+			.with_body("test body", Body::DEFAULT_CONTENT_TYPE);
 
 		let mut buffer = vec![0u8; 256];
 		let result = write_response(&response, &mut buffer).unwrap();
@@ -578,14 +576,9 @@ mod tests {
 
 	#[test]
 	fn test_write_response_custom_headers_override_defaults() {
-		let response = Response {
-			status: 200,
-			headers: vec![
-				("Server".to_string(), "custom-server".to_string()),
-				("Content-Type".to_string(), "text/plain".to_string()),
-			],
-			body: None,
-		};
+		let response = Response::ok()
+			.with_header("Server", "custom-server")
+			.with_header("Content-Type", "text/plain");
 
 		let mut buffer = vec![0u8; 256];
 		let result = write_response(&response, &mut buffer).unwrap();
@@ -603,19 +596,12 @@ mod tests {
 
 	#[test]
 	fn test_write_response_all_default_headers_set() {
-		let response = Response {
-			status: 200,
-			headers: vec![
-				("Server".to_string(), "custom-server".to_string()),
-				(
-					"Date".to_string(),
-					"Wed, 21 Oct 2015 07:28:00 GMT".to_string(),
-				),
-				("Content-Type".to_string(), "text/plain".to_string()),
-				("Content-Length".to_string(), "5".to_string()),
-			],
-			body: Some(b"hello".to_vec().into()),
-		};
+		let response = Response::ok()
+			.with_body("hello", Body::DEFAULT_CONTENT_TYPE)
+			.with_header("Server", "custom-server")
+			.with_header("Date", "Wed, 21 Oct 2015 07:28:00 GMT")
+			.with_header("Content-Type", "text/plain")
+			.with_header("Content-Length", "5");
 
 		let mut buffer = vec![0u8; 512];
 		let result = write_response(&response, &mut buffer).unwrap();
@@ -686,7 +672,7 @@ mod tests {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}
-			Response::ok().with_body(format!("Hello {}", req.path), None)
+			Response::ok().with_body(format!("Hello {}", req.path), Body::DEFAULT_CONTENT_TYPE)
 		}
 	}
 
@@ -816,14 +802,14 @@ mod tests {
 					len: Some(content.len() as u64),
 					data: Box::new(std::io::Cursor::new(content)),
 				};
-				Response::ok().with_body(body, None)
+				Response::ok().with_body(body, Body::DEFAULT_CONTENT_TYPE)
 			} else if req.path == "/chunked" {
 				let content = "Chunked Content";
 				let body = Body::Stream {
 					data: Box::new(std::io::Cursor::new(content)),
 					len: None,
 				};
-				Response::ok().with_body(body, None)
+				Response::ok().with_body(body, Body::DEFAULT_CONTENT_TYPE)
 			} else {
 				Response::not_found()
 			}

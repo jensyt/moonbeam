@@ -1,4 +1,4 @@
-use moonbeam::{Request, Response, ThreadCount, serve_multi, server};
+use moonbeam::{Body, Request, Response, ThreadCount, serve_multi, server};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct State {
@@ -7,7 +7,10 @@ struct State {
 
 #[server(Worker)]
 async fn serve(_req: Request, state: &State) -> Response {
-	Response::new_with_body(format!("Hello from thread {}", state.thread_id), None)
+	Response::new_with_body(
+		format!("Hello from thread {}", state.thread_id),
+		Body::DEFAULT_CONTENT_TYPE,
+	)
 }
 
 pub fn main() {

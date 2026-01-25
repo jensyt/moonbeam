@@ -22,8 +22,7 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 		if !resp.headers.iter().any(|(n, v)| {
 			n.eq_ignore_ascii_case("vary") && v.eq_ignore_ascii_case("Accept-Encoding")
 		}) {
-			resp.headers
-				.push(("Vary".to_string(), "Accept-Encoding".to_string()));
+			resp.headers.push("Vary", "Accept-Encoding");
 		}
 
 		if resp.status == 304 {
@@ -42,7 +41,7 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 		if use_brotli || use_gzip || use_deflate {
 			// Stream compression for all bodies
 			resp.headers
-				.retain(|(n, _)| !n.eq_ignore_ascii_case("content-length"));
+				.retain(|n, _| !n.eq_ignore_ascii_case("content-length"));
 
 			let compressed_stream: Box<dyn Read + Send + 'static> = if use_brotli {
 				match resp.body.take() {
