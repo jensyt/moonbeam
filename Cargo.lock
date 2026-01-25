@@ -227,6 +227,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "examples-basic"
+version = "0.1.0"
+dependencies = [
+ "moonbeam",
+]
+
+[[package]]
+name = "examples-concurrent"
+version = "0.1.0"
+dependencies = [
+ "moonbeam",
+]
+
+[[package]]
+name = "examples-routing"
+version = "0.1.0"
+dependencies = [
+ "moonbeam",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -488,6 +509,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tests-integration"
+version = "0.1.0"
+dependencies = [
+ "futures-lite",
+ "moonbeam",
+ "piper",
 ]
 
 [[package]]

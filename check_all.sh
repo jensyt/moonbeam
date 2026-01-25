@@ -8,33 +8,49 @@ NC='\033[0m' # No Color
 
 print_header() {
     echo -e "\n${BLUE}============================================================${NC}"
-    echo -e "${BLUE}Running: $@${NC}"
+    echo -e "${BLUE}$@${NC}"
     echo -e "${BLUE}============================================================${NC}"
 }
 
 run_check() {
-    print_header "cargo clippy $* -- -D warnings"
-    cargo clippy "$@" -- -D warnings
+    # Check moonbeam library
+    print_header "Checking 'moonbeam' library: cargo clippy -p moonbeam $@"
+    cargo clippy -p moonbeam "$@" -- -D warnings
 
+    # Run library unit tests
     if [[ "$*" == *"--all-features"* ]]; then
-        print_header "cargo test $*"
-        cargo test "$@"
+         cargo test -p moonbeam "$@"
     else
-        print_header "cargo test $* --lib --bins --tests"
-        cargo test "$@" --lib --bins --tests
+         # Run only lib tests (unit tests)
+         cargo test -p moonbeam "$@" --lib
     fi
+
+    # Check integration tests (features mapped 1:1)
+    print_header "Checking 'tests-integration': cargo clippy -p tests-integration $@"
+    cargo clippy -p tests-integration "$@" -- -D warnings
+
+    # Run integration tests
+    cargo test -p tests-integration "$@"
 }
 
 echo -e "${GREEN}Starting comprehensive check suite...${NC}"
 
-# 1. No default features (Baseline)
-run_check --workspace --no-default-features
+# 1. Check Examples (Standalone checks to ensure they build)
+print_header "Checking Examples"
+print_header "examples-basic"
+cargo check -p examples-basic
+print_header "examples-routing"
+cargo check -p examples-routing
+print_header "examples-concurrent"
+cargo check -p examples-concurrent
 
-# 2. All features (Full coverage)
-run_check --workspace --all-features
+# 2. No default features (Baseline)
+run_check --no-default-features
 
-# 3. Individual features (Moonbeam)
-# We test these one by one to ensure no implicit dependencies are broken
+# 3. All features (Full coverage)
+run_check --all-features
+
+# 4. Individual features (Moonbeam)
 FEATURES=(
     "assets"
     "macros"
@@ -48,26 +64,20 @@ FEATURES=(
 )
 
 for feature in "${FEATURES[@]}"; do
-    run_check --workspace --no-default-features --features "$feature"
+    run_check --no-default-features --features "$feature"
 done
 
-# 4. Logical Feature Groups
+# 5. Logical Feature Groups
+run_check --no-default-features --features "mt,signals"
+run_check --no-default-features --features "mt,tracing"
+run_check --no-default-features --features "router,compress"
+run_check --no-default-features --features "assets,compress"
 
-# Multi-threaded server with graceful shutdown signals
-run_check --workspace --no-default-features --features "mt,signals"
-
-# Multi-threaded server with tracing enabled (common production setup)
-run_check --workspace --no-default-features --features "mt,tracing"
-
-# Router with compression (common web server setup)
-run_check --workspace --no-default-features --features "router,compress"
-
-# Assets serving with compression
-run_check --workspace --no-default-features --features "assets,compress"
-
-# 5. Moonbeam Attributes specific checks
-# Although covered by workspace checks mostly, explicit checks ensure the macro crate stands alone correctly
+# 6. Moonbeam Attributes specific checks
 print_header "Checking moonbeam-attributes explicitly"
 cargo clippy -p moonbeam-attributes --no-default-features -- -D warnings
 cargo clippy -p moonbeam-attributes --no-default-features --features router -- -D warnings
 cargo clippy -p moonbeam-attributes --no-default-features --features autohead -- -D warnings
+
+echo
+echo -e "${GREEN}All tests passed.${NC}"

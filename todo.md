@@ -3,7 +3,6 @@
 - TRACE requests
 - Make tracing meaningful
 - Improve documentation (README and module/function documentation)
-- Clean up project structure to remove example and test entries from Cargo.toml
 
 # Done
 - ETags for assets
@@ -19,3 +18,4 @@
 - Middleware support
 - Route prefixes
 - Automatic support for HEAD requests -> GET handler in router
+- Clean up project structure to remove example and test entries from Cargo.toml

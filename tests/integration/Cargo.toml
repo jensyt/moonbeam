@@ -1,0 +1,38 @@
+[package]
+name = "tests-integration"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+moonbeam = { path = "../../moonbeam", default-features = false }
+piper = "0.2"
+futures-lite = "2.6"
+
+[features]
+default = ["assets", "macros", "catchpanic", "signals", "router"]
+signals = ["moonbeam/signals"]
+tracing = ["moonbeam/tracing"]
+assets = ["moonbeam/assets"]
+macros = ["moonbeam/macros"]
+catchpanic = ["moonbeam/catchpanic"]
+compress = ["moonbeam/compress"]
+router = ["moonbeam/router"]
+mt = ["moonbeam/mt"]
+disable-simd = ["moonbeam/disable-simd"]
+
+[[test]]
+name = "head_request"
+required-features = ["router"]
+
+[[test]]
+name = "rest_param"
+required-features = ["router"]
+
+[[test]]
+name = "result_handler"
+required-features = ["router"]
+
+[[test]]
+name = "routing"
+required-features = ["router"]

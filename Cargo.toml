@@ -1,5 +1,12 @@
 [workspace]
-members = ["moonbeam", "moonbeam-attributes"]
+members = [
+    "moonbeam",
+    "moonbeam-attributes",
+    "examples/basic",
+    "examples/routing",
+    "examples/concurrent",
+    "tests/integration",
+]
 resolver = "3"
 
 [workspace.package]
