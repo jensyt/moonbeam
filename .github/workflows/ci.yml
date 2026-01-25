@@ -28,28 +28,3 @@ jobs:
       run: |
         chmod +x check_all.sh
         ./check_all.sh
-
-  test-simd:
-    name: Test SIMD Variants
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: "x86_64 Default (SSE2)"
-            rustflags: ""
-            features: ""
-          - name: "Fallback (No SSE)"
-            rustflags: ""
-            features: "--features disable-simd"
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Run Tests
-      working-directory: moonbeam
-      run: cargo test --lib ${{ matrix.features }} -- server::parsing
-      env:
-        RUSTFLAGS: ${{ env.RUSTFLAGS }} ${{ matrix.rustflags }}

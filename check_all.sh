@@ -44,6 +44,7 @@ FEATURES=(
     "compress"
     "router"
     "mt"
+    "disable-simd"
 )
 
 for feature in "${FEATURES[@]}"; do
