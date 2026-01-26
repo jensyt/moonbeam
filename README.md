@@ -41,6 +41,12 @@ Moonbeam provides several feature flags to configure functionality and dependenc
 - **router**: Enables the routing system (`#[route]` and `router!` macros).
 - **mt**: Enables multi-threading support (`serve_multi`).
 
+## Configuration
+
+Moonbeam can be configured using environment variables:
+
+- `MOONBEAM_MAX_BODY_SIZE`: The maximum size (in Kilobytes) of an HTTP request body that the server will accept. Defaults to `1024` (1MB). If a request exceeds this size, the server returns a `413 Content Too Large` response.
+
 ## Usage
 
 ### Basic Example

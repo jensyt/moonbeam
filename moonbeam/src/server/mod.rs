@@ -8,10 +8,13 @@ use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
 #[cfg(feature = "catchpanic")]
 use std::panic::AssertUnwindSafe;
 use std::{
+	borrow::Cow,
 	io::{Error, ErrorKind, Read, Write},
-	time::SystemTime,
+	mem::MaybeUninit,
+	net::SocketAddr,
+	sync::OnceLock,
+	time::{Duration, Instant, SystemTime},
 };
-use std::{mem::MaybeUninit, net::SocketAddr, time::Duration, time::Instant};
 
 const BUFSIZE: usize = 16 * 1024;
 
@@ -24,6 +27,23 @@ pub mod st;
 pub mod task;
 #[cfg(feature = "signals")]
 mod task_tracker;
+
+/// Returns the maximum allowed size for an HTTP request body in bytes.
+///
+/// This value is read from the `MOONBEAM_MAX_BODY_SIZE` environment variable,
+/// which is expected to be in Kilobytes (KB).
+/// If the variable is not set or cannot be parsed as a `usize`, it defaults to 1024 KB (1MB).
+/// The value is cached after the first read for performance.
+fn max_body_size() -> usize {
+	static SIZE: OnceLock<usize> = OnceLock::new();
+	*SIZE.get_or_init(|| {
+		std::env::var("MOONBEAM_MAX_BODY_SIZE")
+			.ok()
+			.and_then(|s| s.parse::<usize>().ok())
+			.map(|kb| kb * 1024)
+			.unwrap_or(1024 * 1024)
+	})
+}
 
 /// Represents an HTTP server that can handle requests.
 ///
@@ -160,8 +180,12 @@ where
 
 			// Reset the request buffer
 			let reqlen = offset + contentlength;
-			reqbuf.copy_within(reqlen..total, 0);
-			total -= reqlen;
+			if reqlen < total {
+				reqbuf.copy_within(reqlen..total, 0);
+				total -= reqlen;
+			} else {
+				total = 0;
+			}
 			start = 0;
 		}
 	}
@@ -196,11 +220,11 @@ where
 	tracing::trace!("Processing request");
 	tracing::trace!(content_length = contentlength);
 
-	req.body = {
-		if contentlength > body.len() {
+	let body = {
+		if contentlength > max_body_size() {
 			tracing::error!(
 				content_length = contentlength,
-				buffer_len = body.len(),
+				max_size = max_body_size(),
 				"Failed to read HTTP body: too big"
 			);
 			write_error_response(
@@ -210,17 +234,30 @@ where
 			)
 			.await;
 			return Err(());
-		} else if contentlength > valid_body_len
-			&& let Err(_error) = socket
-				.read_exact(&mut body[valid_body_len..contentlength])
-				.await
-		{
-			tracing::error!(?_error, "Failed to read HTTP body");
-			return Err(());
 		}
 
-		&body[..contentlength]
+		if contentlength > body.len() {
+			let mut new_body = vec![0; contentlength];
+			new_body[..valid_body_len].copy_from_slice(&body[..valid_body_len]);
+			if let Err(_error) = socket.read_exact(&mut new_body[valid_body_len..]).await {
+				tracing::error!(?_error, "Failed to read HTTP body");
+				return Err(());
+			}
+			Cow::Owned(new_body)
+		} else {
+			if contentlength > valid_body_len
+				&& let Err(_error) = socket
+					.read_exact(&mut body[valid_body_len..contentlength])
+					.await
+			{
+				tracing::error!(?_error, "Failed to read HTTP body");
+				return Err(());
+			}
+
+			Cow::Borrowed(&body[..contentlength])
+		}
 	};
+	req.body = &body;
 
 	let head_method = req.method.eq_ignore_ascii_case("head");
 	#[cfg(not(feature = "catchpanic"))]
@@ -941,5 +978,82 @@ mod tests {
 		assert!(head_str.contains("HTTP/1.1 204 No Content"));
 		assert!(!head_str.contains("Content-Type"));
 		assert!(!head_str.contains("Content-Length"));
+	}
+
+	struct EchoServer;
+	impl Server for EchoServer {
+		async fn route(&'static self, req: Request<'_, '_>) -> Response {
+			// Return body length as string
+			let len = req.body.len();
+			Response::ok().with_body(format!("{}", len), Body::DEFAULT_CONTENT_TYPE)
+		}
+	}
+
+	#[test]
+	fn test_handle_socket_large_body() {
+		let (reader, mut client_tx) = piper::pipe(65536);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = Box::leak(Box::new(EchoServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let body_size = 20 * 1024; // 20KB
+		let body_content = vec![b'a'; body_size];
+
+		let test_future = async move {
+			let request_head = format!(
+				"POST /echo HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+				body_size
+			);
+			client_tx.write_all(request_head.as_bytes()).await.unwrap();
+			client_tx.write_all(&body_content).await.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			// EchoServer returns body length
+			assert!(response.ends_with(&format!("\r\n\r\n{}", body_size)));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_too_large_body() {
+		let (reader, mut client_tx) = piper::pipe(65536);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = Box::leak(Box::new(EchoServer));
+
+		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+
+		let body_size = 1024 * 1024 + 10; // 1MB + 10 bytes
+
+		let test_future = async move {
+			let request_head = format!(
+				"POST /echo HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+				body_size
+			);
+			client_tx.write_all(request_head.as_bytes()).await.unwrap();
+			// We don't need to write the full body to trigger the check,
+			// the server checks Content-Length header first.
+
+			let mut buf = vec![0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 413 Content Too Large"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
 	}
 }

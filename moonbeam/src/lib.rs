@@ -7,6 +7,7 @@
 //! - Single-threaded execution model
 //! - Async/await support
 //! - Built-in HTTP parsing and routing
+//! - Configurable request body limits via environment variables
 //! - Minimal dependencies
 //!
 //! # Examples
