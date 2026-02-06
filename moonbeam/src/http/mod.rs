@@ -1,10 +1,10 @@
 use crate::http::{cookies::Cookies, params::Params};
 use httparse::{Header, Request as RawRequest};
-use percent_encoding::percent_decode_str;
 use std::{borrow::Cow, fmt::Debug, io::Read};
 
 pub mod cookies;
 pub mod params;
+mod percent_decode;
 
 /// Returns the canonical reason phrase for a given HTTP status code.
 ///
@@ -109,18 +109,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	#[inline]
 	pub fn params(&self) -> Params<'buf> {
 		match self.path.split('?').nth(1) {
-			Some(p) => {
-				let decoded = if p.contains('+') {
-					let replaced = p.replace('+', " ");
-					match percent_decode_str(&replaced).decode_utf8_lossy() {
-						Cow::Owned(s) => Cow::Owned(s),
-						Cow::Borrowed(_) => Cow::Owned(replaced),
-					}
-				} else {
-					percent_decode_str(p).decode_utf8_lossy()
-				};
-				Params::new(decoded)
-			}
+			Some(p) => Params::new(percent_decode::decode_query(p)),
 			None => Params::new(Cow::Borrowed("")),
 		}
 	}
@@ -129,7 +118,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	#[inline]
 	pub fn url(&self) -> Cow<'buf, str> {
 		let url = self.path.split('?').next().unwrap_or(self.path);
-		percent_decode_str(url).decode_utf8_lossy()
+		percent_decode::decode(url)
 	}
 }
 
