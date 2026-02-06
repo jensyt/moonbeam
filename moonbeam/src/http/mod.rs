@@ -105,11 +105,22 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 
 	/// Returns a helper to parse query parameters from the request URL.
 	///
-	/// The query parameters are URL-decoded.
+	/// The query parameters are URL-decoded, including converting '+' to space.
 	#[inline]
-	pub fn params(&self) -> Params<'headers> {
+	pub fn params(&self) -> Params<'buf> {
 		match self.path.split('?').nth(1) {
-			Some(p) => Params::new(percent_decode_str(p).decode_utf8_lossy()),
+			Some(p) => {
+				let decoded = if p.contains('+') {
+					let replaced = p.replace('+', " ");
+					match percent_decode_str(&replaced).decode_utf8_lossy() {
+						Cow::Owned(s) => Cow::Owned(s),
+						Cow::Borrowed(_) => Cow::Owned(replaced),
+					}
+				} else {
+					percent_decode_str(p).decode_utf8_lossy()
+				};
+				Params::new(decoded)
+			}
 			None => Params::new(Cow::Borrowed("")),
 		}
 	}
@@ -570,6 +581,9 @@ mod tests {
 
 		let req = Request::new("GET", "/path%20space", &headers, &[]);
 		assert_eq!(req.url(), "/path space");
+
+		let req = Request::new("GET", "/path+plus", &headers, &[]);
+		assert_eq!(req.url(), "/path+plus");
 	}
 
 	#[test]
@@ -624,5 +638,15 @@ mod tests {
 		// Test removing content type
 		let r = r.with_body("data", Body::DEFAULT_CONTENT_TYPE);
 		assert!(!r.headers.iter().any(|(n, _)| n == "Content-Type"));
+	}
+
+	#[test]
+	fn test_request_params_plus_decoding() {
+		let headers = [];
+		let req = Request::new("GET", "/?a=b+c&d=e%20f&g=%2B", &headers, &[]);
+		let params = req.params();
+		assert_eq!(params.find("a").next(), Some("b c"));
+		assert_eq!(params.find("d").next(), Some("e f"));
+		assert_eq!(params.find("g").next(), Some("+"));
 	}
 }
