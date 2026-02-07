@@ -359,6 +359,7 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 fn generate_route_logic(routes: &[FinalRoute], has_state: bool) -> TokenStream {
+	#[allow(unused_mut)]
 	let mut all_routes = routes.to_vec();
 
 	#[cfg(feature = "autohead")]
