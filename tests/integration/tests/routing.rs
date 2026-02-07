@@ -118,10 +118,18 @@ fn test_method_matching() {
 	assert_eq!(res.status, 201);
 	assert_body(res.body, "created");
 
-	// Test GET /items (should be 404)
+	// Test GET /items (should be 405 Method Not Allowed)
 	let req = Request::new("GET", "/items", &headers, &[]);
 	let res = block_on(router.route(req));
-	assert_eq!(res.status, 404);
+	assert_eq!(res.status, 405);
+	assert_eq!(
+		res.headers
+			.iter()
+			.find(|(n, _)| n.eq_ignore_ascii_case("Allow"))
+			.unwrap()
+			.1,
+		"POST"
+	);
 }
 
 #[test]

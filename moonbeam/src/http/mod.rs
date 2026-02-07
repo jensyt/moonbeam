@@ -25,6 +25,7 @@ pub fn canonical_reason(code: u16) -> &'static str {
 		401 => "Unauthorized",
 		403 => "Forbidden",
 		404 => "Not Found",
+		405 => "Method Not Allowed",
 		408 => "Request Timeout",
 		413 => "Content Too Large",
 		431 => "Request Header Fields Too Large",
@@ -261,6 +262,12 @@ impl Response {
 	#[inline]
 	pub fn not_found() -> Self {
 		Self::new_with_code(404)
+	}
+
+	/// 405 Method Not Allowed
+	#[inline]
+	pub fn method_not_allowed() -> Self {
+		Self::new_with_code(405)
 	}
 
 	/// 500 Internal Server Error

@@ -1,6 +1,5 @@
 # Todo
 - Support for HTML forms
-- TRACE requests
 - Make tracing meaningful
 - Improve documentation (README and module/function documentation)
 
@@ -19,3 +18,4 @@
 - Route prefixes
 - Automatic support for HEAD requests -> GET handler in router
 - Clean up project structure to remove example and test entries from Cargo.toml
+- Method Not Allowed (405)

@@ -1,6 +1,5 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::collections::HashMap;
 use syn::{
 	Ident, LitStr, Path, Token, Type, Visibility,
 	parse::{Parse, ParseStream},
@@ -27,6 +26,7 @@ struct CatchAllEntry {
 	handler: Handler,
 }
 
+#[derive(Clone)]
 enum Handler {
 	Path(Path),
 	Bang(Token![!]),
@@ -190,6 +190,7 @@ impl Parse for RouteEntry {
 	}
 }
 
+#[derive(Clone)]
 struct FinalRoute {
 	method: String,
 	path: String,
@@ -358,83 +359,48 @@ pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 fn generate_route_logic(routes: &[FinalRoute], has_state: bool) -> TokenStream {
-	let mut specific_routes_by_method: HashMap<String, Vec<&FinalRoute>> = HashMap::new();
-	let mut fallback_routes: Vec<&FinalRoute> = Vec::new();
-
-	for route in routes {
-		if route.is_fallback {
-			fallback_routes.push(route);
-		} else {
-			specific_routes_by_method
-				.entry(route.method.clone())
-				.or_default()
-				.push(route);
-		}
-	}
+	let mut all_routes = routes.to_vec();
 
 	#[cfg(feature = "autohead")]
-	if let Some(get_routes) = specific_routes_by_method.get("GET").cloned() {
-		let head_routes = specific_routes_by_method
-			.entry("HEAD".to_string())
-			.or_default();
-		for get_route in get_routes {
-			if !head_routes.iter().any(|r| r.path == get_route.path) {
-				head_routes.push(get_route);
+	{
+		let mut head_routes = Vec::new();
+		for route in all_routes
+			.iter()
+			.filter(|r| r.method == "GET" && !r.is_fallback)
+		{
+			if !all_routes
+				.iter()
+				.any(|r| r.method == "HEAD" && r.path == route.path)
+			{
+				let mut head_route = route.clone();
+				head_route.method = "HEAD".to_string();
+				head_routes.push(head_route);
 			}
 		}
+		all_routes.extend(head_routes);
 	}
 
-	let mut method_match_arms = TokenStream::new();
+	let mut all_routes_refs: Vec<&FinalRoute> = all_routes.iter().collect();
+	sort_routes(&mut all_routes_refs);
+
 	let state = if has_state {
 		quote! { &self.0 }
 	} else {
 		quote! { self }
 	};
 
-	let mut all_methods: Vec<&str> = specific_routes_by_method
-		.keys()
-		.map(String::as_str)
-		.collect();
-	all_methods.sort();
+	let path_match_arms = generate_path_arms(&all_routes_refs, &state);
 
-	for method in all_methods {
-		let mut method_routes = specific_routes_by_method.get(method).unwrap().clone();
-		// Add all fallbacks to this method's list
-		method_routes.extend(fallback_routes.iter().cloned());
-
-		sort_routes(&mut method_routes);
-
-		let path_match_arms = generate_path_arms(&method_routes, &state);
-
-		method_match_arms.extend(quote! {
-			if method.eq_ignore_ascii_case(#method) {
-				match &path_segments[..len] {
-					#path_match_arms
-				}
-			} else
-		});
-	}
-
-	// Final else block for unmatched methods (fallbacks only)
-	assert!(!fallback_routes.is_empty()); // Should never be empty because we inject a default fallback
-	sort_routes(&mut fallback_routes);
-	let path_match_arms = generate_path_arms(&fallback_routes, &state);
-
-	method_match_arms.extend(quote! {
-		{
-			match &path_segments[..len] {
-				#path_match_arms
-			}
+	quote! {
+		match &path_segments[..len] {
+			#path_match_arms
 		}
-	});
-
-	method_match_arms
+	}
 }
 
 fn sort_routes(routes: &mut Vec<&FinalRoute>) {
 	routes.sort_by(|a, b| {
-		// Fallbacks always come after specific routes if paths are otherwise similar/prefix
-
+		// Fallbacks always come after specific routes
 		let a_path = &a.path;
 		let b_path = &b.path;
 		let mut a_segments = a_path.split('/').filter(|s| !s.is_empty());
@@ -462,6 +428,13 @@ fn sort_routes(routes: &mut Vec<&FinalRoute>) {
 					if type_a != type_b {
 						return type_a.cmp(&type_b);
 					}
+					// If both are literals, sort alphabetically
+					if type_a == 0 {
+						let cmp = sa.cmp(sb);
+						if cmp != std::cmp::Ordering::Equal {
+							return cmp;
+						}
+					}
 				}
 				(Some(_), None) => {
 					return std::cmp::Ordering::Less;
@@ -475,7 +448,8 @@ fn sort_routes(routes: &mut Vec<&FinalRoute>) {
 					} else if !a.is_fallback && b.is_fallback {
 						return std::cmp::Ordering::Less;
 					}
-					return std::cmp::Ordering::Equal;
+					// Stable sort for same pattern to ensure consistent grouping
+					return a.method.cmp(&b.method);
 				}
 			}
 		}
@@ -502,51 +476,92 @@ fn make_rest_param(
 fn generate_path_arms(routes: &[&FinalRoute], state: &TokenStream) -> TokenStream {
 	let mut path_match_arms = TokenStream::new();
 
-	for route in routes {
-		let path_str = &route.path;
-		let handler = &route.handler;
-		let segments = path_str.split('/').filter(|s| !s.is_empty());
+	let mut i = 0;
+	while i < routes.len() {
+		let route = routes[i];
+		let mut group = vec![route];
 
-		let mut pattern_tokens = Vec::new();
-		let mut params_items = Vec::new();
-
-		for (i, segment) in segments.enumerate() {
-			if segment.starts_with(':') {
-				// Named parameter
-				let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
-				pattern_tokens.push(quote! { #bind_name });
-				params_items.push(quote! { *#bind_name });
-			} else if segment.starts_with('*') {
-				// Rest parameter
-				let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
-				make_rest_param(bind_name, &mut pattern_tokens, &mut params_items);
+		let mut j = i + 1;
+		while j < routes.len() {
+			if is_same_pattern(route, routes[j]) {
+				group.push(routes[j]);
+				j += 1;
 			} else {
-				// Literal
-				pattern_tokens.push(quote! { #segment });
+				break;
 			}
 		}
 
-		if route.is_fallback {
-			match handler {
-				Handler::Path(_) => {
-					let bind_name = Ident::new("rest", proc_macro2::Span::call_site());
-					make_rest_param(bind_name, &mut pattern_tokens, &mut params_items);
-				}
-				Handler::Bang(_) => {
-					pattern_tokens.push(quote! { .. });
-				}
-			}
-		}
+		path_match_arms.extend(generate_group_arm(&group, state));
+		i = j;
+	}
 
-		let pattern = quote! { [ #(#pattern_tokens),* ] };
-		let params_block = if route.is_fallback
-			&& let Handler::Bang(_) = handler
-		{
-			// Default fallback doesn't use params
-			quote! {}
+	path_match_arms
+}
+
+fn is_same_pattern(a: &FinalRoute, b: &FinalRoute) -> bool {
+	if a.path != b.path || a.is_fallback != b.is_fallback {
+		return false;
+	}
+	if a.is_fallback {
+		matches!(
+			(&a.handler, &b.handler),
+			(Handler::Path(_), Handler::Path(_)) | (Handler::Bang(_), Handler::Bang(_))
+		)
+	} else {
+		true
+	}
+}
+
+fn generate_group_arm(group: &[&FinalRoute], state: &TokenStream) -> TokenStream {
+	let first = group[0];
+	let path_str = &first.path;
+	let segments = path_str.split('/').filter(|s| !s.is_empty());
+
+	let mut pattern_tokens = Vec::new();
+	let mut params_items = Vec::new();
+
+	for (i, segment) in segments.enumerate() {
+		if segment.starts_with(':') {
+			// Named parameter
+			let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
+			pattern_tokens.push(quote! { #bind_name });
+			params_items.push(quote! { *#bind_name });
+		} else if segment.starts_with('*') {
+			// Rest parameter
+			let bind_name = Ident::new(&format!("p{}", i), proc_macro2::Span::call_site());
+			make_rest_param(bind_name, &mut pattern_tokens, &mut params_items);
 		} else {
-			quote! { let params = [ #(#params_items),* ]; }
-		};
+			// Literal
+			pattern_tokens.push(quote! { #segment });
+		}
+	}
+
+	if first.is_fallback {
+		match &first.handler {
+			Handler::Path(_) => {
+				let bind_name = Ident::new("rest", proc_macro2::Span::call_site());
+				make_rest_param(bind_name, &mut pattern_tokens, &mut params_items);
+			}
+			Handler::Bang(_) => {
+				pattern_tokens.push(quote! { .. });
+			}
+		}
+	}
+
+	let pattern = quote! { [ #(#pattern_tokens),* ] };
+
+	let params_block = if first.is_fallback && matches!(first.handler, Handler::Bang(_)) {
+		quote! {}
+	} else {
+		quote! { let params = [ #(#params_items),* ]; }
+	};
+
+	let mut method_checks = TokenStream::new();
+	let mut allowed_methods = Vec::new();
+	let mut has_any = false;
+
+	for route in group {
+		let handler = &route.handler;
 
 		// Build the middleware chain
 		let mut call_chain = match handler {
@@ -579,13 +594,40 @@ fn generate_path_arms(routes: &[&FinalRoute], state: &TokenStream) -> TokenStrea
 			}
 		}
 
-		path_match_arms.extend(quote! {
-			#pattern => {
-				#params_block
-				#call_chain
+		if route.method == "ANY" {
+			has_any = true;
+			method_checks.extend(quote! {
+				{
+					#call_chain
+				}
+			});
+			// If ANY is present, it catches everything, so we stop checking.
+			break;
+		} else {
+			allowed_methods.push(route.method.as_str());
+			let method_name = &route.method;
+			method_checks.extend(quote! {
+				if method.eq_ignore_ascii_case(#method_name) {
+					#call_chain
+				} else
+			});
+		}
+	}
+
+	if !has_any {
+		let allowed = allowed_methods.join(", ");
+		method_checks.extend(quote! {
+			{
+				::moonbeam::http::Response::method_not_allowed()
+					.with_header("Allow", #allowed)
 			}
 		});
 	}
 
-	path_match_arms
+	quote! {
+		#pattern => {
+			#params_block
+			#method_checks
+		}
+	}
 }
