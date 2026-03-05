@@ -1,6 +1,6 @@
 [package]
 name = "moonbeam"
-version = "0.3.4"
+version = "0.3.5"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -14,7 +14,7 @@ readme.workspace = true
 httparse = "1.10"
 httpdate = "1.0"
 futures-lite = {version = "2.6", default-features = false, features = ["std"]}
-async-executor = {version = "1.13", features = ["static"]}
+async-executor = {version = "1.13"}
 async-io = "2.6"
 async-net = "2.0"
 tracing = {version = "0.1", default-features = false, features = ["std"], optional = true}

@@ -1,8 +1,8 @@
-use async_executor::StaticLocalExecutor;
+use async_executor::LocalExecutor;
 
-pub(super) fn get_local_executor() -> &'static StaticLocalExecutor {
+pub(super) fn get_local_executor() -> &'static LocalExecutor<'static> {
 	thread_local! {
-		static EXECUTOR: StaticLocalExecutor = const { StaticLocalExecutor::new() };
+		static EXECUTOR: LocalExecutor = const { LocalExecutor::new() };
 	}
 
 	EXECUTOR.with(|ex| {

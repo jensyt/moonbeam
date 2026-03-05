@@ -1,6 +1,6 @@
 use crate::http::{cookies::Cookies, params::Params};
 use httparse::{Header, Request as RawRequest};
-use std::{borrow::Cow, fmt::Debug, io::Read};
+use std::{borrow::Cow, fmt::Debug, io::Read, ops::Index};
 
 pub mod cookies;
 pub mod params;
@@ -131,11 +131,13 @@ pub struct Headers {
 
 impl Headers {
 	/// Creates a new empty headers collection.
+	#[inline]
 	pub fn new() -> Self {
 		Self::default()
 	}
 
 	/// Adds a header.
+	#[inline]
 	pub fn push(
 		&mut self,
 		name: impl Into<Cow<'static, str>>,
@@ -145,11 +147,13 @@ impl Headers {
 	}
 
 	/// Iterates over the headers.
+	#[inline]
 	pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
 		self.inner.iter().map(|(k, v)| (k.as_ref(), v.as_ref()))
 	}
 
 	/// Retains only the elements specified by the predicate.
+	#[inline]
 	pub fn retain<F>(&mut self, mut f: F)
 	where
 		F: FnMut(&str, &str) -> bool,
@@ -158,26 +162,25 @@ impl Headers {
 	}
 
 	/// Returns the number of headers.
+	#[inline]
 	pub fn len(&self) -> usize {
 		self.inner.len()
 	}
 
 	/// Returns true if there are no headers.
+	#[inline]
 	pub fn is_empty(&self) -> bool {
 		self.inner.is_empty()
 	}
 }
 
-impl std::ops::Index<usize> for Headers {
+impl Index<usize> for Headers {
 	type Output = (Cow<'static, str>, Cow<'static, str>);
 
 	fn index(&self, index: usize) -> &Self::Output {
 		&self.inner[index]
 	}
 }
-
-/// Type alias for MIME types (Content-Type), using Copy-on-Write strings.
-pub type MimeType = Cow<'static, str>;
 
 /// Represents an HTTP response.
 ///
