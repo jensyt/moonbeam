@@ -1,3 +1,19 @@
+//! # HTTP Module
+//!
+//! This module provides the fundamental types and utilities for HTTP/1.1 communication
+//! in Moonbeam.
+//!
+//! It includes:
+//! - `Request`: Represents an incoming HTTP request.
+//! - `Response`: Represents an outgoing HTTP response.
+//! - `Body`: Represents the request or response body (either in-memory or streamed).
+//! - `Headers`: A collection of HTTP headers.
+//! - `Cookies`: Helper for parsing request cookies (via `Request::cookies()`).
+//! - `Params`: Helper for parsing URL query parameters (via `Request::params()`).
+//!
+//! The HTTP types are designed to be efficient and ergonomic, using `Cow` and slices
+//! where possible to minimize allocations.
+
 use crate::http::{cookies::Cookies, params::Params};
 use httparse::{Header, Request as RawRequest};
 use std::{borrow::Cow, fmt::Debug, io::Read, ops::Index};

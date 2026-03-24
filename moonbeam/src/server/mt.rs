@@ -1,3 +1,28 @@
+//! # Multi-Threaded Server (Isolates)
+//!
+//! This module provides the multi-threaded server implementation for Moonbeam,
+//! enabled via the `mt` feature.
+//!
+//! ## Share-Nothing Multi-Threading
+//!
+//! Unlike most multi-threaded servers that use shared state protected by locks, Moonbeam uses a
+//! "share-nothing" model. Instead of sharing a single server state across all threads, Moonbeam
+//! spawns a number of independent worker threads, each with its own local `Server` instance and
+//! `LocalExecutor`.
+//!
+//! ### Key Benefits
+//!
+//! - **No Locks**: Each thread has its own state copy, eliminating `Mutex` or `RwLock` contention.
+//! - **Interior Mutability**: Handlers on each thread can still use `Cell` and `RefCell` for
+//!   per-thread state modification.
+//! - **Simplified API**: You don't need `Arc` or `Send`/`Sync` bounds for your server state.
+//!
+//! ### Connection Distribution
+//!
+//! The main thread runs an acceptance loop that binds to the specified port. When a connection is
+//! accepted, it is sent over an asynchronous channel to one of the worker threads, which then
+//! handles it locally.
+
 use super::task::{get_local_executor, new_local_task};
 use super::{Server, handle_socket};
 use crate::tracing;
@@ -6,17 +31,25 @@ use std::io::ErrorKind;
 use std::{net::SocketAddr, num::NonZeroUsize, thread};
 
 #[derive(Default)]
+/// Specifies the number of worker threads to spawn for the multi-threaded server.
 pub enum ThreadCount {
+	/// Uses the number of available CPU cores (via `std::thread::available_parallelism`), or 1 if
+	/// it cannot be determined.
 	#[default]
 	Default,
+	/// Explicitly specifies the number of threads to spawn.
 	Count(usize),
 }
 
-/// Starts the server on the specified address.
+/// Starts the server across multiple threads using a "share-nothing" architecture.
 ///
-/// This function blocks the current thread and runs the server loop. It takes a factory function to
-/// create server instances and cleanup function to destroy them (if needed). Note that server
-/// instances are leaked and should typically be cleaned up.
+/// This function blocks the current thread, spawns the requested number of worker threads,
+/// and distributes incoming connections across them. To avoid complex synchronization, Moonbeam
+/// creates a separate instance of your server state for each thread using the `server` factory
+/// closure.
+///
+/// Note that server instances are leaked and should typically be cleaned up by providing a
+/// `cleanup` closure.
 ///
 /// # Example
 /// ```no_run
@@ -31,10 +64,15 @@ pub enum ThreadCount {
 ///     }
 /// }
 ///
-/// serve_multi("127.0.0.1:8080", ThreadCount::Default, || MyServer, |s| {
-///     // Safety: application is shutting down, so it is safe to clean up resources
-///     unsafe { s.destroy(); }
-/// });
+/// serve_multi(
+///     "127.0.0.1:8080",
+///     ThreadCount::Default,
+///     || MyServer, // Factory creates a new instance per thread
+///     |s| {
+///         // Safety: application is shutting down, so it is safe to clean up resources
+///         unsafe { s.destroy(); }
+///     }
+/// );
 /// ```
 #[inline(always)]
 pub fn serve_multi<F, C, T: Server>(

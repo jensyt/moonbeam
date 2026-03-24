@@ -1,3 +1,23 @@
+//! # Cookies Module
+//!
+//! This module provides the `Cookies` helper for parsing and extracting cookies from the HTTP
+//! `Cookie` header.
+//!
+//! ## Extraction
+//!
+//! Cookies are typically accessed via the `cookies()` method on the `Request` object.
+//!
+//! ### Example
+//! ```rust
+//! use moonbeam::Request;
+//!
+//! fn handle(req: Request) {
+//!     let cookies = req.cookies();
+//!     let user_id = cookies.find("user_id");
+//!     // ...
+//! }
+//! ```
+
 /// Helper struct for parsing cookies from a request.
 ///
 /// # Example

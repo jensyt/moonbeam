@@ -1,3 +1,24 @@
+//! # Query Parameters Module
+//!
+//! This module provides the `Params` helper for parsing and extracting query string parameters
+//! from the URL.
+//!
+//! ## Extraction
+//!
+//! Parameters are typically accessed via the `params()` method on the `Request` object.
+//! Query parameters are automatically URL-decoded, including converting '+' to space.
+//!
+//! ### Example
+//! ```rust
+//! use moonbeam::Request;
+//!
+//! fn handle(req: Request) {
+//!     let params = req.params();
+//!     let q = params.find("q").next();
+//!     // ...
+//! }
+//! ```
+
 use std::borrow::Cow;
 
 /// Helper struct for parsing query parameters from a URL.

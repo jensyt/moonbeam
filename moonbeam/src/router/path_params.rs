@@ -1,3 +1,25 @@
+//! # Path Parameters Module
+//!
+//! This module provides the `PathParams` extractor for the Moonbeam router.
+//!
+//! ## How it Works
+//!
+//! When you define a route with parameters (e.g., `/users/:id`), the router extracts
+//! the matching segments and provides them as a list of strings. The `#[route]`
+//! macro then uses the `FromParams` trait to convert this list into a strongly-typed
+//! `PathParams` object.
+//!
+//! ### Common Patterns
+//!
+//! - **Single Parameter**: `/users/:id` -> `PathParams<&str>`
+//! - **Multiple Parameters**: `/users/:id/posts/:post_id` -> `PathParams<(&str, &str)>`
+//! - **Rest Parameters**: `/static/*path` -> `PathParams<&str>`
+//!
+//! ## Safety
+//!
+//! Path parameters are extracted from the URL and provided to your handler as borrowed
+//! string slices. These slices are valid for the duration of the handler's execution.
+
 /// Wrapper for accessing path parameters extracted by the router.
 ///
 /// This struct is used with the `#[route]` macro to extract named parameters from the URL path.
@@ -6,27 +28,40 @@
 /// # Examples
 ///
 /// ## Single Parameter
-/// ```
+/// ```rust,no_run
+/// use moonbeam::{route, Response, Body};
 /// use moonbeam::router::PathParams;
 ///
 /// // Handler signature for path "/users/:id"
-/// // fn handler(PathParams(id): PathParams<&str>, ...)
+/// #[route]
+/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
+///     Response::ok().with_body(format!("User ID: {}", id), Body::TEXT)
+/// }
 /// ```
 ///
 /// ## Multiple Parameters (Tuple Destructuring)
-/// ```
+/// ```rust,no_run
+/// use moonbeam::{route, Response, Body};
 /// use moonbeam::router::PathParams;
 ///
 /// // Handler signature for path "/users/:id/posts/:post_id"
-/// // fn handler(PathParams((id, post_id)): PathParams<(&str, &str)>, ...)
+/// #[route]
+/// async fn get_post(PathParams((user_id, post_id)): PathParams<(&str, &str)>) -> Response {
+///     Response::ok().with_body(format!("User: {}, Post: {}", user_id, post_id), Body::TEXT)
+/// }
 /// ```
 ///
 /// ## Rest Parameters
-/// ```ignore
+/// ```rust,no_run
+/// use moonbeam::{route, Response, Body};
 /// use moonbeam::router::PathParams;
 ///
 /// // Handler signature for path "/static/*path"
-/// fn handler(PathParams(path): PathParams<&str>, ...)
+/// #[route]
+/// async fn serve_static(PathParams(path): PathParams<&str>) -> Response {
+///     // For path "/static/css/style.css", id will be "css/style.css"
+///     Response::ok().with_body(format!("Path: {}", path), Body::TEXT)
+/// }
 /// ```
 ///
 /// Note that rest parameters match zero or more path segments, so this example will match "/static",
@@ -37,7 +72,12 @@ pub struct PathParams<T>(pub T);
 /// Trait for converting a raw parameter list into the target `PathParams` type.
 ///
 /// This allows the `#[route]` macro to automatically convert the slice of parameter values
-/// provided by the router into the specific tuple or structure requested by the user.
+/// provided by the router into the specific tuple requested by the user.
+///
+/// # Implementation
+///
+/// The trait is implemented for `PathParams<T>` where `T` is `&str` or a tuple of `&str`
+/// (up to 5 elements).
 pub trait FromParams<'a> {
 	/// Converts a slice of path parameter strings into `Self`.
 	fn from_params(params: &[&'a str]) -> Self;

@@ -1,3 +1,22 @@
+//! # Server Module
+//!
+//! This module provides the core server implementations and traits for Moonbeam.
+//!
+//! Moonbeam uses a single-threaded-first execution model, where all connections are driven
+//! by a `LocalExecutor` on the main thread. This allows for simple state management
+//! without the need for `Send`/`Sync` or `Arc`/`Mutex`.
+//!
+//! ## Submodules
+//!
+//! - `st`: Single-threaded server implementation using `serve`.
+//! - `mt`: Multi-threaded server implementation using `serve_multi` (requires `mt` feature).
+//! - `task`: Utilities for managing local tasks.
+//!
+//! ## Core Trait: `Server`
+//!
+//! The `Server` trait is the primary interface for handling requests. It is typically
+//! implemented using the `#[server]` or `router!` macros.
+
 use crate::http::{Body, Request, Response, canonical_reason};
 use crate::tracing::{self, Instrument};
 use async_io::Timer;
@@ -46,6 +65,13 @@ fn max_body_size() -> usize {
 }
 
 /// Represents an HTTP server that can handle requests.
+///
+/// This trait is the core interface for defining request handlers in Moonbeam.
+/// Implementations are typically generated automatically by the `#[server]` or `router!` macros.
+///
+/// Due to Moonbeam's single-threaded nature by default, the server instance requires a `'static`
+/// lifetime. This is because it is shared across all concurrently handled connections on the
+/// local executor without requiring `Arc` or `Send`/`Sync`.
 ///
 /// # Example
 /// ```

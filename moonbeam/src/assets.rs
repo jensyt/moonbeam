@@ -1,3 +1,15 @@
+//! # Assets Module
+//!
+//! This module provides the `get_asset` utility for serving static files
+//! from the file system.
+//!
+//! Moonbeam's asset serving is designed to be secure and efficient,
+//! with built-in:
+//! - **Path Sanitization**: Prevents directory traversal attacks.
+//! - **ETag Generation**: Uses file modification time to generate stable hashes.
+//! - **MIME Type Detection**: Comprehensive support for common file extensions.
+//! - **Caching**: Supports `If-None-Match` for `304 Not Modified` responses.
+
 use crate::Response;
 use std::{
 	fs::File,
@@ -27,6 +39,17 @@ use std::{
 /// - `304 Not Modified` if the ETag matches.
 /// - `404 Not Found` if the file doesn't exist or is outside the root.
 /// - `500 Internal Server Error` if file access fails.
+///
+/// # Example
+/// ```no_run
+/// use moonbeam::{Request, Response, server, assets::get_asset};
+///
+/// #[server(FileServer)]
+/// async fn serve(req: Request) -> Response {
+///     let etag = req.find_header("If-None-Match");
+///     get_asset(req.path, etag, "./public")
+/// }
+/// ```
 pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Response {
 	let root = match root.as_ref().canonicalize() {
 		Ok(p) => p,

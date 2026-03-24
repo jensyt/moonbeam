@@ -1,8 +1,16 @@
 //! # Moonbeam Attributes
 //!
 //! This crate provides procedural macros for the `moonbeam` web server library.
-//! The main macro is `#[server]`, which simplifies creating server implementations
-//! by wrapping a function.
+//!
+//! These macros are designed to eliminate boilerplate and provide a clean, declarative DSL for
+//! building web servers and routing systems.
+//!
+//! ## Core Macros
+//!
+//! - `#[server]`: Turns a function into a full `Server` implementation.
+//! - `router!`: Defines a routing tree with nesting and middleware.
+//! - `#[route]`: Defines a handler for use within a `router!`.
+//! - `#[middleware]`: Defines a middleware function for use within a `router!`.
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -33,30 +41,49 @@ impl Parse for ServerArgs {
 
 /// Attribute macro to convert a function into a `Server` implementation.
 ///
-/// This macro simplifies creating a server by handling the boilerplate of implementing the `Server` trait.
-/// It wraps the decorated function in a struct that implements `Server`.
+/// This macro handles the boilerplate of implementing the `moonbeam::Server` trait.
+/// It generates a struct with the specified name that can be passed to `moonbeam::serve`.
 ///
 /// # Arguments
-/// * `name` - The name of the struct to generate.
 ///
-/// # Function Signature
-/// The decorated function must have one of the following signatures:
-/// - `fn(Request) -> impl Future<Output = Response>`
-/// - `fn(Request, &State) -> impl Future<Output = Response>` (if state is used)
+/// * `name` - The identifier for the generated server struct.
 ///
-/// The function can be `async` or return `impl Future`.
+/// # Supported Signatures
 ///
-/// # Example
+/// The decorated function can accept one of two forms:
+///
+/// 1. **Stateless**: `fn(Request) -> Response` (or `async fn`, or `-> impl Future`)
+/// 2. **Stateful**: `fn(Request, &State) -> Response` (requires passing state to the struct)
+///
+/// # Example: Stateless
 /// ```rust,ignore
-/// use moonbeam::{Body, Request, Response, server};
+/// use moonbeam::{Request, Response, server};
 ///
 /// #[server(MyServer)]
-/// async fn handle_request(req: Request) -> Response {
-///     Response::ok().with_body("Hello World!", Body::TEXT)
+/// async fn handle(req: Request) -> Response {
+///     Response::ok()
 /// }
 ///
 /// // Usage:
-/// // serve("127.0.0.1:8080", MyServer);
+/// // moonbeam::serve("127.0.0.1:8080", MyServer);
+/// ```
+///
+/// # Example: Stateful
+/// ```rust,ignore
+/// use moonbeam::{Request, Response, server};
+/// use std::cell::Cell;
+///
+/// struct AppState { count: Cell<usize> }
+///
+/// #[server(MyServer)]
+/// async fn handle(req: Request, state: &AppState) -> Response {
+///     state.count.set(state.count.get() + 1);
+///     Response::ok()
+/// }
+///
+/// // Usage:
+/// // let state = AppState { count: Cell::new(0) };
+/// // moonbeam::serve("127.0.0.1:8080", MyServer(state));
 /// ```
 #[proc_macro_attribute]
 pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -232,21 +259,114 @@ fn is_impl_future(ty: &Type) -> bool {
 	}
 }
 
-/// Defines a route handler.
+/// Defines a route handler for use with the `router!` macro.
+///
+/// This macro transforms an async function into a type that implements `RouteHandler`.
+/// It allows for powerful dependency injection, automatically extracting parameters
+/// based on the function signature.
+///
+/// # Supported Parameters
+///
+/// - `Request`: The incoming HTTP request.
+/// - `&State`: A reference to the application state (must match the state type in `router!`).
+/// - `PathParams<T>`: Extracted path parameters (e.g., `PathParams<&str>` or `PathParams<(&str, &str)>`).
+///
+/// # Example
+/// ```rust,ignore
+/// use moonbeam::{Request, Response, route};
+/// use moonbeam::router::PathParams;
+///
+/// #[route]
+/// async fn get_user(
+///     req: Request,
+///     state: &AppState,
+///     PathParams(id): PathParams<&str>
+/// ) -> Response {
+///     Response::ok().with_body(format!("User {} requested by {}", id, state.app_name), None)
+/// }
+/// ```
 #[cfg(feature = "router")]
 #[proc_macro_attribute]
 pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
 	route::route_impl(attr, item)
 }
 
-/// Defines a router and its routes.
+/// Defines a router and its routing tree.
+///
+/// The `router!` macro provides a clean, nested DSL for configuring how requests
+/// should be dispatched to handlers.
+///
+/// # Syntax
+///
+/// ```rust,ignore
+/// router!(RouterName<StateType> {
+///     with global_middleware
+///
+///     get("/") => index_handler,
+///
+///     "/api" => {
+///         with api_auth_middleware
+///         post("/users") => create_user_handler,
+///         _ => ! // 404 for unmatched /api/*
+///     }
+///
+///     _ => global_404_handler
+/// });
+/// ```
+///
+/// # Special Symbols
+///
+/// - `_ => !`: Returns a default `404 Not Found` response for the current scope.
+/// - `_ => handler`: Uses the specified handler for any unmatched paths in the current scope.
+///
+/// # Example
+/// ```rust,ignore
+/// use moonbeam::{Request, Response, router, route};
+///
+/// #[route]
+/// async fn hello() -> Response { Response::ok() }
+///
+/// router!(MyRouter<AppState> {
+///     get("/hello") => hello,
+///     _ => !
+/// });
+///
+/// // Usage:
+/// // moonbeam::serve("127.0.0.1:8080", MyRouter::new(state));
+/// ```
 #[cfg(feature = "router")]
 #[proc_macro]
 pub fn router(item: TokenStream) -> TokenStream {
 	router::router_impl(item)
 }
 
-/// Simplifies middleware signature.
+/// Defines a middleware function for use in a `router!`.
+///
+/// Middleware functions wrap the execution of downstream handlers, allowing you
+/// to perform pre-processing (like authentication or logging) and post-processing
+/// (like adding headers or timing).
+///
+/// # Signature
+///
+/// Middleware functions must accept:
+/// 1. `req: Request`
+/// 2. `state: &State`
+/// 3. `next: Next` (a special type representing the rest of the handler chain)
+///
+/// And return a `Response`.
+///
+/// # Example
+/// ```rust,ignore
+/// use moonbeam::{Request, Response, middleware};
+///
+/// #[middleware]
+/// async fn logger(req: Request, state: &AppState, next: Next) -> Response {
+///     let start = std::time::Instant::now();
+///     let response = next(req).await;
+///     println!("{} {} - {:?}", req.method, req.path, start.elapsed());
+///     response
+/// }
+/// ```
 #[cfg(feature = "router")]
 #[proc_macro_attribute]
 pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {

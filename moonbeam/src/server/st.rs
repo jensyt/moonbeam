@@ -1,13 +1,35 @@
+//! # Single-Threaded Server
+//!
+//! This module implements the single-threaded server runtime for Moonbeam.
+//!
+//! The `serve` function provides a convenient way to run a Moonbeam server using a `LocalExecutor`
+//! on the main thread. This allows handlers to access non-`Send`/`Sync` state safely.
+//!
+//! ## Execution Model
+//!
+//! - Incoming connections are accepted in a loop.
+//! - Each connection is handled by a new local task spawned on the `LocalExecutor`.
+//! - All tasks run on the same thread, meaning no true parallelism between handlers.
+//! - I/O is asynchronous, so multiple connections can be handled concurrently.
+//! - If a handler performs blocking I/O or heavy CPU work, it will block all other connections.
+
 use super::task::{get_local_executor, new_local_task};
 use super::{Server, handle_socket};
 use crate::tracing;
 use async_net::{AsyncToSocketAddrs, TcpListener};
 
-/// Starts the server on the specified address.
+/// Starts the server on the specified address using a single-threaded local executor.
 ///
-/// This function blocks the current thread and runs the server loop.
-/// It takes ownership of the server instance and leaks it to create a static reference,
-/// which is required for the `Server` trait.
+/// This function blocks the current thread and runs the server loop, driving all incoming async
+/// connections concurrently on a single thread. Because it uses a `LocalExecutor`, you can safely
+/// use non-Send/Sync types like `Cell` and `RefCell` in your server state.
+///
+/// It takes ownership of the server instance and leaks it to create a static reference, which is
+/// required to satisfy the executor's lifetime constraints.
+///
+/// # Warning
+/// CPU-heavy operations or synchronous blocking I/O inside your handlers will block the entire
+/// server. Use `blocking::unblock` for these tasks.
 ///
 /// # Example
 /// ```no_run
