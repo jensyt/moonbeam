@@ -7,11 +7,12 @@ members = [
     "examples/concurrent",
     "tests/integration",
 ]
+default-members = ["moonbeam", "moonbeam-attributes"]
 resolver = "3"
 
 [workspace.package]
 authors = ["Jens Taylor"]
-description = "A single-threaded async HTTP server"
+description = "A single-threaded-first async HTTP server"
 keywords = ["http-server", "async", "single-threaded"]
 categories = ["web-programming::http-server", "asynchronous"]
 repository = "https://github.com/jensyt/moonbeam"
