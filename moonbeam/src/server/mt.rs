@@ -31,6 +31,7 @@ use std::io::ErrorKind;
 use std::{net::SocketAddr, num::NonZeroUsize, thread};
 
 #[derive(Default)]
+#[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
 /// Specifies the number of worker threads to spawn for the multi-threaded server.
 pub enum ThreadCount {
 	/// Uses the number of available CPU cores (via `std::thread::available_parallelism`), or 1 if
@@ -75,6 +76,7 @@ pub enum ThreadCount {
 /// );
 /// ```
 #[inline(always)]
+#[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
 pub fn serve_multi<F, C, T: Server>(
 	addr: impl AsyncToSocketAddrs,
 	num_threads: ThreadCount,

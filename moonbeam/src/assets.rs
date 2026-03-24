@@ -50,6 +50,7 @@ use std::{
 ///     get_asset(req.path, etag, "./public")
 /// }
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "assets")))]
 pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Response {
 	let root = match root.as_ref().canonicalize() {
 		Ok(p) => p,
@@ -112,6 +113,7 @@ fn make_etag(path: &Path) -> Option<String> {
 /// # Returns
 ///
 /// Returns `Some(mime_type)` if the extension is recognized, or `None` otherwise.
+#[cfg_attr(docsrs, doc(cfg(feature = "assets")))]
 pub fn get_mime_type<P>(path: &P) -> Option<&'static str>
 where
 	P: AsRef<Path> + ?Sized,

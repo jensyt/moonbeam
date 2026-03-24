@@ -67,6 +67,7 @@
 /// Note that rest parameters match zero or more path segments, so this example will match "/static",
 /// "/static/", "/static/a", "/static/a/b", etc.
 #[derive(Debug)]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 pub struct PathParams<T>(pub T);
 
 /// Trait for converting a raw parameter list into the target `PathParams` type.
@@ -78,6 +79,7 @@ pub struct PathParams<T>(pub T);
 ///
 /// The trait is implemented for `PathParams<T>` where `T` is `&str` or a tuple of `&str`
 /// (up to 5 elements).
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 pub trait FromParams<'a> {
 	/// Converts a slice of path parameter strings into `Self`.
 	fn from_params(params: &[&'a str]) -> Self;

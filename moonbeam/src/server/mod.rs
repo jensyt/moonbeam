@@ -40,11 +40,13 @@ const BUFSIZE: usize = 16 * 1024;
 #[cfg(feature = "compress")]
 mod compress;
 #[cfg(feature = "mt")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
 pub mod mt;
 mod parsing;
 pub mod st;
 pub mod task;
 #[cfg(feature = "signals")]
+#[cfg_attr(docsrs, doc(cfg(feature = "signals")))]
 mod task_tracker;
 
 /// Returns the maximum allowed size for an HTTP request body in bytes.

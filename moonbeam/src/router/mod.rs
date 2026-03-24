@@ -24,6 +24,7 @@ use std::future::Future;
 /// - Application state injection
 ///
 /// Implementations of this trait are typically generated automatically by the `#[route]` macro.
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 pub trait RouteHandler<S>: 'static {
 	/// Handles an incoming HTTP request.
 	///

@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! # Moonbeam Attributes
 //!
 //! This crate provides procedural macros for the `moonbeam` web server library.
@@ -286,6 +287,7 @@ fn is_impl_future(ty: &Type) -> bool {
 /// }
 /// ```
 #[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 #[proc_macro_attribute]
 pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
 	route::route_impl(attr, item)
@@ -335,6 +337,7 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// // moonbeam::serve("127.0.0.1:8080", MyRouter::new(state));
 /// ```
 #[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 #[proc_macro]
 pub fn router(item: TokenStream) -> TokenStream {
 	router::router_impl(item)
@@ -368,6 +371,7 @@ pub fn router(item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 #[proc_macro_attribute]
 pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {
 	middleware::middleware_impl(attr, item)
