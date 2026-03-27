@@ -34,7 +34,7 @@ use std::{
 ///
 /// # Returns
 ///
-/// Returns a `Response` which can be:
+/// Returns a `Future` that resolves to a `Response` which can be:
 /// - `200 OK` with the file body and correct `Content-Type`.
 /// - `304 Not Modified` if the ETag matches.
 /// - `404 Not Found` if the file doesn't exist or is outside the root.
@@ -47,52 +47,75 @@ use std::{
 /// #[server(FileServer)]
 /// async fn serve(req: Request) -> Response {
 ///     let etag = req.find_header("If-None-Match");
-///     get_asset(req.path, etag, "./public")
+///     get_asset(req.path, etag, "./public").await
 /// }
 /// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "assets")))]
-pub fn get_asset(path: &str, etag: Option<&[u8]>, root: impl AsRef<Path>) -> Response {
-	let root = match root.as_ref().canonicalize() {
-		Ok(p) => p,
-		Err(_) => return Response::internal_server_error(),
-	};
+pub fn get_asset(
+	path: &str,
+	etag: Option<&[u8]>,
+	root: impl AsRef<Path>,
+) -> impl Future<Output = Response> {
+	let root = root.as_ref().to_path_buf();
+	let path = path.trim_start_matches('/').to_string();
+	let etag = etag.map(|e| e.to_vec());
 
-	let path = path.trim_start_matches('/');
-	let path = match root.join(path).canonicalize() {
-		Ok(p) => p,
-		Err(_) => return Response::not_found(),
-	};
+	blocking::unblock(move || {
+		let root = match root.canonicalize() {
+			Ok(p) => p,
+			Err(_) => return Response::internal_server_error(),
+		};
 
-	if !path.starts_with(root) || !path.is_file() {
-		return Response::not_found();
-	}
+		let path = match root.join(&path).canonicalize() {
+			Ok(p) => p,
+			Err(_) => return Response::not_found(),
+		};
 
-	let tag = make_etag(&path);
-	let ext = get_mime_type(&path);
+		if !path.starts_with(&root) || !path.is_file() {
+			return Response::not_found();
+		}
 
-	if let Some(etag) = etag
-		&& let Some(t) = &tag
-		&& etag == t.as_bytes()
-	{
-		// Not changed
-		return Response::not_modified(ext).with_header("ETag", tag.unwrap());
-	}
+		let metadata = match path.metadata() {
+			Ok(m) => m,
+			Err(_) => return Response::internal_server_error(),
+		};
 
-	let file = match File::open(path) {
-		Ok(f) => f,
-		Err(_) => return Response::internal_server_error(),
-	};
-	let response = Response::new_with_body(file, ext);
+		let tag = make_etag(&metadata);
+		let ext = get_mime_type(&path);
 
-	if let Some(tag) = tag {
-		response.with_header("ETag", tag)
-	} else {
+		if let Some(req_etag) = etag
+			&& let Some(t) = &tag
+			&& req_etag == t.as_bytes()
+		{
+			return Response::not_modified(ext).with_header("ETag", tag.unwrap());
+		}
+
+		// Small file optimization: read immediately if < 16KB
+		if metadata.len() < 16 * 1024
+			&& let Ok(data) = std::fs::read(&path)
+		{
+			let mut resp = Response::new_with_body(data, ext);
+			if let Some(tag) = tag {
+				resp = resp.with_header("ETag", tag);
+			}
+			return resp;
+		}
+
+		let file = match File::open(path) {
+			Ok(f) => f,
+			Err(_) => return Response::internal_server_error(),
+		};
+
+		let mut response = Response::new_with_body(file, ext);
+		if let Some(tag) = tag {
+			response = response.with_header("ETag", tag);
+		}
 		response
-	}
+	})
 }
 
-fn make_etag(path: &Path) -> Option<String> {
-	let modified = path.metadata().ok()?.modified().ok()?;
+fn make_etag(metadata: &std::fs::Metadata) -> Option<String> {
+	let modified = metadata.modified().ok()?;
 	let modified = match modified.duration_since(SystemTime::UNIX_EPOCH) {
 		Ok(d) => d,
 		Err(e) => e.duration(),

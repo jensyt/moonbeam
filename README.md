@@ -29,18 +29,42 @@ Before building with Moonbeam, it's essential to understand its execution model:
 - **Response Compression**: On-the-fly `compress` support (Gzip, Brotli, Zlib).
 - **Graceful Shutdown**: Intercepts `signals` for clean exit.
 
+## Is it fast?
+
+Yes. Moonbeam is designed for high performance with minimal overhead. In simple benchmarks using `wrk` (4 threads, 100 connections, 5 seconds), Moonbeam shows competitive performance for both simple responses and static file serving.
+
+*The below benchmarks were performed on a MacBook Pro (M3 Pro). While these simple tests don't represent real-world application complexity, they demonstrate the efficiency of Moonbeam's core request/response loop.*
+
+### Hello World (Plain Text)
+
+| Framework | Architecture | Requests/sec |
+| :--- | :--- | :--- |
+| **Moonbeam** | **Multi-Threaded (4 cores)** | **~214,000** |
+| **Moonbeam** | **Single-Threaded** | **~211,000** |
+| Node.js | Single-Threaded | ~117,000 |
+| Rouille | Thread-per-connection | ~93,000 |
+
+### Static File Serving (4KB file)
+
+| Framework | Architecture | Requests/sec |
+| :--- | :--- | :--- |
+| **Moonbeam** | **Multi-Threaded (4 cores)** | **~73,000** |
+| **Moonbeam** | **Single-Threaded** | **~66,000** |
+| Rouille | Thread-per-connection | ~56,000 |
+| Node.js | Single-Threaded | ~51,000 |
+
 ## Installation
 
 Add `moonbeam` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.3"
+moonbeam = "0.4"
 ```
 
 ## Feature Flags
 
-Moonbeam is highly configurable via Cargo features. Most users will want the `default` features.
+Moonbeam is configurable via Cargo features. Most users will want the `default` features.
 
 - `default`: Enables `macros`, `assets`, `catchpanic`, `signals`, and `router`.
 - `macros`: Enables the `#[server]` attribute macro to easily create `Server` trait implementations.
@@ -48,7 +72,7 @@ Moonbeam is highly configurable via Cargo features. Most users will want the `de
 - `signals`: Hooks into OS signals (SIGINT, SIGTERM) to trigger graceful server shutdown.
 - `catchpanic`: Wraps your handlers to catch panics gracefully and return `500 Internal Server Error`.
 - `tracing`: Instruments the core server loop with `tracing` spans and events.
-- `compress`: Enables the `moonbeam::server::compress::apply_compression` utility. (Depends on `flate2` and `brotli`).
+- `compress`: Enables automatic response compression. (Depends on `flate2` and `brotli`).
 - `router`: Enables the routing macros (`#[route]`, `#[middleware]`, and `router!`).
 - `mt`: Exposes `serve_multi` to run multiple independent server isolates across available CPU cores.
 
@@ -210,7 +234,7 @@ use moonbeam::{Request, Response, server, assets::get_asset};
 #[server(StaticServer)]
 async fn serve(req: Request) -> Response {
     let etag = req.find_header("If-None-Match");
-    get_asset(req.path, etag, "./public")
+    get_asset(req.path, etag, "./public").await
 }
 ```
 
