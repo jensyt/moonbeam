@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-27
+
 ### Changed
 - **BREAKING**: `moonbeam::assets::get_asset` is now an `async` function.
 - `get_asset` now offloads all blocking filesystem operations to a background thread pool, preventing the main executor from stalling and improving throughput for single-threaded mode by ~66%.
