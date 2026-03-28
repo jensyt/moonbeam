@@ -1,7 +1,7 @@
 use quote::quote;
 use syn::{FnArg, ItemFn, PathArguments, Type, parse_macro_input, parse_quote};
 
-pub fn middleware_impl(
+pub(super) fn middleware_impl(
 	_attr: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {

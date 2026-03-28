@@ -295,7 +295,7 @@ impl Handler {
 ///     }
 /// }
 /// ```
-pub fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub(super) fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	let input = parse_macro_input!(item as RouterInput);
 	let visibility = input.visibility;
 	let router_name = input.name;

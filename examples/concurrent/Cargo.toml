@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-moonbeam = { path = "../../moonbeam", features = ["mt", "macros"] }
+moonbeam = { path = "../../moonbeam", default-features = false, features = ["mt", "macros"] }

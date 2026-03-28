@@ -22,6 +22,7 @@ Before building with Moonbeam, it's essential to understand its execution model:
 - **Multi-threaded support**: The `mt` feature spawns worker threads, each with its own state copy.
 - **Simple API**: Use the `#[server]` macro to turn functions into server handlers.
 - **Routing**: The `router!` macro provides a clean DSL and efficient implementation for nested groups, middleware, path parameters, and wildcards.
+- **Typed Body Extractors**: Use `FromRequest` and `FromBody` traits for zero-copy, asynchronous body parsing (e.g., JSON).
 - **Static Assets**: Built-in `assets` helper for serving files with ETags and MIME type detection.
 - **HTTP/1.1**: Persistent connections, chunked transfer encoding, and standard header parsing.
 - **Zero-cost extractions**: Efficient parsing of Cookies, Query Parameters, and Bodies.
@@ -223,6 +224,36 @@ fn main() {
 
     let state = AppState { api_key: "secret".to_string() };
     serve("127.0.0.1:8080", ApiRouter::new(state));
+}
+```
+
+### 5. JSON Parsing (Typed Body Extraction)
+
+Use the `moonbeam-serde` crate for flexible, typed body extraction. This supports zero-copy deserialization by borrowing directly from the request buffer.
+
+```rust,ignore
+use moonbeam::{Response, route, router, serve};
+use moonbeam_serde::Json;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct User<'a> {
+    id: u32,
+    name: &'a str, // Borrowed from the request body
+}
+
+#[route]
+async fn create_user(Json(user): Json<User<'_>>) -> Json<User<'_>> {
+    println!("Creating user: {:?}", user);
+    Json(user)
+}
+
+fn main() {
+    router!(ApiRouter {
+        post("/users") => create_user
+    });
+
+    serve("127.0.0.1:8080", ApiRouter);
 }
 ```
 

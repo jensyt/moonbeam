@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Trait-Based Body Parsing**: Introduced `FromRequest` and `FromBody` traits for flexible, typed request body extraction.
+- **Zero-Copy JSON Support**: New `moonbeam-serde` crate providing a `Json<T>` extractor with support for zero-copy deserialization (borrowing directly from the request buffer).
+- **Macro Enhancements**: Updated the `#[route]` macro to support asynchronous argument extraction and improved type inference for handler return values.
+- New `json_parsing` example in `examples/routing`.
+- New `json_extraction` integration test.
+
+### Changed
+- **BREAKING (Internal)**: `RouteHandler::call` now returns `Response` directly instead of `impl Into<Response>`. This is handled automatically by the `#[route]` macro and only affects manual trait implementations.
+
 ## [0.4.0] - 2026-03-27
 
 ### Changed

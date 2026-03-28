@@ -5,4 +5,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-moonbeam = { path = "../../moonbeam", features = ["router"] }
+moonbeam = { path = "../../moonbeam", default-features = false, features = ["router"] }
+moonbeam-serde = { path = "../../moonbeam-serde" }
+serde = { version = "1.0", features = ["derive"] }

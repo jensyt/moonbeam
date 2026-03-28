@@ -22,10 +22,13 @@ use syn::{
 };
 
 #[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 mod middleware;
 #[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 mod route;
 #[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 mod router;
 
 // Parse the attribute arguments
@@ -271,6 +274,18 @@ fn is_impl_future(ty: &Type) -> bool {
 /// - `Request`: The incoming HTTP request.
 /// - `&State`: A reference to the application state (must match the state type in `router!`).
 /// - `PathParams<T>`: Extracted path parameters (e.g., `PathParams<&str>` or `PathParams<(&str, &str)>`).
+/// - **Extractors**: Any type that implements `FromRequest`. This allows for flexible,
+///   typed body extraction (e.g., `Json<T>`).
+///
+/// # Return Types
+///
+/// The decorated function can return any type that implements `Into<Response>`.
+/// Common return types include:
+/// - `Response`
+/// - `Result<T, E>` (where both `T` and `E` implement `Into<Response>`)
+/// - `()` (returns `204 No Content`)
+/// - `Body` (returns `200 OK` with the body)
+/// - `(Body, &'static str)` (returns `200 OK` with a custom Content-Type)
 ///
 /// # Example
 /// ```rust,ignore
@@ -283,7 +298,7 @@ fn is_impl_future(ty: &Type) -> bool {
 ///     state: &AppState,
 ///     PathParams(id): PathParams<&str>
 /// ) -> Response {
-///     Response::ok().with_body(format!("User {} requested by {}", id, state.app_name), None)
+///     Response::ok().with_body(format!("User {} requested by {}", id, state.app_name), Body::TEXT)
 /// }
 /// ```
 #[cfg(feature = "router")]

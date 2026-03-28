@@ -16,7 +16,7 @@
 
 use crate::http::{cookies::Cookies, params::Params};
 use httparse::{Header, Request as RawRequest};
-use std::{borrow::Cow, fmt::Debug, io::Read, ops::Index};
+use std::{borrow::Cow, fmt::Debug, future::Future, io::Read, ops::Index};
 
 pub mod cookies;
 pub mod params;
@@ -398,6 +398,60 @@ impl Response {
 	}
 }
 
+impl From<()> for Response {
+	fn from(_: ()) -> Response {
+		Response::empty()
+	}
+}
+
+impl From<Body> for Response {
+	fn from(body: Body) -> Response {
+		Response::new_with_body(body, Body::DEFAULT_CONTENT_TYPE)
+	}
+}
+
+impl From<(Body, &'static str)> for Response {
+	fn from((body, content_type): (Body, &'static str)) -> Response {
+		Response::new_with_body(body, Some(content_type))
+	}
+}
+
+impl From<(Body, Option<&'static str>)> for Response {
+	fn from((body, content_type): (Body, Option<&'static str>)) -> Response {
+		Response::new_with_body(body, content_type)
+	}
+}
+
+impl From<(Body, String)> for Response {
+	fn from((body, content_type): (Body, String)) -> Response {
+		Response::new_with_body(body, Some(content_type))
+	}
+}
+
+impl From<(Body, Option<String>)> for Response {
+	fn from((body, content_type): (Body, Option<String>)) -> Response {
+		Response::new_with_body(body, content_type)
+	}
+}
+
+impl<T: Into<Response>> From<Option<T>> for Response {
+	fn from(val: Option<T>) -> Response {
+		match val {
+			Some(val) => val.into(),
+			None => Response::not_found(),
+		}
+	}
+}
+
+impl<T: Into<Response>, E: Into<Response>> From<Result<T, E>> for Response {
+	fn from(val: Result<T, E>) -> Response {
+		match val {
+			Ok(val) => val.into(),
+			Err(err) => err.into(),
+		}
+	}
+}
+
 /// Represents the body of an HTTP response.
 ///
 /// # Example
@@ -486,6 +540,37 @@ impl Debug for Body {
 			Self::Immediate(v) => write!(f, "Body(Immediate, len={})", v.len()),
 			Self::Stream { data: _, len } => write!(f, "Body(Stream, len={len:?})"),
 		}
+	}
+}
+
+/// A trait for extracting data from an HTTP request.
+pub trait FromRequest<'a, 'b, S>: Sized {
+	/// The error type returned if extraction fails.
+	type Error: Into<Response>;
+
+	/// Extracts data from the request.
+	fn from_request(
+		req: Request<'a, 'b>,
+		state: &'static S,
+	) -> impl Future<Output = Result<Self, Self::Error>>;
+}
+
+/// A trait for extractors that only need the raw request body.
+pub trait FromBody<'a>: Sized {
+	/// The error type returned if extraction fails.
+	type Error: Into<Response>;
+
+	/// Extracts data from the raw body bytes.
+	fn from_body(body: &'a [u8]) -> Result<Self, Self::Error>;
+}
+
+impl<'a, 'b, S, T> FromRequest<'a, 'b, S> for T
+where
+	T: FromBody<'b>,
+{
+	type Error = T::Error;
+	async fn from_request(req: Request<'a, 'b>, _state: &'static S) -> Result<Self, Self::Error> {
+		T::from_body(req.body)
 	}
 }
 

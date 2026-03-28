@@ -49,10 +49,16 @@ router!(MyRouter<State> {
 ```
 
 ### Handlers & State
-Handlers are async functions. The `#[route]` macro allows them to accept:
-- `Request`
-- `&State` (The application state)
-- `PathParams<(T1, T2, ...)>` (Tuple struct for extracted path variables)
+Handlers are async functions. The `#[route]` macro allows them to automatically extract data from the request. Supported arguments include:
+- `Request`: The raw request object.
+- `&State`: A reference to the application state (must be a reference).
+- `PathParams<(T1, T2, ...)>`: Extracted path variables.
+- **Extractors**: Any type implementing `FromRequest`. This allows for flexible, typed body extraction (e.g., `Json<T>`).
+
+#### Custom Extractors
+Implement `FromRequest` or `FromBody` in `moonbeam/src/http/mod.rs` to create custom extractors. `FromBody` provides a blanket implementation of `FromRequest` for types that only need the raw body bytes.
+
+- **`moonbeam-serde`**: A separate crate providing `Json<T>` for automatic JSON parsing using `serde_json`.
 
 Handlers can return anything that implements `Into<Response>`, including `Result<T, E>` where both `T` and `E` are `Into<Response>`.
 

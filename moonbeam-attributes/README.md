@@ -2,7 +2,9 @@
 
 This crate provides procedural macros for the `moonbeam` web server library.
 The main macro is `#[server]`, which simplifies creating server implementations
-by wrapping a function.
+by wrapping a function. With the `router` feature, this crate also offers the
+`router!` macro which provides a clean DSL and efficient implementation for nested
+groups, middleware, path parameters, and wildcards.
 
 ## Usage
 
@@ -68,17 +70,46 @@ fn main() {
 
 ### `#[route]`
 
-The `#[route]` macro defines a route handler that can be used within a `router!`. It automatically handles parameter extraction (like `PathParams`) and state injection.
+The `#[route]` macro defines a route handler for use within a `router!`. It provides powerful dependency injection by automatically extracting arguments based on the function signature.
+
+#### Supported Parameters
+
+*   **`Request`**: The raw HTTP request.
+*   **`&State`**: A reference to the application state.
+*   **`PathParams<T>`**: Extracted path parameters (e.g., `PathParams<&str>`).
+*   **Extractors**: Any type implementing `FromRequest`. This allows for typed body parsing, such as `Json<T>`.
+
+#### Flexible Return Types
+
+The decorated function can return any type that implements `Into<Response>`. This includes:
+*   `Response`
+*   `()` (returns `204 No Content`)
+*   `Body` or `String` (returns `200 OK`)
+*   `Result<T, E>` where both `T` and `E` implement `Into<Response>`.
+*   Tuples like `(Body, &'static str)` to specify `Content-Type`.
 
 #### Example
 
 ```rust
 use moonbeam::{Body, Response, route};
 use moonbeam::router::PathParams;
+use moonbeam_serde::Json;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct User<'a> {
+    name: &'a str,
+}
 
 #[route]
-async fn hello_user(PathParams(name): PathParams<&str>) -> Response {
-    Response::ok().with_body(format!("Hello, {}!", name), Body::TEXT)
+async fn hello_user(
+    PathParams(id): PathParams<u32>,
+    Json(user): Json<User<'_>>
+) -> Result<String, Response> {
+    if id == 0 {
+        return Err(Response::bad_request());
+    }
+    Ok(format!("Hello, {} (ID: {})!", user.name, id))
 }
 ```
 

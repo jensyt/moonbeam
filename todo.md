@@ -1,7 +1,6 @@
 # Todo
 - Support for HTML forms
 - Make tracing meaningful
-- Improve documentation (README and module/function documentation)
 
 # Done
 - ETags for assets
@@ -19,3 +18,6 @@
 - Automatic support for HEAD requests -> GET handler in router
 - Clean up project structure to remove example and test entries from Cargo.toml
 - Method Not Allowed (405)
+- Improve documentation (README and module/function documentation)
+- Trait-based body parsing (`FromRequest`, `FromBody`)
+- JSON body extraction with `moonbeam-serde` and `Json<T>`

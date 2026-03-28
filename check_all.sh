@@ -44,13 +44,18 @@ cargo check -p examples-routing
 print_header "examples-concurrent"
 cargo check -p examples-concurrent
 
-# 2. No default features (Baseline)
+# 2. Check moonbeam-serde
+print_header "Checking moonbeam-serde"
+cargo clippy -p moonbeam-serde -- -D warnings
+cargo test -p moonbeam-serde
+
+# 3. No default features (Baseline)
 run_check --no-default-features
 
-# 3. All features (Full coverage)
+# 4. All features (Full coverage)
 run_check --all-features
 
-# 4. Individual features (Moonbeam)
+# 5. Individual features (Moonbeam)
 FEATURES=(
     "assets"
     "macros"
@@ -67,13 +72,13 @@ for feature in "${FEATURES[@]}"; do
     run_check --no-default-features --features "$feature"
 done
 
-# 5. Logical Feature Groups
+# 6. Logical Feature Groups
 run_check --no-default-features --features "mt,signals"
 run_check --no-default-features --features "mt,tracing"
 run_check --no-default-features --features "router,compress"
 run_check --no-default-features --features "assets,compress"
 
-# 6. Moonbeam Attributes specific checks
+# 7. Moonbeam Attributes specific checks
 print_header "Checking moonbeam-attributes explicitly"
 cargo clippy -p moonbeam-attributes --no-default-features -- -D warnings
 cargo clippy -p moonbeam-attributes --no-default-features --features router -- -D warnings

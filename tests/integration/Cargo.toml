@@ -6,6 +6,8 @@ publish = false
 
 [dev-dependencies]
 moonbeam = { path = "../../moonbeam", default-features = false }
+moonbeam-serde = { path = "../../moonbeam-serde" }
+serde = { version = "1.0", features = ["derive"] }
 piper = "0.2"
 futures-lite = "2.6"
 
@@ -35,4 +37,8 @@ required-features = ["router"]
 
 [[test]]
 name = "routing"
+required-features = ["router"]
+
+[[test]]
+name = "json_extraction"
 required-features = ["router"]
