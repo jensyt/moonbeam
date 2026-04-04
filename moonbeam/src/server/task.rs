@@ -1,3 +1,7 @@
+/// Task creation on the local executor.
+///
+/// Use [`new_local_task`] to spawn a detached task that will run to completion as long as the
+/// local executor is running.
 use async_executor::LocalExecutor;
 
 pub(super) fn get_local_executor() -> &'static LocalExecutor<'static> {

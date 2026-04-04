@@ -463,7 +463,9 @@ impl<T: Into<Response>, E: Into<Response>> From<Result<T, E>> for Response {
 pub enum Body {
 	/// In-memory body data.
 	Immediate(Vec<u8>),
+	/// A streaming body from a `Read` source.
 	Stream {
+		/// The underlying stream of data.
 		data: Box<dyn Read + Send + 'static>,
 		/// The length of the body, if known.
 		len: Option<u64>,
@@ -485,6 +487,7 @@ impl Body {
 		Self::Immediate(data.into())
 	}
 
+	/// Returns the length of the body if known.
 	#[allow(clippy::len_without_is_empty)]
 	pub fn len(&self) -> Option<u64> {
 		match self {

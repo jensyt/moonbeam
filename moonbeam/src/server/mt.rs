@@ -90,7 +90,7 @@ pub fn serve_multi<F, C, T: Server>(
 }
 
 #[cfg(feature = "signals")]
-pub fn serve_multi_impl<F, C, T: Server>(
+fn serve_multi_impl<F, C, T: Server>(
 	addr: impl AsyncToSocketAddrs,
 	num_threads: ThreadCount,
 	server: F,
@@ -220,7 +220,7 @@ async fn accept_loop(listener: TcpListener, sender: flume::Sender<(TcpStream, So
 }
 
 #[cfg(not(feature = "signals"))]
-pub fn serve_multi_impl<F, C, T: Server>(
+fn serve_multi_impl<F, C, T: Server>(
 	addr: impl AsyncToSocketAddrs,
 	num_threads: ThreadCount,
 	server: F,
