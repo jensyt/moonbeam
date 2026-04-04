@@ -44,10 +44,13 @@ cargo check -p examples-routing
 print_header "examples-concurrent"
 cargo check -p examples-concurrent
 
-# 2. Check moonbeam-serde
+# 2. Check moonbeam-serde and moonbeam-forms
 print_header "Checking moonbeam-serde"
 cargo clippy -p moonbeam-serde -- -D warnings
 cargo test -p moonbeam-serde
+print_header "Checking moonbeam-serde"
+cargo clippy -p moonbeam-forms -- -D warnings
+cargo test -p moonbeam-forms
 
 # 3. No default features (Baseline)
 run_check --no-default-features

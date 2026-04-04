@@ -19,6 +19,7 @@
 //! }
 //! ```
 
+use super::percent_decode;
 use std::borrow::Cow;
 
 /// Helper struct for parsing query parameters from a URL.
@@ -28,7 +29,7 @@ use std::borrow::Cow;
 /// use std::borrow::Cow;
 /// use moonbeam::http::params::Params;
 ///
-/// let params = Params::new(Cow::Borrowed("key=value"));
+/// let params = Params::new("key=value");
 /// assert_eq!(params.find("key").next(), Some("value"));
 /// ```
 pub struct Params<'a> {
@@ -37,8 +38,15 @@ pub struct Params<'a> {
 
 impl<'a> Params<'a> {
 	/// Creates a new `Params` helper from the query string.
-	pub fn new(params: Cow<'a, str>) -> Self {
-		Params { params }
+	pub fn new(params: &'a str) -> Self {
+		Params {
+			params: percent_decode::decode_query(params),
+		}
+	}
+
+	/// Returns the underlying decoded query string, moving it out of the helper.
+	pub fn into_inner(self) -> Cow<'a, str> {
+		self.params
 	}
 
 	/// Returns an iterator over values for a specific parameter name.
@@ -48,13 +56,13 @@ impl<'a> Params<'a> {
 	/// use std::borrow::Cow;
 	/// use moonbeam::http::params::Params;
 	///
-	/// let params = Params::new(Cow::Borrowed("a=1&b=2&a=3"));
+	/// let params = Params::new("a=1&b=2&a=3");
 	/// let mut a = params.find("a");
 	/// assert_eq!(a.next(), Some("1"));
 	/// assert_eq!(a.next(), Some("3"));
 	/// assert_eq!(a.next(), None);
 	/// ```
-	pub fn find<'b>(&'a self, param: &'b str) -> ParamIter<'a, 'b> {
+	pub fn find<'b>(&self, param: &'b str) -> ParamIter<'_, 'b> {
 		ParamIter::new(&self.params, param)
 	}
 }
@@ -69,28 +77,30 @@ impl<'a, 'b> Iterator for ParamIter<'a, 'b> {
 	type Item = &'a str;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.remaining.is_empty() {
-			return None;
+		while !self.remaining.is_empty() {
+			// Find the next parameter (up to '&' or end of string)
+			let (current_param, rest) = self
+				.remaining
+				.split_once('&')
+				.unwrap_or((self.remaining, ""));
+
+			// Update remaining for next iteration
+			self.remaining = rest;
+
+			// Split the current parameter into key=value
+			if let Some((k, v)) = current_param.split_once('=')
+				&& k == self.filter
+			{
+				return Some(v);
+			}
 		}
 
-		// Find the next parameter (up to '&' or end of string)
-		let (current_param, rest) = self
-			.remaining
-			.split_once('&')
-			.unwrap_or((self.remaining, ""));
-
-		// Update remaining for next iteration
-		self.remaining = rest;
-
-		// Split the current parameter into key=value
-		match current_param.split_once('=') {
-			Some((k, v)) if k == self.filter => Some(v),
-			_ => self.next(),
-		}
+		None
 	}
 }
 
 impl<'a, 'b> ParamIter<'a, 'b> {
+	/// Creates a new `ParamIter` to filter the given query string by parameter name.
 	pub fn new(params: &'a str, filter: &'b str) -> Self {
 		Self {
 			remaining: params,
@@ -105,7 +115,7 @@ mod tests {
 
 	#[test]
 	fn test_find_param() {
-		let params = Params::new(Cow::Borrowed("foo=bar&baz=qux&foo=baz"));
+		let params = Params::new("foo=bar&baz=qux&foo=baz");
 		let mut p = params.find("foo");
 		assert_eq!(p.next(), Some("bar"));
 		assert_eq!(p.next(), Some("baz"));
@@ -114,5 +124,17 @@ mod tests {
 		assert_eq!(p.next(), Some("qux"));
 		assert_eq!(p.next(), None);
 		assert_eq!(params.find("qux").next(), None);
+	}
+
+	#[test]
+	fn test_into_inner() {
+		let params = Params::new("foo=bar");
+		let cow = params.into_inner();
+		assert_eq!(cow, Cow::Borrowed("foo=bar"));
+
+		let params = Params::new("foo%20bar=baz");
+		let cow = params.into_inner();
+		assert!(matches!(cow, Cow::Owned(_)));
+		assert_eq!(cow, Cow::Owned::<str>("foo bar=baz".to_string()));
 	}
 }

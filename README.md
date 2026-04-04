@@ -257,6 +257,49 @@ fn main() {
 }
 ```
 
+### 6. HTML Forms (URL-Encoded and Multipart)
+
+Use the `moonbeam-forms` crate to parse incoming form data, including file uploads.
+
+```rust,ignore
+use moonbeam::{Body, Response, route, router, serve};
+use moonbeam_forms::{FormData, Form};
+
+#[route]
+async fn handle_form(form: Form<'_>) -> Response {
+    let mut response_text = String::new();
+    
+    // Find a specific field (iterator for multiple values)
+    for data in form.find("username") {
+        if let FormData::Text(name) = data {
+            response_text.push_str(&format!("Hello, {}!\n", name));
+        }
+    }
+    
+    // Handle file uploads
+    for data in form.find("profile_pic") {
+        if let FormData::File { name, content_type, data } = data {
+            response_text.push_str(&format!(
+                "Received file: {:?} ({:?}) - {} bytes\n",
+                name, content_type, data.len()
+            ));
+        }
+    }
+
+    Response::ok().with_body(response_text, Body::TEXT)
+}
+
+fn main() {
+    router!(App {
+        post("/submit") => handle_form,
+        // GET params are also accessible via Form
+        get("/submit") => handle_form 
+    });
+
+    serve("127.0.0.1:8080", App);
+}
+```
+
 ## Serving Static Files
 
 ```rust,no_run

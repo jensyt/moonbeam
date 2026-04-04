@@ -398,6 +398,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "moonbeam-forms"
+version = "0.1.0"
+dependencies = [
+ "httparse",
+ "moonbeam",
+]
+
+[[package]]
 name = "moonbeam-serde"
 version = "0.1.0"
 dependencies = [

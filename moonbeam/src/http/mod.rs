@@ -16,7 +16,7 @@
 
 use crate::http::{cookies::Cookies, params::Params};
 use httparse::{Header, Request as RawRequest};
-use std::{borrow::Cow, fmt::Debug, future::Future, io::Read, ops::Index};
+use std::{borrow::Cow, convert::Infallible, fmt::Debug, future::Future, io::Read, ops::Index};
 
 pub mod cookies;
 pub mod params;
@@ -125,10 +125,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	/// The query parameters are URL-decoded, including converting '+' to space.
 	#[inline]
 	pub fn params(&self) -> Params<'buf> {
-		match self.path.split('?').nth(1) {
-			Some(p) => Params::new(percent_decode::decode_query(p)),
-			None => Params::new(Cow::Borrowed("")),
-		}
+		Params::new(self.path.split('?').nth(1).unwrap_or_default())
 	}
 
 	/// Returns the decoded URL path without query parameters.
@@ -449,6 +446,12 @@ impl<T: Into<Response>, E: Into<Response>> From<Result<T, E>> for Response {
 			Ok(val) => val.into(),
 			Err(err) => err.into(),
 		}
+	}
+}
+
+impl From<Infallible> for Response {
+	fn from(_: Infallible) -> Response {
+		unreachable!("Infallible cannot be converted to Response")
 	}
 }
 

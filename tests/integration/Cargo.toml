@@ -12,7 +12,7 @@ piper = "0.2"
 futures-lite = "2.6"
 
 [features]
-default = ["assets", "macros", "catchpanic", "signals", "router"]
+default = []
 signals = ["moonbeam/signals"]
 tracing = ["moonbeam/tracing"]
 assets = ["moonbeam/assets"]

@@ -1,5 +1,4 @@
 # Todo
-- Support for HTML forms
 - Make tracing meaningful
 
 # Done
@@ -21,3 +20,4 @@
 - Improve documentation (README and module/function documentation)
 - Trait-based body parsing (`FromRequest`, `FromBody`)
 - JSON body extraction with `moonbeam-serde` and `Json<T>`
+- Support for HTML forms (urlencoded and multipart) via `moonbeam-forms` crate.

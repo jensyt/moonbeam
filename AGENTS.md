@@ -27,6 +27,8 @@
     - `src/http/`: `Request`, `Response`, `Body`, `Cookies`, and `Params` (query strings).
     - `src/assets.rs`: Static file serving with ETag (SHA-based) and MIME detection.
 - **`moonbeam-attributes/`**: Procedural macros (`router!`, `#[server]`, `#[route]`, `#[middleware]`).
+- **`moonbeam-forms/`**: New crate providing `Form` and `Multipart` extractors for HTML form data.
+- **`moonbeam-serde/`**: New crate providing `Json<T>` extractor.
 
 ## Key Components
 

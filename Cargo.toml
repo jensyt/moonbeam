@@ -3,12 +3,13 @@ members = [
     "moonbeam",
     "moonbeam-attributes",
     "moonbeam-serde",
+    "moonbeam-forms",
     "examples/basic",
     "examples/routing",
     "examples/concurrent",
     "tests/integration",
 ]
-default-members = ["moonbeam", "moonbeam-attributes", "moonbeam-serde"]
+default-members = ["moonbeam", "moonbeam-attributes", "moonbeam-serde", "moonbeam-forms"]
 resolver = "3"
 
 [workspace.package]
