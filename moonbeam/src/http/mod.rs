@@ -107,7 +107,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 
 	/// Finds a header by name.
 	#[inline]
-	pub fn find_header(&self, name: &str) -> Option<&'headers [u8]> {
+	pub fn find_header(&self, name: &str) -> Option<&'buf [u8]> {
 		self.headers
 			.iter()
 			.find(|h| h.name.eq_ignore_ascii_case(name))
@@ -116,7 +116,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 
 	/// Returns a helper to parse cookies from the request.
 	#[inline]
-	pub fn cookies(&self) -> Cookies<'headers> {
+	pub fn cookies(&self) -> Cookies<'buf> {
 		Cookies::new(self.find_header("Cookie"))
 	}
 
