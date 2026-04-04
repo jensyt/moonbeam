@@ -12,6 +12,7 @@
 
 mod path_params;
 pub use path_params::{FromParams, PathParams};
+mod extractors;
 
 use crate::http::{Request, Response};
 use std::future::Future;
