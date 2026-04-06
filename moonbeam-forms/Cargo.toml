@@ -10,8 +10,8 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-moonbeam = { path = "../moonbeam", version = "0.4", default-features = false }
+moonbeam = { path = "../moonbeam", version = "0.5", default-features = false }
 httparse = "1.10"
 
 [dev-dependencies]
-moonbeam = { path = "../moonbeam", version = "0.4", features = ["router"] }
+moonbeam = { path = "../moonbeam", version = "0.5", features = ["router"] }
