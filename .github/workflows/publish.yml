@@ -31,13 +31,17 @@ jobs:
           VERSION=$(grep '^version =' "$NAME/Cargo.toml" | head -1 | cut -d '"' -f 2)
 
           # Check if this version already exists on crates.io
-          if curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION" | grep -q "200"; then
+          STATUS=$(curl -s -L -A "Moonbeam-CI (https://github.com/jensyt/moonbeam)" -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION")
+          if [ "$STATUS" = "200" ]; then
             echo "$NAME v$VERSION is already on crates.io. Skipping."
-          else
+          elif [ "$STATUS" = "404" ]; then
             echo "Publishing $NAME v$VERSION..."
             cargo publish -p "$NAME" --no-verify
             # Small delay to let crates.io index update
             sleep 10
+          else
+            echo "Error: Crates.io API returned $STATUS"
+            exit 1
           fi
 
       - name: Publish moonbeam
@@ -48,13 +52,17 @@ jobs:
           VERSION=$(grep '^version =' "$NAME/Cargo.toml" | head -1 | cut -d '"' -f 2)
 
           # Check if this version already exists on crates.io
-          if curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION" | grep -q "200"; then
+          STATUS=$(curl -s -L -A "Moonbeam-CI (https://github.com/jensyt/moonbeam)" -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION")
+          if [ "$STATUS" = "200" ]; then
             echo "$NAME v$VERSION is already on crates.io. Skipping."
-          else
+          elif [ "$STATUS" = "404" ]; then
             echo "Publishing $NAME v$VERSION..."
             cargo publish -p "$NAME" --no-verify
             # Small delay to let crates.io index update
             sleep 10
+          else
+            echo "Error: Crates.io API returned $STATUS"
+            exit 1
           fi
 
       - name: Publish moonbeam-forms
@@ -65,13 +73,17 @@ jobs:
           VERSION=$(grep '^version =' "$NAME/Cargo.toml" | head -1 | cut -d '"' -f 2)
 
           # Check if this version already exists on crates.io
-          if curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION" | grep -q "200"; then
+          STATUS=$(curl -s -L -A "Moonbeam-CI (https://github.com/jensyt/moonbeam)" -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION")
+          if [ "$STATUS" = "200" ]; then
             echo "$NAME v$VERSION is already on crates.io. Skipping."
-          else
+          elif [ "$STATUS" = "404" ]; then
             echo "Publishing $NAME v$VERSION..."
             cargo publish -p "$NAME" --no-verify
             # Small delay to let crates.io index update
             sleep 10
+          else
+            echo "Error: Crates.io API returned $STATUS"
+            exit 1
           fi
 
       - name: Publish moonbeam-serde
@@ -82,9 +94,13 @@ jobs:
           VERSION=$(grep '^version =' "$NAME/Cargo.toml" | head -1 | cut -d '"' -f 2)
 
           # Check if this version already exists on crates.io
-          if curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION" | grep -q "200"; then
+          STATUS=$(curl -s -L -A "Moonbeam-CI (https://github.com/jensyt/moonbeam)" -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/$NAME/$VERSION")
+          if [ "$STATUS" = "200" ]; then
             echo "$NAME v$VERSION is already on crates.io. Skipping."
-          else
+          elif [ "$STATUS" = "404" ]; then
             echo "Publishing $NAME v$VERSION..."
             cargo publish -p "$NAME" --no-verify
+          else
+            echo "Error: Crates.io API returned $STATUS"
+            exit 1
           fi
