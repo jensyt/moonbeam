@@ -22,3 +22,4 @@
 - JSON body extraction with `moonbeam-serde` and `Json<T>`
 - Support for HTML forms (urlencoded and multipart) via `moonbeam-forms` crate.
 - Typed form deserialization for URL-encoded and multipart data via `moonbeam-serde`.
+- Support newtype structs in moonbeam-serde forms

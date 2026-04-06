@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use moonbeam::http::{FromBody, Response};
+use moonbeam::http::{Body, FromBody, Response};
 use serde::Serialize;
 use serde::de::Deserialize;
 
@@ -47,7 +47,7 @@ impl<'a, T: Deserialize<'a>> FromBody<'a> for Json<T> {
 impl<T: Serialize> From<Json<T>> for Response {
 	fn from(json: Json<T>) -> Self {
 		match serde_json::to_vec(&json.0) {
-			Ok(body) => Response::ok().with_body(body, Some("application/json")),
+			Ok(body) => Response::ok().with_body(body, Body::JSON),
 			Err(_) => Response::internal_server_error(),
 		}
 	}

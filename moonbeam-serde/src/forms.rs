@@ -356,11 +356,14 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 	impl_values_deserialize!(deserialize_f64);
 	impl_values_deserialize!(deserialize_bool);
 	impl_values_deserialize!(deserialize_char);
+	impl_values_deserialize!(deserialize_bytes);
+	impl_values_deserialize!(deserialize_byte_buf);
 
 	fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
 		V: Visitor<'de>,
 	{
+		eprintln!("seq");
 		visitor.visit_seq(self)
 	}
 
@@ -381,6 +384,22 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 		}
 	}
 
+	fn deserialize_newtype_struct<V>(
+		self,
+		_name: &'static str,
+		visitor: V,
+	) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
+		match self.0.last() {
+			Some(v) => visitor.visit_newtype_struct(ValueDeserializer(v)),
+			None => Err(de::Error::custom(
+				"deserializing empty sequence but expected a value",
+			)),
+		}
+	}
+
 	fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
 		V: Visitor<'de>,
@@ -393,7 +412,7 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 
 	forward_to_deserialize_any! {
 		str string
-		bytes byte_buf unit unit_struct newtype_struct tuple
+		unit unit_struct tuple
 		tuple_struct map enum identifier ignored_any
 	}
 }
@@ -478,6 +497,17 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 		}
 	}
 
+	fn deserialize_newtype_struct<V>(
+		self,
+		_name: &'static str,
+		visitor: V,
+	) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
+		visitor.visit_newtype_struct(self)
+	}
+
 	fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
 		V: Visitor<'de>,
@@ -514,6 +544,26 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 		}
 	}
 
+	fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
+		match self.0 {
+			Value::Text(t) => match t {
+				Cow::Borrowed(s) => visitor.visit_borrowed_bytes(s.as_bytes()),
+				Cow::Owned(s) => visitor.visit_byte_buf(s.into_bytes()),
+			},
+			Value::File(f) => visitor.visit_borrowed_bytes(f.data),
+		}
+	}
+
+	fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+	where
+		V: Visitor<'de>,
+	{
+		self.deserialize_bytes(visitor)
+	}
+
 	impl_value_deserialize!(u8);
 	impl_value_deserialize!(u16);
 	impl_value_deserialize!(u32);
@@ -529,8 +579,8 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 
 	forward_to_deserialize_any! {
 		str string
-		bytes byte_buf unit unit_struct seq tuple
-		newtype_struct tuple_struct map enum identifier ignored_any
+		unit unit_struct seq tuple
+		tuple_struct map enum identifier ignored_any
 	}
 }
 
@@ -676,6 +726,18 @@ mod tests {
 		id: u32,
 		name: String,
 		active: bool,
+	}
+
+	#[test]
+	fn test_form_urlencoded_get() {
+		use moonbeam::http::Request;
+		let req = Request::new("GET", "/test?id=42&name=Jens&active=true", &[], &[]);
+		let Form(user): Form<User> = Form::try_from(req).unwrap();
+
+		assert_eq!(user.id, 42);
+		assert_eq!(user.name, "Jens");
+		assert!(matches!(user.name, Cow::Borrowed(_)));
+		assert!(user.active);
 	}
 
 	#[test]
@@ -857,7 +919,7 @@ mod tests {
 			}],
 			body,
 		);
-		let Form(u): Form<Upload<'_>> = Form::try_from(req).unwrap();
+		let Form(u): Form<Upload> = Form::try_from(req).unwrap();
 		assert_eq!(u.title, "My File");
 		assert_eq!(u.file.name, Some("test.txt"));
 		assert_eq!(u.file.content_type, Some("text/plain"));
@@ -867,5 +929,60 @@ mod tests {
 		let body_range = body.as_ptr()..unsafe { body.as_ptr().add(body.len()) };
 		assert!(body_range.contains(&u.title.as_ptr()));
 		assert!(body_range.contains(&u.file.data.as_ptr()));
+	}
+
+	#[test]
+	fn test_newtype_struct() {
+		#[derive(Debug, Deserialize, PartialEq)]
+		struct Id(u32);
+
+		#[derive(Debug, Deserialize, PartialEq)]
+		struct User<'a> {
+			id: Id,
+			#[serde(borrow)]
+			name: Cow<'a, str>,
+			active: bool,
+		}
+
+		use moonbeam::http::Request;
+		let req = Request::new("GET", "/test?id=42&name=Jens&active=true", &[], &[]);
+		let Form(user): Form<User> = Form::try_from(req).unwrap();
+
+		assert_eq!(user.id, Id(42));
+		assert_eq!(user.name, "Jens");
+		assert!(matches!(user.name, Cow::Borrowed(_)));
+		assert!(user.active);
+	}
+
+	#[test]
+	fn test_bytes() {
+		#[derive(Deserialize)]
+		struct Upload<'a> {
+			title: &'a [u8],
+			file: &'a [u8],
+		}
+		use moonbeam::http::Request;
+		let body = b"--boundary\r\n\
+					Content-Disposition: form-data; name=\"title\"\r\n\
+					\r\n\
+					My File\r\n\
+					--boundary\r\n\
+					Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n\
+					Content-Type: text/plain\r\n\
+					\r\n\
+					Hello World\r\n\
+					--boundary--";
+		let req = Request::new(
+			"POST",
+			"/test",
+			&[Header {
+				name: "Content-Type",
+				value: b"multipart/form-data; boundary=boundary",
+			}],
+			body,
+		);
+		let Form(u): Form<Upload> = Form::try_from(req).unwrap();
+		assert_eq!(u.title, b"My File");
+		assert_eq!(u.file, b"Hello World");
 	}
 }
