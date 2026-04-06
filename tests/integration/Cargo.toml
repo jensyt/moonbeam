@@ -42,3 +42,7 @@ required-features = ["router"]
 [[test]]
 name = "json_extraction"
 required-features = ["router"]
+
+[[test]]
+name = "form_extraction"
+required-features = ["router"]

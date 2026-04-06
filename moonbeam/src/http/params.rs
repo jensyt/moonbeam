@@ -65,6 +65,59 @@ impl<'a> Params<'a> {
 	pub fn find<'b>(&self, param: &'b str) -> ParamIter<'_, 'b> {
 		ParamIter::new(&self.params, param)
 	}
+
+	/// Returns an iterator over all key-value pairs.
+	///
+	/// # Example
+	/// ```
+	/// use moonbeam::http::params::Params;
+	///
+	/// let params = Params::new("a=1&b=2");
+	/// let mut it = params.iter();
+	/// assert_eq!(it.next(), Some(("a", "1")));
+	/// assert_eq!(it.next(), Some(("b", "2")));
+	/// assert_eq!(it.next(), None);
+	/// ```
+	pub fn iter(&self) -> AllParamIter<'_> {
+		AllParamIter {
+			remaining: &self.params,
+		}
+	}
+}
+
+/// Iterator over all query parameters as key-value pairs.
+pub struct AllParamIter<'a> {
+	remaining: &'a str,
+}
+
+impl<'a> Iterator for AllParamIter<'a> {
+	type Item = (&'a str, &'a str);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		if self.remaining.is_empty() {
+			return None;
+		}
+
+		let (current_param, rest) = self
+			.remaining
+			.split_once('&')
+			.unwrap_or((self.remaining, ""));
+
+		self.remaining = rest;
+
+		if let Some((k, v)) = current_param.split_once('=') {
+			Some((k, v))
+		} else {
+			Some((current_param, ""))
+		}
+	}
+}
+
+impl<'a> AllParamIter<'a> {
+	/// Creates a new `AllParamIter` to iterate all parameters.
+	pub fn new(params: &'a str) -> Self {
+		Self { remaining: params }
+	}
 }
 
 /// Iterator over values for a specific query parameter.
@@ -107,6 +160,11 @@ impl<'a, 'b> ParamIter<'a, 'b> {
 			filter,
 		}
 	}
+
+	/// Returns the parameter name being filtered for.
+	pub fn name(&self) -> &'b str {
+		self.filter
+	}
 }
 
 #[cfg(test)]
@@ -136,5 +194,15 @@ mod tests {
 		let cow = params.into_inner();
 		assert!(matches!(cow, Cow::Owned(_)));
 		assert_eq!(cow, Cow::Owned::<str>("foo bar=baz".to_string()));
+	}
+
+	#[test]
+	fn test_all_param() {
+		let params = Params::new("foo=bar&baz=qux&foo=baz");
+		let mut it = params.iter();
+		assert_eq!(it.next(), Some(("foo", "bar")));
+		assert_eq!(it.next(), Some(("baz", "qux")));
+		assert_eq!(it.next(), Some(("foo", "baz")));
+		assert_eq!(it.next(), None);
 	}
 }

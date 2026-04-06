@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Typed Form Support**: `Form<T>` extractor in `moonbeam-serde` for typed deserialization of URL-encoded and multipart form data, including automatic string-to-number/bool coercion.
 - **HTML Form Support**: New `moonbeam-forms` crate for parsing `application/x-www-form-urlencoded` and `multipart/form-data` (including file uploads).
 - **Built-in Extractors**: Implemented `FromRequest` for `Params` and `Cookies` in the core `moonbeam` library.
 - **Trait-Based Body Parsing**: Introduced `FromRequest` and `FromBody` traits for flexible, typed request body extraction.

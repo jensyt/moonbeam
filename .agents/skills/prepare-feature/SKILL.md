@@ -17,7 +17,7 @@ Identify all modified files and determine their impact on the project's public A
 ### 2. Update Documentation
 Systematically update the following files:
 - **`CHANGELOG.md`**: Add concise entries under the `[Unreleased]` section following the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format. Categorize as `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
-- **`README.md`**: Update if the changes affect user-facing features, installation, or configuration.
+- **`README.md`**: Update if the changes affect user-facing features, installation, or configuration. Make sure all crate READMEs are updated.
 - **`AGENTS.md`**: Update if the architecture, core philosophy, or workspace structure has changed.
 - **`todo.md`**: Move completed tasks to `Done` and add any newly discovered debt to `Todo`.
 - **Rust Docs**: Ensure all new public modules, structs, and functions have triple-slash (`///`) doc comments. Use `cargo clippy -p moonbeam --all-features -- -D missing-docs` to verify.

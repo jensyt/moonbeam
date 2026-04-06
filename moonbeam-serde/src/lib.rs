@@ -4,6 +4,9 @@ use moonbeam::http::{FromBody, Response};
 use serde::Serialize;
 use serde::de::Deserialize;
 
+mod forms;
+pub use forms::{File, Form};
+
 /// A wrapper for JSON request and response bodies.
 ///
 /// This struct implements `FromBody`, allowing it to be used as an extractor
@@ -11,10 +14,21 @@ use serde::de::Deserialize;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// use moonbeam::{route, Response, Body};
+/// use moonbeam_serde::Json;
+/// use serde::{Serialize, Deserialize};
+/// use std::borrow::Cow;
+///
+/// #[derive(Debug, Serialize, Deserialize)]
+/// struct User<'a> {
+///     #[serde(borrow)]
+///     name: Cow<'a, str>,
+/// }
+///
 /// #[route]
-/// async fn create_user(Json(user): Json<User>) -> Response {
-///     // ...
+/// async fn create_user(Json(user): Json<User<'_>>) -> Json<User<'_>> {
+///     Json(user)
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

@@ -60,7 +60,7 @@ Handlers are async functions. The `#[route]` macro allows them to automatically 
 #### Custom Extractors
 Implement `FromRequest` or `FromBody` in `moonbeam/src/http/mod.rs` to create custom extractors. `FromBody` provides a blanket implementation of `FromRequest` for types that only need the raw body bytes.
 
-- **`moonbeam-serde`**: A separate crate providing `Json<T>` for automatic JSON parsing using `serde_json`.
+- **`moonbeam-serde`**: A separate crate providing `Json<T>` and `Form<T>` for automatic JSON and Form Data parsing using `serde_json` and `moonbeam-forms`.
 
 Handlers can return anything that implements `Into<Response>`, including `Result<T, E>` where both `T` and `E` are `Into<Response>`.
 
