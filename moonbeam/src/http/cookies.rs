@@ -55,25 +55,24 @@ impl<'a> Cookies<'a> {
 	/// ```
 	pub fn find(&self, cookie: &str) -> Option<&'a [u8]> {
 		for mut c in self.cookies.split(|&v| v == b';') {
-			if let Some((b' ', rest)) = c.split_first() {
+			// Strip all leading whitespace
+			while let Some((b' ', rest)) = c.split_first() {
 				c = rest;
 			}
-			let mut split = c.split(|&v| v == b'=');
-			match split.next() {
-				Some(n) if n == cookie.as_bytes() => {
-					if split.next().is_none() {
-						continue;
-					}
-					let v = &c[n.len() + 1..];
-					match v.split_first() {
-						Some((b'"', rest)) => match rest.split_last() {
-							Some((_, rest)) => return Some(rest),
-							None => continue,
-						},
-						_ => return Some(v),
-					}
+			let mut split = c.splitn(2, |&v| v == b'=');
+			let name = split.next()?;
+			let mut value = match split.next() {
+				Some(v) => v,
+				// Allow simple malformed cookies (name, no value)
+				None => continue,
+			};
+
+			if name == cookie.as_bytes() {
+				// Handle quoted values correctly
+				if value.len() >= 2 && value.first() == Some(&b'"') && value.last() == Some(&b'"') {
+					value = &value[1..value.len() - 1];
 				}
-				_ => (),
+				return Some(value);
 			}
 		}
 		None
@@ -91,5 +90,23 @@ mod tests {
 		assert_eq!(cookies.find("baz"), Some(b"qux" as &[u8]));
 		assert_eq!(cookies.find("test"), Some(b"quotes" as &[u8]));
 		assert_eq!(cookies.find("qux"), None);
+
+		// Test multiple spaces
+		let cookies = Cookies::new(Some(b"foo=bar;  baz=qux"));
+		assert_eq!(cookies.find("baz"), Some(b"qux" as &[u8]));
+
+		// Test malformed quotes
+		let cookies = Cookies::new(Some(b"foo=\"bar"));
+		assert_eq!(cookies.find("foo"), Some(b"\"bar" as &[u8]));
+
+		let cookies = Cookies::new(Some(b"foo=bar\""));
+		assert_eq!(cookies.find("foo"), Some(b"bar\"" as &[u8]));
+
+		let cookies = Cookies::new(Some(b"foo=\"\""));
+		assert_eq!(cookies.find("foo"), Some(b"" as &[u8]));
+
+		let cookies = Cookies::new(Some(b"foo; baz=qux"));
+		assert_eq!(cookies.find("foo"), None);
+		assert_eq!(cookies.find("baz"), Some(b"qux" as &[u8]));
 	}
 }

@@ -398,6 +398,19 @@ where
 	}
 }
 
+fn write_sanitized<W: Write>(mut writer: W, s: &str) -> Result<(), Error> {
+	let mut last = 0;
+	let bytes = s.as_bytes();
+	for (i, &b) in bytes.iter().enumerate() {
+		if b == b'\r' || b == b'\n' {
+			writer.write_all(&bytes[last..i])?;
+			writer.write_all(b" ")?;
+			last = i + 1;
+		}
+	}
+	writer.write_all(&bytes[last..])
+}
+
 fn write_response<'b>(
 	response: &Response,
 	buffer: &'b mut [u8],
@@ -417,6 +430,8 @@ fn write_response<'b>(
 	let mut date = false;
 	let mut content_type = nobody;
 	let mut content_length = nobody;
+	let mut nosniff = false;
+	let mut referrer = false;
 
 	for (name, value) in response.headers.iter() {
 		if name.eq_ignore_ascii_case("server") {
@@ -433,12 +448,19 @@ fn write_response<'b>(
 				continue;
 			}
 			content_length = true;
+		} else if name.eq_ignore_ascii_case("x-content-type-options") {
+			nosniff = true;
+		} else if name.eq_ignore_ascii_case("referrer-policy") {
+			referrer = true;
 		}
 
-		write!(writer, "{}: {}\r\n", name, value)?;
+		write_sanitized(&mut writer, name)?;
+		writer.write_all(b": ")?;
+		write_sanitized(&mut writer, value)?;
+		writer.write_all(b"\r\n")?;
 	}
 
-	// Add headers
+	// Add default headers
 	if !server {
 		writer.write_all(
 			concat!(
@@ -454,6 +476,14 @@ fn write_response<'b>(
 
 	if !date {
 		write!(writer, "Date: {}\r\n", fmt_http_date(SystemTime::now()))?;
+	}
+
+	if !nosniff {
+		writer.write_all(b"X-Content-Type-Options: nosniff\r\n")?;
+	}
+
+	if !referrer {
+		writer.write_all(b"Referrer-Policy: strict-origin-when-cross-origin\r\n")?;
 	}
 
 	if !content_type && response.body.is_some() {
@@ -689,13 +719,13 @@ mod tests {
 	fn test_write_response_empty_body() {
 		let response = Response::empty();
 
-		let mut buffer = vec![0u8; 128];
+		let mut buffer = vec![0u8; 256];
 		let result = write_response(&response, &mut buffer).unwrap();
 
 		let response_str = std::str::from_utf8(result.0).unwrap();
 
 		assert!(response_str.contains("HTTP/1.1 204"));
-		assert!(!response_str.contains("Content-Length"));
+		assert!(!response_str.contains("Content-Length:"));
 	}
 
 	struct MockStream {
@@ -976,6 +1006,25 @@ mod tests {
 	}
 
 	#[test]
+	fn test_write_response_sanitization() {
+		let response = Response::ok()
+			.with_header("X-Injected\r\nHeader", "value")
+			.with_header("X-Value", "contains\r\nnewline");
+
+		let mut buffer = vec![0u8; 1024];
+		let (head, _) = write_response(&response, &mut buffer).unwrap();
+		let head_str = std::str::from_utf8(head).unwrap();
+
+		// Check sanitization
+		assert!(head_str.contains("X-Injected  Header: value"));
+		assert!(head_str.contains("X-Value: contains  newline"));
+
+		// Check default security headers
+		assert!(head_str.contains("X-Content-Type-Options: nosniff"));
+		assert!(head_str.contains("Referrer-Policy: strict-origin-when-cross-origin"));
+	}
+
+	#[test]
 	fn test_header_stripping_304() {
 		// Response with content headers but 304 status
 		let response = Response::not_modified(Some("text/html"))
@@ -988,8 +1037,8 @@ mod tests {
 
 		assert!(head_str.contains("HTTP/1.1 304 Not Modified"));
 		assert!(head_str.contains("ETag: \"123\""));
-		assert!(!head_str.contains("Content-Type"));
-		assert!(!head_str.contains("Content-Length"));
+		assert!(!head_str.contains("Content-Type:"));
+		assert!(!head_str.contains("Content-Length:"));
 	}
 
 	#[test]
@@ -1004,8 +1053,8 @@ mod tests {
 		let head_str = std::str::from_utf8(head).unwrap();
 
 		assert!(head_str.contains("HTTP/1.1 204 No Content"));
-		assert!(!head_str.contains("Content-Type"));
-		assert!(!head_str.contains("Content-Length"));
+		assert!(!head_str.contains("Content-Type:"));
+		assert!(!head_str.contains("Content-Length:"));
 	}
 
 	struct EchoServer;
