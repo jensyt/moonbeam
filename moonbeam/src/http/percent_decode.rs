@@ -1,4 +1,69 @@
+//! Utilities for percent-decoding URL-encoded strings.
+//!
+//! This module provides two versions of percent-decoding:
+//! - [`percent_decode`] which decodes percent-encoded characters in the string
+//! - [`percent_decode_query`] which decodes percent-encoded characters and converts `+` to ` ` (space)
+//!
+//! It also provides convenience traits ([`PercentDecode`] and [`PercentDecodeExt`]) for strings and
+//! iterators of strings, respectively.
+
 use std::borrow::Cow;
+use std::ops::Deref;
+
+/// A trait for percent-decoding strings and string-like types.
+pub trait PercentDecode {
+	/// Decodes percent-encoded characters in the string.
+	fn percent_decode(&self) -> Cow<'_, str>;
+
+	/// Decodes percent-encoded characters and converts `+` to ` ` (space).
+	///
+	/// This is typically used for query parameters and form data.
+	fn percent_decode_query(&self) -> Cow<'_, str>;
+}
+
+impl PercentDecode for str {
+	fn percent_decode(&self) -> Cow<'_, str> {
+		decode(self)
+	}
+
+	fn percent_decode_query(&self) -> Cow<'_, str> {
+		decode_query(self)
+	}
+}
+
+impl<T: Deref<Target = str>> PercentDecode for T {
+	fn percent_decode(&self) -> Cow<'_, str> {
+		self.deref().percent_decode()
+	}
+
+	fn percent_decode_query(&self) -> Cow<'_, str> {
+		self.deref().percent_decode_query()
+	}
+}
+
+/// An extension trait for percent-decoding iterators of strings.
+pub trait PercentDecodeExt: Iterator
+where
+	Self: Sized,
+{
+	/// Decodes percent-encoded characters for each item in the iterator.
+	fn percent_decode(self) -> std::iter::Map<Self, fn(&str) -> Cow<'_, str>>;
+
+	/// Decodes percent-encoded characters and converts `+` to ` ` for each item in the iterator.
+	fn percent_decode_query(self) -> std::iter::Map<Self, fn(&str) -> Cow<'_, str>>;
+}
+
+impl<'a, I> PercentDecodeExt for I
+where
+	I: Iterator<Item = &'a str>,
+{
+	fn percent_decode(self) -> std::iter::Map<Self, fn(&str) -> Cow<'_, str>> {
+		self.map(decode)
+	}
+	fn percent_decode_query(self) -> std::iter::Map<Self, fn(&str) -> Cow<'_, str>> {
+		self.map(decode_query)
+	}
+}
 
 // Lookup table for fast hex decoding.
 // 0xFF indicates invalid character.

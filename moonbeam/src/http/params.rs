@@ -19,7 +19,7 @@
 //! }
 //! ```
 
-use super::percent_decode;
+use super::percent_decode::PercentDecode;
 use std::borrow::Cow;
 
 /// Helper struct for parsing query parameters from a URL.
@@ -30,23 +30,16 @@ use std::borrow::Cow;
 /// use moonbeam::http::params::Params;
 ///
 /// let params = Params::new("key=value");
-/// assert_eq!(params.find("key").next(), Some("value"));
+/// assert_eq!(params.find("key").next(), Some(Cow::Borrowed("value")));
 /// ```
 pub struct Params<'a> {
-	params: Cow<'a, str>,
+	params: &'a str,
 }
 
 impl<'a> Params<'a> {
 	/// Creates a new `Params` helper from the query string.
 	pub fn new(params: &'a str) -> Self {
-		Params {
-			params: percent_decode::decode_query(params),
-		}
-	}
-
-	/// Returns the underlying decoded query string, moving it out of the helper.
-	pub fn into_inner(self) -> Cow<'a, str> {
-		self.params
+		Params { params }
 	}
 
 	/// Returns an iterator over values for a specific parameter name.
@@ -58,29 +51,30 @@ impl<'a> Params<'a> {
 	///
 	/// let params = Params::new("a=1&b=2&a=3");
 	/// let mut a = params.find("a");
-	/// assert_eq!(a.next(), Some("1"));
-	/// assert_eq!(a.next(), Some("3"));
+	/// assert_eq!(a.next(), Some(Cow::Borrowed("1")));
+	/// assert_eq!(a.next(), Some(Cow::Borrowed("3")));
 	/// assert_eq!(a.next(), None);
 	/// ```
-	pub fn find<'b>(&self, param: &'b str) -> ParamIter<'_, 'b> {
-		ParamIter::new(&self.params, param)
+	pub fn find<'b>(&self, param: &'b str) -> ParamIter<'a, 'b> {
+		ParamIter::new(self.params, param)
 	}
 
 	/// Returns an iterator over all key-value pairs.
 	///
 	/// # Example
 	/// ```
+	/// use std::borrow::Cow;
 	/// use moonbeam::http::params::Params;
 	///
 	/// let params = Params::new("a=1&b=2");
 	/// let mut it = params.iter();
-	/// assert_eq!(it.next(), Some(("a", "1")));
-	/// assert_eq!(it.next(), Some(("b", "2")));
+	/// assert_eq!(it.next(), Some((Cow::Borrowed("a"), Cow::Borrowed("1"))));
+	/// assert_eq!(it.next(), Some((Cow::Borrowed("b"), Cow::Borrowed("2"))));
 	/// assert_eq!(it.next(), None);
 	/// ```
-	pub fn iter(&self) -> AllParamIter<'_> {
+	pub fn iter(&self) -> AllParamIter<'a> {
 		AllParamIter {
-			remaining: &self.params,
+			remaining: self.params,
 		}
 	}
 }
@@ -91,7 +85,7 @@ pub struct AllParamIter<'a> {
 }
 
 impl<'a> Iterator for AllParamIter<'a> {
-	type Item = (&'a str, &'a str);
+	type Item = (Cow<'a, str>, Cow<'a, str>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.remaining.is_empty() {
@@ -106,9 +100,9 @@ impl<'a> Iterator for AllParamIter<'a> {
 		self.remaining = rest;
 
 		if let Some((k, v)) = current_param.split_once('=') {
-			Some((k, v))
+			Some((k.percent_decode_query(), v.percent_decode_query()))
 		} else {
-			Some((current_param, ""))
+			Some((current_param.percent_decode_query(), Cow::Borrowed("")))
 		}
 	}
 }
@@ -127,7 +121,7 @@ pub struct ParamIter<'a, 'b> {
 }
 
 impl<'a, 'b> Iterator for ParamIter<'a, 'b> {
-	type Item = &'a str;
+	type Item = Cow<'a, str>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		while !self.remaining.is_empty() {
@@ -141,10 +135,12 @@ impl<'a, 'b> Iterator for ParamIter<'a, 'b> {
 			self.remaining = rest;
 
 			// Split the current parameter into key=value
-			if let Some((k, v)) = current_param.split_once('=')
-				&& k == self.filter
-			{
-				return Some(v);
+			if let Some((k, v)) = current_param.split_once('=') {
+				if k.percent_decode_query() == self.filter {
+					return Some(v.percent_decode_query());
+				}
+			} else if current_param.percent_decode_query() == self.filter {
+				return Some(Cow::Borrowed(""));
 			}
 		}
 
@@ -175,34 +171,43 @@ mod tests {
 	fn test_find_param() {
 		let params = Params::new("foo=bar&baz=qux&foo=baz");
 		let mut p = params.find("foo");
-		assert_eq!(p.next(), Some("bar"));
-		assert_eq!(p.next(), Some("baz"));
+		assert_eq!(p.next(), Some(Cow::Borrowed("bar")));
+		assert_eq!(p.next(), Some(Cow::Borrowed("baz")));
 		assert_eq!(p.next(), None);
 		p = params.find("baz");
-		assert_eq!(p.next(), Some("qux"));
+		assert_eq!(p.next(), Some(Cow::Borrowed("qux")));
 		assert_eq!(p.next(), None);
 		assert_eq!(params.find("qux").next(), None);
-	}
-
-	#[test]
-	fn test_into_inner() {
-		let params = Params::new("foo=bar");
-		let cow = params.into_inner();
-		assert_eq!(cow, Cow::Borrowed("foo=bar"));
-
-		let params = Params::new("foo%20bar=baz");
-		let cow = params.into_inner();
-		assert!(matches!(cow, Cow::Owned(_)));
-		assert_eq!(cow, Cow::Owned::<str>("foo bar=baz".to_string()));
 	}
 
 	#[test]
 	fn test_all_param() {
 		let params = Params::new("foo=bar&baz=qux&foo=baz");
 		let mut it = params.iter();
-		assert_eq!(it.next(), Some(("foo", "bar")));
-		assert_eq!(it.next(), Some(("baz", "qux")));
-		assert_eq!(it.next(), Some(("foo", "baz")));
+		assert_eq!(
+			it.next(),
+			Some((Cow::Borrowed("foo"), Cow::Borrowed("bar")))
+		);
+		assert_eq!(
+			it.next(),
+			Some((Cow::Borrowed("baz"), Cow::Borrowed("qux")))
+		);
+		assert_eq!(
+			it.next(),
+			Some((Cow::Borrowed("foo"), Cow::Borrowed("baz")))
+		);
 		assert_eq!(it.next(), None);
+	}
+
+	#[test]
+	fn test_encoded_delimiter() {
+		let params = Params::new("a=foo%26b=bar");
+		let mut p = params.find("a");
+		// The %26 should be decoded as part of the value, NOT split
+		assert_eq!(p.next(), Some(Cow::Owned::<str>("foo&b=bar".to_string())));
+		assert_eq!(p.next(), None);
+
+		let mut p_b = params.find("b");
+		assert_eq!(p_b.next(), None);
 	}
 }

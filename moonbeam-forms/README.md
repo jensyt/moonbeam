@@ -15,6 +15,7 @@ For simple key-value access, you can use `moonbeam::http::params::Params` direct
 ```rust,no_run
 use moonbeam::{Request, Response, route, Body};
 use moonbeam_forms::{Form, FormData};
+use std::borrow::Cow;
 
 #[route]
 async fn handle_form(form: Form<'_>) -> Response {
@@ -24,7 +25,7 @@ async fn handle_form(form: Form<'_>) -> Response {
         .and_then(|data| {
             if let FormData::Text(s) = data { Some(s) } else { None }
         })
-        .unwrap_or("stranger");
+        .unwrap_or(Cow::Borrowed("stranger"));
 
     Response::ok().with_body(format!("Hello, {}!", name), Body::TEXT)
 }
@@ -65,7 +66,7 @@ use moonbeam_forms::{Form, FormData};
 async fn upload(form: Form<'_>) -> Response {
     let mut out = String::new();
     // iter() yields all fields in the order they appear
-    // Returns (Option<&str>, FormData)
+    // Returns (Option<Cow<'_, str>>, FormData)
     for (name, data) in form.iter() {
         match data {
             FormData::File { name: filename, content_type, data } => {

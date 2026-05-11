@@ -180,7 +180,7 @@ struct AppState {
 async fn logger(req: Request, _state: &AppState, next: Next) -> Response {
     let start = std::time::Instant::now();
     let res = next(req).await;
-    println!("{} {} - {:?}", req.method, req.url(), start.elapsed());
+    println!("{} {} - {:?}", req.method, req.path, start.elapsed());
     res
 }
 
@@ -280,7 +280,7 @@ async fn handle_form(form: Form<'_>) -> Response {
     for data in form.find("profile_pic") {
         if let FormData::File { name, content_type, data } = data {
             response_text.push_str(&format!(
-                "Received file: {:?} ({:?}) - {} bytes\n",
+                "Received file: {} ({}) - {} bytes\n",
                 name, content_type, data.len()
             ));
         }

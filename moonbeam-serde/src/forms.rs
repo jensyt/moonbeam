@@ -16,6 +16,7 @@
 //! use moonbeam::http::{Body, Response};
 //! use moonbeam_serde::{Form, File};
 //! use serde::Deserialize;
+//! use std::borrow::Cow;
 //!
 //! #[derive(Debug, Deserialize)]
 //! struct Upload<'a> {
@@ -26,13 +27,13 @@
 //! #[route]
 //! async fn handle_upload(Form(u): Form<Upload<'_>>) -> Response {
 //!     Response::ok().with_body(
-//!         format!("{}:{}:{}", u.title, u.file.name.unwrap_or(""), u.file.data.len()),
+//!         format!("{}:{}:{}", u.title, u.file.name.unwrap_or(Cow::Borrowed("")), u.file.data.len()),
 //!         Body::TEXT,
 //!     )
 //! }
 //! ```
 
-use moonbeam::http::{FromRequest, Request, Response, params::AllParamIter};
+use moonbeam::http::{FromRequest, Request, Response};
 use moonbeam_forms::{Form as RawForm, FormData};
 use paste::paste;
 use serde::de::{self, IntoDeserializer, Visitor, value::BorrowedBytesDeserializer};
@@ -95,9 +96,9 @@ pub struct Form<T>(pub T);
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct File<'a> {
 	/// The original filename provided by the client, if any.
-	pub name: Option<&'a str>,
+	pub name: Option<Cow<'a, str>>,
 	/// The content type of the file, if any.
-	pub content_type: Option<&'a str>,
+	pub content_type: Option<Cow<'a, str>>,
 	/// The raw bytes of the file.
 	pub data: &'a [u8],
 }
@@ -155,29 +156,15 @@ impl<'a, T: Deserialize<'a>> TryFrom<Request<'_, 'a>> for Form<T> {
 
 		match raw_form {
 			RawForm::URLEncoded(p) => {
-				let inner = p.into_inner();
-				match inner {
-					Cow::Borrowed(s) => {
-						for (k, v) in AllParamIter::new(s) {
-							map.entry(Cow::Borrowed(k))
-								.or_insert_with(Vec::new)
-								.push(Value::Text(Cow::Borrowed(v)));
-						}
-					}
-					Cow::Owned(s) => {
-						for (k, v) in AllParamIter::new(&s) {
-							map.entry(Cow::Owned(k.to_string()))
-								.or_insert_with(Vec::new)
-								.push(Value::Text(Cow::Owned(v.to_string())));
-						}
-					}
+				for (k, v) in p.iter() {
+					map.entry(k).or_insert_with(Vec::new).push(Value::Text(v));
 				}
 			}
 			RawForm::Multipart(m) => {
 				for (name, data) in m.iter() {
 					if let Some(name) = name {
 						let value = match data {
-							FormData::Text(t) => Value::Text(Cow::Borrowed(t)),
+							FormData::Text(t) => Value::Text(t),
 							FormData::File {
 								name,
 								content_type,
@@ -188,9 +175,7 @@ impl<'a, T: Deserialize<'a>> TryFrom<Request<'_, 'a>> for Form<T> {
 								data,
 							}),
 						};
-						map.entry(Cow::Borrowed(name))
-							.or_insert_with(Vec::new)
-							.push(value);
+						map.entry(name).or_insert_with(Vec::new).push(value);
 					}
 				}
 			}
@@ -644,11 +629,11 @@ impl<'de> de::MapAccess<'de> for FileDeserializer<'de> {
 		match self.state {
 			1 => {
 				self.state = 2;
-				seed.deserialize(SimpleOptionDeserializer(self.file.name))
+				seed.deserialize(SimpleOptionDeserializer(self.file.name.take()))
 			}
 			3 => {
 				self.state = 4;
-				seed.deserialize(SimpleOptionDeserializer(self.file.content_type))
+				seed.deserialize(SimpleOptionDeserializer(self.file.content_type.take()))
 			}
 			5 => {
 				self.state = 6;
@@ -659,7 +644,7 @@ impl<'de> de::MapAccess<'de> for FileDeserializer<'de> {
 	}
 }
 
-struct SimpleOptionDeserializer<'a>(Option<&'a str>);
+struct SimpleOptionDeserializer<'a>(Option<Cow<'a, str>>);
 
 impl<'de> de::Deserializer<'de> for SimpleOptionDeserializer<'de> {
 	type Error = SerdeFormError;
@@ -686,7 +671,8 @@ impl<'de> de::Deserializer<'de> for SimpleOptionDeserializer<'de> {
 		V: Visitor<'de>,
 	{
 		match self.0 {
-			Some(v) => visitor.visit_borrowed_str(v),
+			Some(Cow::Borrowed(v)) => visitor.visit_borrowed_str(v),
+			Some(Cow::Owned(v)) => visitor.visit_string(v),
 			None => Err(de::Error::custom(
 				"Attempting to deserialize string on empty option",
 			)),
@@ -921,8 +907,8 @@ mod tests {
 		);
 		let Form(u): Form<Upload> = Form::try_from(req).unwrap();
 		assert_eq!(u.title, "My File");
-		assert_eq!(u.file.name, Some("test.txt"));
-		assert_eq!(u.file.content_type, Some("text/plain"));
+		assert_eq!(u.file.name, Some(Cow::Borrowed("test.txt")));
+		assert_eq!(u.file.content_type, Some(Cow::Borrowed("text/plain")));
 		assert_eq!(u.file.data, b"Hello World");
 
 		// Verify zero-copy: the pointers should be within the body range
@@ -983,6 +969,38 @@ mod tests {
 		);
 		let Form(u): Form<Upload> = Form::try_from(req).unwrap();
 		assert_eq!(u.title, b"My File");
+		assert_eq!(u.file, b"Hello World");
+	}
+
+	#[test]
+	fn test_invalid_utf8() {
+		#[derive(Deserialize)]
+		struct Upload<'a> {
+			title: Cow<'a, str>,
+			file: &'a [u8],
+		}
+		use moonbeam::http::Request;
+		let body = b"--boundary\r\n\
+					Content-Disposition: form-data; name=\"title\"\r\n\
+					\r\n\
+					My \xffFile\r\n\
+					--boundary\r\n\
+					Content-Disposition: form-data; name=\"file\"; filename=\"test.txt\"\r\n\
+					Content-Type: text/plain\r\n\
+					\r\n\
+					Hello World\r\n\
+					--boundary--";
+		let req = Request::new(
+			"POST",
+			"/test",
+			&[Header {
+				name: "Content-Type",
+				value: b"multipart/form-data; boundary=boundary",
+			}],
+			body,
+		);
+		let Form(u): Form<Upload> = Form::try_from(req).unwrap();
+		assert_eq!(u.title, Cow::Borrowed("My �File"));
 		assert_eq!(u.file, b"Hello World");
 	}
 }

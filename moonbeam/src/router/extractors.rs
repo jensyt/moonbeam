@@ -31,8 +31,14 @@ mod tests {
 	fn test_params_from_request() {
 		let request = Request::new("GET", "/test?foo=bar&baz=qux", &[], &[]);
 		let params = futures_lite::future::block_on(Params::from_request(request, &())).unwrap();
-		assert_eq!(params.find("foo").next(), Some("bar"));
-		assert_eq!(params.find("baz").next(), Some("qux"));
+		assert_eq!(
+			params.find("foo").next(),
+			Some(std::borrow::Cow::Borrowed("bar"))
+		);
+		assert_eq!(
+			params.find("baz").next(),
+			Some(std::borrow::Cow::Borrowed("qux"))
+		);
 	}
 
 	#[test]

@@ -8,18 +8,19 @@ use moonbeam::{
 		params::{AllParamIter, ParamIter, Params},
 	},
 };
+use std::borrow::Cow;
 
 /// Represents a single piece of form data.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum FormData<'a> {
 	/// Simple text data.
-	Text(&'a str),
+	Text(Cow<'a, str>),
 	/// File upload data.
 	File {
 		/// The original filename provided by the client, if any.
-		name: Option<&'a str>,
+		name: Option<Cow<'a, str>>,
 		/// The content type of the file, if any.
-		content_type: Option<&'a str>,
+		content_type: Option<Cow<'a, str>>,
 		/// The raw bytes of the file.
 		data: &'a [u8],
 	},
@@ -124,7 +125,7 @@ pub enum AllFormIterator<'a, 'b> {
 }
 
 impl<'a, 'b> Iterator for AllFormIterator<'a, 'b> {
-	type Item = (Option<&'b str>, FormData<'b>);
+	type Item = (Option<Cow<'b, str>>, FormData<'b>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
@@ -234,12 +235,12 @@ impl<'a> Iterator for PartIter<'a, '_, '_> {
 					.map(|h| h.value);
 				if filename.is_some() || content_type.filter(|&v| v != b"text/plan").is_some() {
 					return Some(FormData::File {
-						name: filename.and_then(|f| std::str::from_utf8(f).ok()),
-						content_type: content_type.and_then(|c| std::str::from_utf8(c).ok()),
+						name: filename.map(|f| String::from_utf8_lossy(f)),
+						content_type: content_type.map(|c| String::from_utf8_lossy(c)),
 						data: &part[offset..],
 					});
-				} else if let Ok(s) = std::str::from_utf8(&part[offset..]) {
-					return Some(FormData::Text(s));
+				} else {
+					return Some(FormData::Text(String::from_utf8_lossy(&part[offset..])));
 				}
 			}
 		}
@@ -253,10 +254,10 @@ pub struct AllPartIter<'a, 'b> {
 }
 
 impl<'a> Iterator for AllPartIter<'a, '_> {
-	type Item = (Option<&'a str>, FormData<'a>);
+	type Item = (Option<Cow<'a, str>>, FormData<'a>);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		while let Some(&part) = self.remaining.split_off_first() {
+		if let Some(&part) = self.remaining.split_off_first() {
 			let mut headers = [httparse::EMPTY_HEADER; 4];
 			let (offset, headers) = match httparse::parse_headers(part, &mut headers) {
 				Ok(httparse::Status::Complete(v)) => v,
@@ -268,7 +269,7 @@ impl<'a> Iterator for AllPartIter<'a, '_> {
 					.find(|h| h.name.eq_ignore_ascii_case("content-disposition"))
 					.map(|h| h.value),
 			);
-			let name = h.find("name").and_then(|v| str::from_utf8(v).ok());
+			let name = h.find("name").map(|v| String::from_utf8_lossy(v));
 			let filename = h.find("filename");
 			let content_type = headers
 				.iter()
@@ -278,13 +279,16 @@ impl<'a> Iterator for AllPartIter<'a, '_> {
 				return Some((
 					name,
 					FormData::File {
-						name: filename.and_then(|f| std::str::from_utf8(f).ok()),
-						content_type: content_type.and_then(|c| std::str::from_utf8(c).ok()),
+						name: filename.map(|f| String::from_utf8_lossy(f)),
+						content_type: content_type.map(|c| String::from_utf8_lossy(c)),
 						data: &part[offset..],
 					},
 				));
-			} else if let Ok(s) = std::str::from_utf8(&part[offset..]) {
-				return Some((name, FormData::Text(s)));
+			} else {
+				return Some((
+					name,
+					FormData::Text(String::from_utf8_lossy(&part[offset..])),
+				));
 			}
 		}
 		None
@@ -313,17 +317,35 @@ mod tests {
 		let request = Request::new("GET", "/test?foo=bar&baz=qux&foo=asd", &[], &[]);
 		let form = Form::try_from(request).unwrap();
 		let mut it = form.find("foo");
-		assert_eq!(it.next(), Some(FormData::Text("bar")));
-		assert_eq!(it.next(), Some(FormData::Text("asd")));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("bar"))));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("asd"))));
 		assert_eq!(it.next(), None);
 		it = form.find("baz");
-		assert_eq!(it.next(), Some(FormData::Text("qux")));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("qux"))));
 		assert_eq!(it.next(), None);
 
 		let mut it = form.iter();
-		assert_eq!(it.next(), Some((Some("foo"), FormData::Text("bar"))));
-		assert_eq!(it.next(), Some((Some("baz"), FormData::Text("qux"))));
-		assert_eq!(it.next(), Some((Some("foo"), FormData::Text("asd"))));
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("foo")),
+				FormData::Text(Cow::Borrowed("bar"))
+			))
+		);
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("baz")),
+				FormData::Text(Cow::Borrowed("qux"))
+			))
+		);
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("foo")),
+				FormData::Text(Cow::Borrowed("asd"))
+			))
+		);
 		assert_eq!(it.next(), None);
 	}
 
@@ -336,17 +358,35 @@ mod tests {
 		let request = Request::new("POST", "/test", &headers, b"foo=bar&baz=qux&foo=asd");
 		let form = Form::try_from(request).unwrap();
 		let mut it = form.find("foo");
-		assert_eq!(it.next(), Some(FormData::Text("bar")));
-		assert_eq!(it.next(), Some(FormData::Text("asd")));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("bar"))));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("asd"))));
 		assert_eq!(it.next(), None);
 		it = form.find("baz");
-		assert_eq!(it.next(), Some(FormData::Text("qux")));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("qux"))));
 		assert_eq!(it.next(), None);
 
 		let mut it = form.iter();
-		assert_eq!(it.next(), Some((Some("foo"), FormData::Text("bar"))));
-		assert_eq!(it.next(), Some((Some("baz"), FormData::Text("qux"))));
-		assert_eq!(it.next(), Some((Some("foo"), FormData::Text("asd"))));
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("foo")),
+				FormData::Text(Cow::Borrowed("bar"))
+			))
+		);
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("baz")),
+				FormData::Text(Cow::Borrowed("qux"))
+			))
+		);
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("foo")),
+				FormData::Text(Cow::Borrowed("asd"))
+			))
+		);
 		assert_eq!(it.next(), None);
 	}
 
@@ -372,17 +412,35 @@ mod tests {
 		let request = Request::new("POST", "/test", &headers, body);
 		let form = Form::try_from(request).unwrap();
 		let mut it = form.find("foo");
-		assert_eq!(it.next(), Some(FormData::Text("bar")));
-		assert_eq!(it.next(), Some(FormData::Text("asd")));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("bar"))));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("asd"))));
 		assert_eq!(it.next(), None);
 		it = form.find("baz");
-		assert_eq!(it.next(), Some(FormData::Text("qux")));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("qux"))));
 		assert_eq!(it.next(), None);
 
 		let mut it = form.iter();
-		assert_eq!(it.next(), Some((Some("foo"), FormData::Text("bar"))));
-		assert_eq!(it.next(), Some((Some("baz"), FormData::Text("qux"))));
-		assert_eq!(it.next(), Some((Some("foo"), FormData::Text("asd"))));
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("foo")),
+				FormData::Text(Cow::Borrowed("bar"))
+			))
+		);
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("baz")),
+				FormData::Text(Cow::Borrowed("qux"))
+			))
+		);
+		assert_eq!(
+			it.next(),
+			Some((
+				Some(Cow::Borrowed("foo")),
+				FormData::Text(Cow::Borrowed("asd"))
+			))
+		);
 		assert_eq!(it.next(), None);
 	}
 
@@ -409,13 +467,13 @@ mod tests {
 		let request = Request::new("POST", "/test", &headers, body);
 		let form = Form::try_from(request).unwrap();
 		let mut it = form.find("foo");
-		assert_eq!(it.next(), Some(FormData::Text("bar")));
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("bar"))));
 		assert_eq!(it.next(), None);
 		it = form.find("baz");
 		assert_eq!(
 			it.next(),
 			Some(FormData::File {
-				name: Some("test"),
+				name: Some(Cow::Borrowed("test")),
 				content_type: None,
 				data: b"qux",
 			})
@@ -425,8 +483,8 @@ mod tests {
 		assert_eq!(
 			it.next(),
 			Some(FormData::File {
-				name: Some(""),
-				content_type: Some("application/json"),
+				name: Some(Cow::Borrowed("")),
+				content_type: Some(Cow::Borrowed("application/json")),
 				data: b"{\"hello\": \"world\"}",
 			})
 		);

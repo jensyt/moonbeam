@@ -2,12 +2,13 @@ use futures_lite::future::block_on;
 use moonbeam::{Body, Header, Request, Response, Server, route, router};
 use moonbeam_serde::{File, Form};
 use serde::Deserialize;
+use std::borrow::Cow;
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct User<'a> {
 	id: u32,
 	#[serde(borrow)]
-	name: &'a str,
+	name: Cow<'a, str>,
 	active: bool,
 }
 
@@ -21,7 +22,9 @@ async fn handle_form(Form(user): Form<User<'_>>) -> Response {
 
 #[derive(Debug, Deserialize)]
 struct Upload<'a> {
-	title: &'a str,
+	#[serde(borrow)]
+	title: Cow<'a, str>,
+	#[serde(borrow)]
 	file: File<'a>,
 }
 
@@ -31,7 +34,7 @@ async fn handle_upload(Form(u): Form<Upload<'_>>) -> Response {
 		format!(
 			"{}:{}:{}",
 			u.title,
-			u.file.name.unwrap_or(""),
+			u.file.name.unwrap_or(Cow::Borrowed("")),
 			u.file.data.len()
 		),
 		Body::TEXT,

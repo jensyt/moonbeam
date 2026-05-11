@@ -2,10 +2,12 @@ use moonbeam::http::Response;
 use moonbeam::{Body, route, router, serve};
 use moonbeam_serde::Form;
 use serde::Deserialize;
+use std::borrow::Cow;
 
 #[derive(Debug, Deserialize)]
 struct User<'a> {
-	name: &'a str,
+	#[serde(borrow)]
+	name: Cow<'a, str>,
 	age: u32,
 	active: bool,
 }

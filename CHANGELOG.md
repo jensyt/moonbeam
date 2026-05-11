@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-10
+
+### Added
+- Added an iterator for percent-decoded URL path segments (`PathIterator`).
+- Added `PercentDecode` and `PercentDecodeExt` for streamlined URL decoding of strings and iterators.
+
+### Changed
+- **BREAKING**: `moonbeam::http::Request` now separates the `path` and `query` components. Use `req.path` for the raw path (without query string) and `req.query` for the raw query string.
+- **BREAKING**: `moonbeam::http::params::Params` and `moonbeam-forms` now return `Cow<'a, str>` instead of `&str`. This enables proper percent-decoding of values that require allocation (e.g., those containing `+` or `%20`).
+- Handle invalid UTF-8 in form data by using lossy decoding in `moonbeam-serde` rather than skipping.
+
+### Fixed
+- The above changes were necessary to fix a bug where URL-encoded delimiters (like `%26` for `&`) were incorrectly decoded before splitting path segments and query parameters.
+
 ## [0.5.2] - 2026-04-10
 
 ### Added

@@ -14,13 +14,16 @@
 //! The HTTP types are designed to be efficient and ergonomic, using `Cow` and slices
 //! where possible to minimize allocations.
 
-use crate::http::{cookies::Cookies, params::Params};
+use cookies::Cookies;
 use httparse::{Header, Request as RawRequest};
+use params::Params;
+use path::PathIterator;
 use std::{borrow::Cow, convert::Infallible, fmt::Debug, future::Future, io::Read, ops::Index};
 
 pub mod cookies;
 pub mod params;
-mod percent_decode;
+pub mod path;
+pub mod percent_decode;
 
 /// Returns the canonical reason phrase for a given HTTP status code.
 ///
@@ -69,6 +72,8 @@ pub struct Request<'headers, 'buf> {
 	pub method: &'buf str,
 	/// The request path (e.g., "/index.html").
 	pub path: &'buf str,
+	/// The query string (e.g., "?key=value").
+	pub query: Option<&'buf str>,
 	/// The HTTP version (0 for 1.0, 1 for 1.1).
 	pub version: u8,
 	/// The request headers.
@@ -80,9 +85,12 @@ pub struct Request<'headers, 'buf> {
 impl<'headers, 'buf> Request<'headers, 'buf> {
 	/// Creates a new `Request` from a raw `httparse::Request`.
 	pub fn new_from_raw(raw: RawRequest<'headers, 'buf>, body: &'buf [u8]) -> Self {
+		let raw_path = raw.path.unwrap();
+		let mut path = raw_path.split('?');
 		Self {
 			method: raw.method.unwrap(),
-			path: raw.path.unwrap(),
+			path: path.next().unwrap_or(raw_path),
+			query: path.next(),
 			version: raw.version.unwrap(),
 			headers: raw.headers,
 			body,
@@ -96,9 +104,11 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 		headers: &'headers [Header<'buf>],
 		body: &'buf [u8],
 	) -> Self {
+		let mut spath = path.split('?');
 		Self {
 			method,
-			path,
+			path: spath.next().unwrap_or(path),
+			query: spath.next(),
 			version: 1,
 			headers,
 			body,
@@ -125,14 +135,13 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 	/// The query parameters are URL-decoded, including converting '+' to space.
 	#[inline]
 	pub fn params(&self) -> Params<'buf> {
-		Params::new(self.path.split('?').nth(1).unwrap_or_default())
+		Params::new(self.query.unwrap_or(""))
 	}
 
 	/// Returns the decoded URL path without query parameters.
 	#[inline]
-	pub fn url(&self) -> Cow<'buf, str> {
-		let url = self.path.split('?').next().unwrap_or(self.path);
-		percent_decode::decode(url)
+	pub fn url(&self) -> PathIterator<'buf> {
+		PathIterator::new(self.path)
 	}
 }
 
@@ -677,19 +686,50 @@ mod tests {
 	}
 
 	#[test]
+	fn test_request_path() {
+		let headers = [];
+		let req = Request::new("GET", "/path?query=1", &headers, &[]);
+		assert_eq!(req.path, "/path");
+
+		let req = Request::new("GET", "/path", &headers, &[]);
+		assert_eq!(req.path, "/path");
+
+		let req = Request::new("GET", "/path%20space", &headers, &[]);
+		assert_eq!(req.path, "/path%20space");
+
+		let req = Request::new("GET", "/path+plus", &headers, &[]);
+		assert_eq!(req.path, "/path+plus");
+
+		let req = Request::new("GET", "/path/to/somewhere", &headers, &[]);
+		assert_eq!(req.path, "/path/to/somewhere");
+	}
+
+	#[test]
 	fn test_request_url() {
 		let headers = [];
 		let req = Request::new("GET", "/path?query=1", &headers, &[]);
-		assert_eq!(req.url(), "/path");
+		assert_eq!(req.url().next(), Some(Cow::Borrowed("/path")));
 
 		let req = Request::new("GET", "/path", &headers, &[]);
-		assert_eq!(req.url(), "/path");
+		assert_eq!(req.url().next(), Some(Cow::Borrowed("/path")));
 
 		let req = Request::new("GET", "/path%20space", &headers, &[]);
-		assert_eq!(req.url(), "/path space");
+		assert_eq!(req.url().next(), Some(Cow::Borrowed("/path space")));
 
 		let req = Request::new("GET", "/path+plus", &headers, &[]);
-		assert_eq!(req.url(), "/path+plus");
+		assert_eq!(req.url().next(), Some(Cow::Borrowed("/path+plus")));
+
+		let req = Request::new("GET", "/path/to/somewhere", &headers, &[]);
+		let mut url = req.url();
+		assert_eq!(url.next(), Some(Cow::Borrowed("/path")));
+		assert_eq!(url.next(), Some(Cow::Borrowed("/to")));
+		assert_eq!(url.next(), Some(Cow::Borrowed("/somewhere")));
+
+		let req = Request::new("GET", "path/to/somewhere", &headers, &[]);
+		let mut url = req.url();
+		assert_eq!(url.next(), Some(Cow::Borrowed("path")));
+		assert_eq!(url.next(), Some(Cow::Borrowed("/to")));
+		assert_eq!(url.next(), Some(Cow::Borrowed("/somewhere")));
 	}
 
 	#[test]
@@ -751,8 +791,8 @@ mod tests {
 		let headers = [];
 		let req = Request::new("GET", "/?a=b+c&d=e%20f&g=%2B", &headers, &[]);
 		let params = req.params();
-		assert_eq!(params.find("a").next(), Some("b c"));
-		assert_eq!(params.find("d").next(), Some("e f"));
-		assert_eq!(params.find("g").next(), Some("+"));
+		assert_eq!(params.find("a").next(), Some(Cow::Borrowed("b c")));
+		assert_eq!(params.find("d").next(), Some(Cow::Owned("e f".to_string())));
+		assert_eq!(params.find("g").next(), Some(Cow::Owned("+".to_string())));
 	}
 }

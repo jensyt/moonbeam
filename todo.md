@@ -23,3 +23,5 @@
 - Support for HTML forms (urlencoded and multipart) via `moonbeam-forms` crate.
 - Typed form deserialization for URL-encoded and multipart data via `moonbeam-serde`.
 - Support newtype structs in moonbeam-serde forms
+- Fix incorrect URL decoding before splitting
+- Robust handling of URL-encoded delimiters and invalid UTF-8 in form data

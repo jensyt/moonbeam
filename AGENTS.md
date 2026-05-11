@@ -24,11 +24,11 @@
     - `src/server/st.rs`: Single-threaded runtime implementation.
     - `src/server/mt.rs`: Multi-threaded runtime (requires `mt` feature).
     - `src/router/`: Routing logic and `PathParams` extraction.
-    - `src/http/`: `Request`, `Response`, `Body`, `Cookies`, and `Params` (query strings).
+    - `src/http/`: `Request`, `Response`, `Body`, `Cookies`, `Params` (query strings), and `PathIterator`.
     - `src/assets.rs`: Static file serving with ETag (SHA-based) and MIME detection.
 - **`moonbeam-attributes/`**: Procedural macros (`router!`, `#[server]`, `#[route]`, `#[middleware]`).
-- **`moonbeam-forms/`**: New crate providing `Form` and `Multipart` extractors for HTML form data.
-- **`moonbeam-serde/`**: New crate providing `Json<T>` extractor.
+- **`moonbeam-forms/`**: Crate providing `Form` and `Multipart` extractors for HTML form data. Supports percent-decoded `Cow<str>` values.
+- **`moonbeam-serde/`**: Crate providing `Json<T>` and `Form<T>` extractors.
 
 ## Key Components
 
@@ -39,7 +39,7 @@ router!(MyRouter<State> {
     with logger_middleware // Global middleware
 
     get("/") => index_handler,
-    get("/users/:id") => user_handler, // Extracted via PathParams
+    get("/users/:id") => user_handler, // Extracted via PathParams and percent-decoded
 
     "/api" => {
         with auth_middleware
@@ -54,13 +54,13 @@ router!(MyRouter<State> {
 Handlers are async functions. The `#[route]` macro allows them to automatically extract data from the request. Supported arguments include:
 - `Request`: The raw request object.
 - `&State`: A reference to the application state (must be a reference).
-- `PathParams<(T1, T2, ...)>`: Extracted path variables.
-- **Extractors**: Any type implementing `FromRequest`. This allows for flexible, typed body extraction (e.g., `Json<T>`).
+- `PathParams<(T1, T2, ...)>`: Extracted path variables (percent-decoded).
+- **Extractors**: Any type implementing `FromRequest`. This allows for flexible, typed body extraction (e.g., `Json<T>`, `Form<T>`).
 
 #### Custom Extractors
 Implement `FromRequest` or `FromBody` in `moonbeam/src/http/mod.rs` to create custom extractors. `FromBody` provides a blanket implementation of `FromRequest` for types that only need the raw body bytes.
 
-- **`moonbeam-serde`**: A separate crate providing `Json<T>` and `Form<T>` for automatic JSON and Form Data parsing using `serde_json` and `moonbeam-forms`.
+- **`moonbeam-serde`**: Provides `Json<T>` and `Form<T>` for automatic JSON and Form Data parsing. Form data is decoded using lossy UTF-8 conversion.
 
 Handlers can return anything that implements `Into<Response>`, including `Result<T, E>` where both `T` and `E` are `Into<Response>`.
 

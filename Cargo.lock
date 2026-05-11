@@ -370,7 +370,7 @@ dependencies = [
 
 [[package]]
 name = "moonbeam"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "async-executor",
  "async-io",
@@ -390,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "moonbeam-attributes"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "moonbeam-forms"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "httparse",
  "moonbeam",
@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "moonbeam-serde"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "moonbeam",
  "moonbeam-forms",

@@ -336,17 +336,26 @@ pub(super) fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStr
 				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) ->
 					impl ::std::future::Future<Output = ::moonbeam::http::Response>
 				{
+					use ::std::ops::Deref;
+					use ::moonbeam::http::percent_decode::PercentDecode;
 					async move {
 						let method = req.method;
-						let path = req.url();
+						let path = req.path;
+						let mut path_segments_raw = [const { ::std::borrow::Cow::Borrowed("") }; 8];
 						let mut path_segments = [""; 8];
 						let len: usize = path
 							.split('/')
 							.filter(|s| !s.is_empty())
-							.zip(&mut path_segments)
+							.zip(&mut path_segments_raw)
 							.fold(0, |count, (src, dst)| {
-								*dst = src;
+								*dst = src.percent_decode();
 								count + 1
+							});
+						path_segments_raw[..len]
+							.iter()
+							.zip(&mut path_segments)
+							.for_each(|(raw, view)| {
+								*view = raw.deref();
 							});
 
 						#route_logic

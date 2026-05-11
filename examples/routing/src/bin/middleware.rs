@@ -8,7 +8,7 @@ struct State {
 
 #[middleware]
 async fn logger(req: Request, _state: &State, next: Next) -> Response {
-	println!("Log: {} {}", req.method, req.url());
+	println!("Log: {} {}", req.method, req.path);
 	next(req).await
 }
 
