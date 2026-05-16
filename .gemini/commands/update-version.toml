@@ -1,0 +1,12 @@
+# Invoked via "/update-version package version [/ package version]..."
+
+description = "Update the version of a package in the Moonbeam repository"
+prompt = """
+Update the version of the following packages to the given version numbers: {{args}}.
+
+Follow these steps:
+1. In the workspace, read each package's Cargo.toml file to determine which package dependencies need to be updated as a result of this change. For example, `moonbeam` depends on `moonbeam-attributes`, so an update to `moonbeam-attributes` will require updating the dependencies in `moonbeam`.
+2. Review documentation and READMEs to ensure version changes are correctly updated there as well.
+3. `moonbeam` also includes the version number in a test in `moonbeam/src/server/mod.rs` near line 660.
+4. For version numbers that use two digits (e.g. 0.6) do not change them to three digits. Only use the first two digits of the version.
+"""

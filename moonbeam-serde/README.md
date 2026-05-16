@@ -17,8 +17,8 @@ Add `moonbeam-serde` and `serde` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.5"
-moonbeam-serde = "0.1"
+moonbeam = "0.6"
+moonbeam-serde = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 ```
 
