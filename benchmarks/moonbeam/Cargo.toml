@@ -1,0 +1,25 @@
+[package]
+name = "moonbeam-benchmark"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+moonbeam = { path = "../../moonbeam", features = ["macros", "mt"] }
+
+[[bin]]
+name = "st"
+path = "src/bin/st.rs"
+
+[[bin]]
+name = "mt"
+path = "src/bin/mt.rs"
+
+[[bin]]
+name = "st_static"
+path = "src/bin/st_static.rs"
+
+[[bin]]
+name = "mt_static"
+path = "src/bin/mt_static.rs"

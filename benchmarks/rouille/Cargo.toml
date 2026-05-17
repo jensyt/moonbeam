@@ -1,0 +1,18 @@
+[package]
+name = "rouille-benchmark"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+rouille = "3.6"
+
+[[bin]]
+name = "rouille-hello"
+path = "src/bin/hello.rs"
+
+[[bin]]
+name = "rouille-static"
+path = "src/bin/static.rs"
+

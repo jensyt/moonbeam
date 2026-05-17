@@ -40,6 +40,7 @@ Yes. Moonbeam is designed for high performance with minimal overhead. In simple 
 
 | Framework | Architecture | Requests/sec |
 | :--- | :--- | :--- |
+| Axum (Tokio) | Multi-threaded | ~216,000 |
 | **Moonbeam** | **Multi-Threaded (4 cores)** | **~214,000** |
 | **Moonbeam** | **Single-Threaded** | **~211,000** |
 | Node.js | Single-Threaded | ~117,000 |
@@ -51,6 +52,7 @@ Yes. Moonbeam is designed for high performance with minimal overhead. In simple 
 | :--- | :--- | :--- |
 | **Moonbeam** | **Multi-Threaded (4 cores)** | **~73,000** |
 | **Moonbeam** | **Single-Threaded** | **~66,000** |
+| Axum (Tokio) | Multi-threaded | ~58,000 |
 | Rouille | Thread-per-connection | ~56,000 |
 | Node.js | Single-Threaded | ~51,000 |
 
