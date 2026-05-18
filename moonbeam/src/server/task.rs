@@ -39,14 +39,14 @@ impl<'e> Spawner<'e> {
 }
 
 pub struct Executor<'e> {
-	pub(super) executor: LocalExecutor<'e>,
+	executor: LocalExecutor<'e>,
 	#[cfg(feature = "signals")]
 	tracker: TaskTracker,
 	alive: UnsafeCell<bool>,
 }
 
 impl<'e> Executor<'e> {
-	pub(super) fn new() -> Self {
+	pub fn new() -> Self {
 		Self {
 			executor: LocalExecutor::new(),
 			#[cfg(feature = "signals")]
@@ -55,11 +55,16 @@ impl<'e> Executor<'e> {
 		}
 	}
 
-	pub(super) fn spawner(&self) -> Spawner<'e> {
+	pub fn spawner(&self) -> Spawner<'e> {
 		Spawner {
 			ex: self,
 			alive: self.alive.get(),
 		}
+	}
+
+	#[inline(always)]
+	pub fn run<T>(&self, future: impl Future<Output = T>) -> impl Future<Output = T> {
+		self.executor.run(future)
 	}
 }
 

@@ -1,5 +1,5 @@
 use futures_lite::future::block_on;
-use moonbeam::{Body, Request, Response, Server, route, router};
+use moonbeam::{Body, Executor, Request, Response, Server, route, router};
 
 struct TestState;
 
@@ -23,19 +23,20 @@ router! {
 #[test]
 fn test_result_handlers() {
 	let state = TestState;
-	let router = Box::leak(Box::new(TestRouter::new(state)));
+	let router = TestRouter::new(state);
+	let executor = Executor::new();
 
 	let headers = [];
 
 	// Test Ok result
 	let req = Request::new("GET", "/ok", &headers, &[]);
-	let res = block_on(router.route(req));
+	let res = block_on(executor.run(router.route(req, executor.spawner())));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "ok");
 
 	// Test Err result
 	let req = Request::new("GET", "/err", &headers, &[]);
-	let res = block_on(router.route(req));
+	let res = block_on(executor.run(router.route(req, executor.spawner())));
 	assert_eq!(res.status, 400);
 	assert_body(res.body, "error");
 }

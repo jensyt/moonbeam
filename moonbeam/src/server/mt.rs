@@ -122,7 +122,7 @@ fn serve_multi_impl<F, T: Server>(
 				let spawner = executor.spawner();
 
 				let _span = tracing::trace_span!("thread", id = _i).entered();
-				async_io::block_on(executor.executor.run(async {
+				async_io::block_on(executor.run(async {
 					while let Ok((socket, addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
 						spawner.spawn(handle_socket(socket, addr, &server, spawner));
@@ -244,7 +244,7 @@ fn serve_multi_impl<F, T: Server>(
 				let spawner = executor.spawner();
 
 				let _span = tracing::trace_span!("thread", id = _i).entered();
-				async_io::block_on(executor.executor.run(async {
+				async_io::block_on(executor.run(async {
 					while let Ok((socket, addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
 						spawner.spawn(handle_socket(socket, addr, &server, spawner));

@@ -144,7 +144,7 @@ pub(super) fn route_impl(
 		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &'_[&'b str], state: &'_ #state_ty_path)
+			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &[&'b str], state: &#state_ty_path)
 				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
 				async move {

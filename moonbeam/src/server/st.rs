@@ -49,7 +49,7 @@ use async_net::{AsyncToSocketAddrs, TcpListener};
 pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) {
 	let executor = Executor::new();
 	let spawner = executor.spawner();
-	async_io::block_on(executor.executor.run(async {
+	async_io::block_on(executor.run(async {
 		let listener = TcpListener::bind(addr)
 			.await
 			.expect("Failed to bind to socket");
