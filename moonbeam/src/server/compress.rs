@@ -128,6 +128,7 @@ mod tests {
 	use super::*;
 	use crate::server::Server;
 	use crate::server::handle_socket;
+	use crate::server::task::{Executor, Spawner};
 	use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 	use piper::{Reader, Writer};
 	use std::io::Read;
@@ -174,7 +175,11 @@ mod tests {
 	}
 
 	impl Server for MockServer {
-		async fn route(&'static self, _req: Request<'_, '_>) -> Response {
+		async fn route<'s: 'e, 'e>(
+			&'s self,
+			_req: Request<'_, '_>,
+			_spawner: Spawner<'e>,
+		) -> Response {
 			let body = if self.use_stream {
 				Body::Stream {
 					data: Box::new(Cursor::new(self.body.clone())),
@@ -184,7 +189,7 @@ mod tests {
 				Body::Immediate(self.body.clone())
 			};
 
-			Response::ok().with_body(body, Some(&self.content_type))
+			Response::ok().with_body(body, Some(self.content_type.clone()))
 		}
 	}
 
@@ -192,9 +197,13 @@ mod tests {
 		let (reader, mut client_tx) = piper::pipe(65536);
 		let (mut client_rx, writer) = piper::pipe(65536);
 		let socket = MockStream { reader, writer };
-		let server = Box::leak(Box::new(server));
-
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let executor = Executor::new();
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let test_future = async move {
 			let mut headers = "GET / HTTP/1.1\r\n".to_string();
