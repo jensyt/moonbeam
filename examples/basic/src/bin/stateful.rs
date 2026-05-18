@@ -1,4 +1,4 @@
-use moonbeam::{Body, Request, Response, server};
+use moonbeam::{Body, Request, Response, server, server::task::Spawner};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -14,7 +14,7 @@ struct State {
 }
 
 #[server(StatefulServer)]
-async fn handle_request(req: Request, state: &State) -> Response {
+async fn handle_request(req: Request, _spawner: Spawner, state: &State) -> Response {
 	// Update atomic counter
 	let count = state.count.fetch_add(1, Ordering::Relaxed);
 

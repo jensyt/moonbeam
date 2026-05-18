@@ -2,7 +2,76 @@
 //!
 //! Use [`new_local_task`] to spawn a detached task that will run to completion as long as the
 //! local executor is running.
+use std::cell::UnsafeCell;
+
+#[cfg(feature = "signals")]
+use crate::server::task_tracker::TaskTracker;
+use crate::tracing;
 use async_executor::LocalExecutor;
+
+#[derive(Clone, Copy)]
+pub struct Spawner<'e> {
+	ex: *const Executor<'e>,
+	alive: *mut bool,
+}
+
+impl<'e> Spawner<'e> {
+	pub fn spawn<T: 'e>(&self, future: impl Future<Output = T> + 'e) {
+		// SAFETY:
+		// Tasks are owned by the LocalExecutor. They can only execute or be dropped while the
+		// Executor is valid in memory, so derefencing the pointers will always be valid here.
+		unsafe {
+			if *self.alive {
+				#[cfg(feature = "signals")]
+				let future = {
+					let guard = (*self.ex).tracker.track();
+					async move {
+						let _guard = guard;
+						future.await
+					}
+				};
+				(*self.ex).executor.spawn(future).detach();
+			} else {
+				tracing::warn!("Attempting to spawn a task on an inactive executor");
+			}
+		}
+	}
+}
+
+pub struct Executor<'e> {
+	pub(super) executor: LocalExecutor<'e>,
+	#[cfg(feature = "signals")]
+	tracker: TaskTracker,
+	alive: UnsafeCell<bool>,
+}
+
+impl<'e> Executor<'e> {
+	pub(super) fn new() -> Self {
+		Self {
+			executor: LocalExecutor::new(),
+			#[cfg(feature = "signals")]
+			tracker: TaskTracker::new(),
+			alive: UnsafeCell::new(true),
+		}
+	}
+
+	pub(super) fn spawner(&self) -> Spawner<'e> {
+		Spawner {
+			ex: self,
+			alive: self.alive.get(),
+		}
+	}
+}
+
+impl<'e> Drop for Executor<'e> {
+	fn drop(&mut self) {
+		// SAFETY:
+		// `self.alive` can be safely written to before drop is completed
+		unsafe {
+			*self.alive.get() = false;
+		}
+	}
+}
 
 pub(super) fn get_local_executor() -> &'static LocalExecutor<'static> {
 	thread_local! {

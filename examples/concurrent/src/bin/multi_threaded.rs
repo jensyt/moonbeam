@@ -1,4 +1,4 @@
-use moonbeam::{Body, Request, Response, ThreadCount, serve_multi, server};
+use moonbeam::{Body, Request, Response, ThreadCount, serve_multi, server, server::task::Spawner};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct State {
@@ -6,7 +6,7 @@ struct State {
 }
 
 #[server(Worker)]
-async fn serve(_req: Request, state: &State) -> Response {
+async fn serve(_req: Request, _spawner: Spawner, state: &State) -> Response {
 	Response::new_with_body(
 		format!("Hello from thread {}", state.thread_id),
 		Body::DEFAULT_CONTENT_TYPE,
@@ -24,6 +24,5 @@ pub fn main() {
 			let id = next_id.fetch_add(1, Ordering::Relaxed);
 			Worker(State { thread_id: id })
 		},
-		|_| {}, // No cleanup needed
 	);
 }

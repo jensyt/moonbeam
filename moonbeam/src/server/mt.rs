@@ -23,9 +23,10 @@
 //! accepted, it is sent over an asynchronous channel to one of the worker threads, which then
 //! handles it locally.
 
-use super::task::{get_local_executor, new_local_task};
+use super::task::Executor;
 use super::{Server, handle_socket};
 use crate::tracing;
+use async_executor::LocalExecutor;
 use async_net::{AsyncToSocketAddrs, TcpListener, TcpStream};
 use std::io::ErrorKind;
 use std::{net::SocketAddr, num::NonZeroUsize, thread};
@@ -77,27 +78,20 @@ pub enum ThreadCount {
 /// ```
 #[inline(always)]
 #[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
-pub fn serve_multi<F, C, T: Server>(
-	addr: impl AsyncToSocketAddrs,
-	num_threads: ThreadCount,
-	server: F,
-	cleanup: C,
-) where
+pub fn serve_multi<F, T: Server>(addr: impl AsyncToSocketAddrs, num_threads: ThreadCount, server: F)
+where
 	F: FnOnce() -> T + Send + Clone,
-	C: FnOnce(&'static T) + Send + Clone,
 {
-	serve_multi_impl(addr, num_threads, server, cleanup);
+	serve_multi_impl(addr, num_threads, server);
 }
 
 #[cfg(feature = "signals")]
-fn serve_multi_impl<F, C, T: Server>(
+fn serve_multi_impl<F, T: Server>(
 	addr: impl AsyncToSocketAddrs,
 	num_threads: ThreadCount,
 	server: F,
-	cleanup: C,
 ) where
 	F: FnOnce() -> T + Send + Clone,
-	C: FnOnce(&'static T) + Send + Clone,
 {
 	use super::task_tracker::get_local_tracker;
 	use futures_lite::FutureExt;
@@ -119,18 +113,19 @@ fn serve_multi_impl<F, C, T: Server>(
 
 		for _i in 0..num_threads {
 			let server = server.clone();
-			let cleanup = cleanup.clone();
 			let worker_done_shutdown = worker_done_shutdown.clone();
 			let worker_force_shutdown = worker_force_shutdown.clone();
 			let recv = recv.clone();
 			scope.spawn(move || {
-				let server = Box::leak(Box::new(server()));
+				let server = server();
+				let executor = Executor::new();
+				let spawner = executor.spawner();
 
 				let _span = tracing::trace_span!("thread", id = _i).entered();
-				async_io::block_on(get_local_executor().run(async {
+				async_io::block_on(executor.executor.run(async {
 					while let Ok((socket, addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
-						new_local_task(handle_socket(socket, addr, server));
+						spawner.spawn(handle_socket(socket, addr, &server, spawner));
 					}
 
 					tracing::debug!(id = _i, "Worker thread shutting down");
@@ -143,8 +138,6 @@ fn serve_multi_impl<F, C, T: Server>(
 						.await;
 				}));
 
-				cleanup(server);
-
 				tracing::debug!(id = _i, "Worker thread shut down");
 				drop(worker_done_shutdown);
 			});
@@ -152,12 +145,15 @@ fn serve_multi_impl<F, C, T: Server>(
 		drop(worker_force_shutdown);
 		drop(worker_done_shutdown);
 
-		new_local_task(async move {
-			let _ = all_workers_shutdown.recv_async().await;
-			tracing::debug!("All worker threads shut down");
-		});
+		let executor = LocalExecutor::new();
+		executor
+			.spawn(async move {
+				let _ = all_workers_shutdown.recv_async().await;
+				tracing::debug!("All worker threads shut down");
+			})
+			.detach();
 
-		async_io::block_on(get_local_executor().run(async move {
+		async_io::block_on(executor.run(async move {
 			let listener = TcpListener::bind(addr)
 				.await
 				.expect("Failed to bind to socket");
@@ -220,14 +216,12 @@ async fn accept_loop(listener: TcpListener, sender: flume::Sender<(TcpStream, So
 }
 
 #[cfg(not(feature = "signals"))]
-fn serve_multi_impl<F, C, T: Server>(
+fn serve_multi_impl<F, T: Server>(
 	addr: impl AsyncToSocketAddrs,
 	num_threads: ThreadCount,
 	server: F,
-	cleanup: C,
 ) where
 	F: FnOnce() -> T + Send + Clone,
-	C: FnOnce(&'static T) + Send + Clone,
 {
 	let _span = tracing::trace_span!("thread", id = "main").entered();
 	let num_threads = match num_threads {
@@ -243,24 +237,24 @@ fn serve_multi_impl<F, C, T: Server>(
 
 		for _i in 0..num_threads {
 			let server = server.clone();
-			let cleanup = cleanup.clone();
 			let recv = recv.clone();
 			scope.spawn(move || {
-				let server = Box::leak(Box::new(server()));
+				let server = server();
+				let executor = Executor::new();
+				let spawner = executor.spawner();
 
 				let _span = tracing::trace_span!("thread", id = _i).entered();
-				async_io::block_on(get_local_executor().run(async {
+				async_io::block_on(executor.executor.run(async {
 					while let Ok((socket, addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
-						new_local_task(handle_socket(socket, addr, server));
+						spawner.spawn(handle_socket(socket, addr, &server, spawner));
 					}
 				}));
-
-				cleanup(server);
 			});
 		}
 
-		async_io::block_on(get_local_executor().run(async move {
+		let executor = LocalExecutor::new();
+		async_io::block_on(executor.run(async move {
 			let listener = TcpListener::bind(addr)
 				.await
 				.expect("Failed to bind to socket");

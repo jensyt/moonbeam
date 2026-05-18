@@ -13,8 +13,9 @@
 //! - I/O is asynchronous, so multiple connections can be handled concurrently.
 //! - If a handler performs blocking I/O or heavy CPU work, it will block all other connections.
 
-use super::task::{get_local_executor, new_local_task};
+use super::task::Spawner;
 use super::{Server, handle_socket};
+use crate::server::task::Executor;
 use crate::tracing;
 use async_net::{AsyncToSocketAddrs, TcpListener};
 
@@ -46,19 +47,23 @@ use async_net::{AsyncToSocketAddrs, TcpListener};
 ///
 /// serve("127.0.0.1:8080", MyServer);
 /// ```
-pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) -> &'static T {
-	let static_server = Box::leak(Box::new(server));
-	async_io::block_on(get_local_executor().run(async {
+pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) {
+	let executor = Executor::new();
+	let spawner = executor.spawner();
+	async_io::block_on(executor.executor.run(async {
 		let listener = TcpListener::bind(addr)
 			.await
 			.expect("Failed to bind to socket");
-		accept_loop(listener, static_server).await;
+		accept_loop(listener, &server, spawner).await;
 	}));
-	static_server
 }
 
 #[cfg(feature = "signals")]
-async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
+async fn accept_loop<'s: 'e, 'e, T: Server>(
+	listener: TcpListener,
+	server: &'s T,
+	spawner: Spawner<'e>,
+) {
 	use super::task_tracker::get_local_tracker;
 	use async_signal::{Signal, Signals};
 	use futures_lite::{FutureExt, StreamExt};
@@ -82,7 +87,7 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 		match listener.accept().or(signal_err).await {
 			Ok((socket, addr)) => {
 				let _ = socket.set_nodelay(true);
-				new_local_task(handle_socket(socket, addr, server));
+				spawner.spawn(handle_socket(socket, addr, server, spawner));
 			}
 			Err(err) => {
 				if err.kind() == ErrorKind::Interrupted {
@@ -108,12 +113,16 @@ async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
 
 #[cfg(not(feature = "signals"))]
 #[allow(clippy::while_let_loop)]
-async fn accept_loop<T: Server>(listener: TcpListener, server: &'static T) {
+async fn accept_loop<'s: 'e, 'e, T: Server>(
+	listener: TcpListener,
+	server: &'s T,
+	spawner: Spawner<'e>,
+) {
 	loop {
 		match listener.accept().await {
 			Ok((socket, addr)) => {
 				let _ = socket.set_nodelay(true);
-				new_local_task(handle_socket(socket, addr, server));
+				spawner.spawn(handle_socket(socket, addr, server, spawner));
 			}
 			Err(_err) => {
 				tracing::error!(?_err, "Failed to accept connection, shutting down");
@@ -131,7 +140,11 @@ mod test {
 
 	struct MockServer;
 	impl Server for MockServer {
-		async fn route(&'static self, req: Request<'_, '_>) -> Response {
+		async fn route<'s: 'e, 'e>(
+			&'s self,
+			req: Request<'_, '_>,
+			_spawner: Spawner<'e>,
+		) -> Response {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}
