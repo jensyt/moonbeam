@@ -46,9 +46,6 @@ pub(super) fn route_impl(
 
 			// Check for State reference
 			if let Type::Reference(type_ref) = &mut **ty {
-				if type_ref.lifetime.is_none() {
-					type_ref.lifetime = Some(parse_quote!('static));
-				}
 				state_type = Some(*type_ref.elem.clone());
 			}
 		} else {
@@ -147,7 +144,7 @@ pub(super) fn route_impl(
 		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &'_[&'b str], state: &'static #state_ty_path)
+			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &'_[&'b str], state: &'_ #state_ty_path)
 				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
 				async move {

@@ -29,7 +29,7 @@ use std::future::Future;
 /// While the trait's `call` method returns a concrete `Response`, the `#[route]` macro
 /// allows the decorated function to return any type that implements `Into<Response>`.
 #[cfg_attr(docsrs, doc(cfg(feature = "router")))]
-pub trait RouteHandler<S>: 'static {
+pub trait RouteHandler<S> {
 	/// Handles an incoming HTTP request.
 	///
 	/// # Arguments
@@ -41,6 +41,6 @@ pub trait RouteHandler<S>: 'static {
 		&self,
 		req: Request<'a, 'b>,
 		params: &'_ [&'b str],
-		state: &'static S,
+		state: &'_ S,
 	) -> impl Future<Output = Response>;
 }

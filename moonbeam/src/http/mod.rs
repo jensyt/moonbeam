@@ -566,7 +566,7 @@ pub trait FromRequest<'a, 'b, S>: Sized {
 	/// Extracts data from the request.
 	fn from_request(
 		req: Request<'a, 'b>,
-		state: &'static S,
+		state: &S,
 	) -> impl Future<Output = Result<Self, Self::Error>>;
 }
 
@@ -584,7 +584,7 @@ where
 	T: FromBody<'b>,
 {
 	type Error = T::Error;
-	async fn from_request(req: Request<'a, 'b>, _state: &'static S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'a, 'b>, _state: &S) -> Result<Self, Self::Error> {
 		T::from_body(req.body)
 	}
 }

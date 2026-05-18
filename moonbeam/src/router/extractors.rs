@@ -9,7 +9,7 @@ use std::convert::Infallible;
 impl<'a, 'b, S> FromRequest<'a, 'b, S> for Params<'b> {
 	type Error = Infallible;
 
-	async fn from_request(req: Request<'a, 'b>, _state: &'static S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'a, 'b>, _state: &S) -> Result<Self, Self::Error> {
 		Ok(req.params())
 	}
 }
@@ -17,7 +17,7 @@ impl<'a, 'b, S> FromRequest<'a, 'b, S> for Params<'b> {
 impl<'a, 'b, S> FromRequest<'a, 'b, S> for Cookies<'a> {
 	type Error = Infallible;
 
-	async fn from_request(req: Request<'a, 'b>, _state: &'static S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'a, 'b>, _state: &S) -> Result<Self, Self::Error> {
 		Ok(req.cookies())
 	}
 }

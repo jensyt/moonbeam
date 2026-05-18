@@ -192,7 +192,7 @@ impl<'a, T: Deserialize<'a>> TryFrom<Request<'_, 'a>> for Form<T> {
 impl<'a, T: Deserialize<'a>, S> FromRequest<'_, 'a, S> for Form<T> {
 	type Error = Response;
 
-	async fn from_request(req: Request<'_, 'a>, _state: &'static S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'_, 'a>, _state: &S) -> Result<Self, Self::Error> {
 		Form::try_from(req).map_err(|e| e.into())
 	}
 }

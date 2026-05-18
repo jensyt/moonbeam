@@ -7,16 +7,13 @@ struct State {
 }
 
 #[route]
-async fn hello(PathParams(name): PathParams<&str>, state: &'static State) -> Response {
+async fn hello(PathParams(name): PathParams<&str>, state: &State) -> Response {
 	let count = state.count.fetch_add(1, Ordering::Relaxed);
 	Response::new_with_body(format!("Hello {name}! Request #{count}."), Body::TEXT)
 }
 
 #[route]
-async fn hello_two(
-	PathParams((first, last)): PathParams<(&str, &str)>,
-	state: &'static State,
-) -> Response {
+async fn hello_two(PathParams((first, last)): PathParams<(&str, &str)>, state: &State) -> Response {
 	let count = state.count.fetch_add(1, Ordering::Relaxed);
 	Response::new_with_body(
 		format!("Hello {first} {last}! Request #{count}."),
