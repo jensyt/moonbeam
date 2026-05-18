@@ -650,8 +650,8 @@ where
 
 #[cfg(test)]
 mod tests {
+	use super::task::Executor;
 	use super::*;
-	use crate::server::task::Executor;
 	use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 	use piper::{Reader, Writer};
 	use std::pin::Pin;

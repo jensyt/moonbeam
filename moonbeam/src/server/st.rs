@@ -13,9 +13,8 @@
 //! - I/O is asynchronous, so multiple connections can be handled concurrently.
 //! - If a handler performs blocking I/O or heavy CPU work, it will block all other connections.
 
-use super::task::Spawner;
+use super::task::{Executor, Spawner};
 use super::{Server, handle_socket};
-use crate::server::task::Executor;
 use crate::tracing;
 use async_net::{AsyncToSocketAddrs, TcpListener};
 

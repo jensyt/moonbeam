@@ -1,4 +1,4 @@
-use moonbeam::{Body, Request, Response, server, server::task::Spawner};
+use moonbeam::{Body, Request, Response, Spawner, server};
 use std::cell::Cell;
 
 struct State {

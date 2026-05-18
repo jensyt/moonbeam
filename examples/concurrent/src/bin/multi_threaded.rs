@@ -1,4 +1,4 @@
-use moonbeam::{Body, Request, Response, ThreadCount, serve_multi, server, server::task::Spawner};
+use moonbeam::{Body, Request, Response, Spawner, ThreadCount, serve_multi, server};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct State {
