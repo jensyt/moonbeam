@@ -20,8 +20,8 @@ The `#[server]` attribute macro converts a function into a struct that implement
 
 The decorated function must have one of the following signatures:
 
-*   `fn(Request) -> impl Future<Output = Response>`
-*   `fn(Request, &State) -> impl Future<Output = Response>` (if state is used)
+*   `fn(Request, Spawner) -> impl Future<Output = Response>`
+*   `fn(Request, Spawner, &State) -> impl Future<Output = Response>` (if state is used)
 
 The function can be `async` or return `impl Future`.
 
@@ -30,10 +30,10 @@ The function can be `async` or return `impl Future`.
 **Stateless Server**
 
 ```rust
-use moonbeam::{Body, Request, Response, server, serve};
+use moonbeam::{Body, Request, Response, Spawner, server, serve};
 
 #[server(MyServer)]
-async fn handle_request(_req: Request) -> Response {
+async fn handle_request(_req: Request, _spawner: Spawner<'_>) -> Response {
     Response::ok().with_body("Hello, World!", Body::TEXT)
 }
 
@@ -45,7 +45,7 @@ fn main() {
 **Stateful Server**
 
 ```rust
-use moonbeam::{Body, Request, Response, server, serve};
+use moonbeam::{Body, Request, Response, Spawner, server, serve};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct State {
@@ -53,7 +53,7 @@ struct State {
 }
 
 #[server(MyStatefulServer)]
-async fn handle_request(_req: Request, state: &'static State) -> Response {
+async fn handle_request(_req: Request, _spawner: Spawner<'_>, state: &State) -> Response {
     let count = state.count.fetch_add(1, Ordering::Relaxed);
     Response::ok().with_body(format!("Request count: {}", count), Body::TEXT)
 }
@@ -75,6 +75,7 @@ The `#[route]` macro defines a route handler for use within a `router!`. It prov
 #### Supported Parameters
 
 *   **`Request`**: The raw HTTP request.
+*   **`Spawner`**: A handle for spawning asynchronous tasks.
 *   **`&State`**: A reference to the application state.
 *   **`PathParams<T>`**: Extracted path parameters (e.g., `PathParams<&str>`).
 *   **Extractors**: Any type implementing `FromRequest`. This allows for typed body parsing, such as `Json<T>`.

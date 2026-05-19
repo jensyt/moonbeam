@@ -16,7 +16,7 @@
 
 ## Core Philosophy
 1.  **Single-Threaded by Default**: Uses a `LocalExecutor` on the main thread. State can be stored in `RefCell` or `Cell` as no thread-sharing is required.
-2.  **Share-Nothing Multi-Threading**: The `mt` feature enables multi-threading by spawning independent server "isolates" on worker threads. Each thread leaks its own copy of the state to create a `'static` reference.
+2.  **Share-Nothing Multi-Threading**: The `mt` feature enables multi-threading by spawning independent server "isolates" on worker threads. Each thread manages its own local executor and server instance.
 3.  **Macro-Driven DSL**: Heavy use of procedural macros (`router!`, `#[route]`) to eliminate boilerplate and provide dependency injection for handlers.
 
 ## Workspace Structure
@@ -53,6 +53,7 @@ router!(MyRouter<State> {
 ### Handlers & State
 Handlers are async functions. The `#[route]` macro allows them to automatically extract data from the request. Supported arguments include:
 - `Request`: The raw request object.
+- `Spawner`: Allows spawning asynchronous tasks.
 - `&State`: A reference to the application state (must be a reference).
 - `PathParams<(T1, T2, ...)>`: Extracted path variables (percent-decoded).
 - **Extractors**: Any type implementing `FromRequest`. This allows for flexible, typed body extraction (e.g., `Json<T>`, `Form<T>`).
@@ -76,12 +77,12 @@ async fn my_middleware(req: Request, state: &State, next: Next) -> Response {
 
 ## Development Guidelines
 - **Interior Mutability**: Use `std::rc::Rc` and `std::cell::RefCell` for state. Avoid `std::sync` unless explicitly required for cross-thread channels (`flume`).
-- **Memory Management**: Server instances are typically boxed and leaked (`Box::leak`) to provide the `'static` lifetime required by the executor.
+- **Memory Management**: Servers and their state are no longer required to be `'static` after version 0.6. `moonbeam::serve` and `moonbeam::serve_multi` handle the lifetime management of the local executor.
 - **Error Handling**: Prefer returning `Response::internal_server_error()` or similar over panicking. The `catchpanic` feature (if enabled) will catch panics in handlers and return a 500 response.
 
 ## Testing Strategy
 - **Unit Tests**: Use `piper::pipe` to create connected `Reader`/`Writer` pairs to simulate sockets.
-- **Mocking**: Handlers can be tested by manually constructing `Request` objects and calling `handler(req, state).await`.
+- **Mocking**: Handlers can be tested by manually constructing `Request` objects and calling them with necessary arguments (state, spawner).
 
 ## Development Workflow
 - **Formatting**: Always format code using `cargo fmt`.

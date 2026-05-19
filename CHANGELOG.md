@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Spawner` and `Executor` types in `moonbeam::server::task` to manage asynchronous task execution without global state.
+- Handlers can now take `Spawner` as an argument to spawn tasks that live as long as the server or less.
+- The `#[route]` macro now supports an explicit `state` argument (e.g., `#[route(state = AppState)]`) to support state extractors.
+
+### Changed
+- **BREAKING**: Removed the `'static` lifetime requirement from the `Server` trait.
+- **BREAKING**: The `Server::route` method now accepts a `Spawner` argument.
+- **BREAKING**: `moonbeam::serve` and `moonbeam::serve_multi` no longer require the application state to be `'static`. They no longer leak the server state using `Box::leak`.
+- **BREAKING**: `FromRequest` trait now includes an additional lifetime parameter `'s` for the state reference.
+- **BREAKING**: `RouteHandler::call` now includes `Spawner` and has updated lifetime bounds.
+
 ## [0.6.0] - 2026-05-10
 
 ### Added

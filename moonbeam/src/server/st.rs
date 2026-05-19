@@ -33,14 +33,17 @@ use async_net::{AsyncToSocketAddrs, TcpListener};
 ///
 /// # Example
 /// ```no_run
-/// use moonbeam::{Server, Request, Response, serve};
-/// use std::future::Future;
+/// use moonbeam::{Server, Request, Response, Spawner, serve};
 ///
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
-///         async { Response::ok() }
+///     async fn route<'s: 'e, 'e>(
+///         &'s self,
+///         _req: Request<'_, '_>,
+///         _spawner: Spawner<'e>,
+///     ) -> Response {
+///         Response::ok()
 ///     }
 /// }
 ///

@@ -56,15 +56,15 @@ impl Parse for ServerArgs {
 ///
 /// The decorated function can accept one of two forms:
 ///
-/// 1. **Stateless**: `fn(Request) -> Response` (or `async fn`, or `-> impl Future`)
-/// 2. **Stateful**: `fn(Request, &State) -> Response` (requires passing state to the struct)
+/// 1. **Stateless**: `fn(Request, Spawner) -> Response`
+/// 2. **Stateful**: `fn(Request, Spawner, &State) -> Response` (requires passing state to the struct)
 ///
 /// # Example: Stateless
 /// ```rust,ignore
-/// use moonbeam::{Request, Response, server};
+/// use moonbeam::{Request, Response, Spawner, server};
 ///
 /// #[server(MyServer)]
-/// async fn handle(req: Request) -> Response {
+/// async fn handle(req: Request, _spawner: Spawner<'_>) -> Response {
 ///     Response::ok()
 /// }
 ///
@@ -74,13 +74,13 @@ impl Parse for ServerArgs {
 ///
 /// # Example: Stateful
 /// ```rust,ignore
-/// use moonbeam::{Request, Response, server};
+/// use moonbeam::{Request, Response, Spawner, server};
 /// use std::cell::Cell;
 ///
 /// struct AppState { count: Cell<usize> }
 ///
 /// #[server(MyServer)]
-/// async fn handle(req: Request, state: &AppState) -> Response {
+/// async fn handle(req: Request, _spawner: Spawner<'_>, state: &AppState) -> Response {
 ///     state.count.set(state.count.get() + 1);
 ///     Response::ok()
 /// }
@@ -113,7 +113,7 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 	let has_state = sig.inputs.len() > 2;
 	if check_spawner(sig.inputs.iter_mut().nth(1), has_state).is_none() {
 		return syn::Error::new_spanned(
-			&input_fn.sig.inputs.iter().nth(1),
+			input_fn.sig.inputs.iter().nth(1),
 			"Second parameter must be Spawner",
 		)
 		.to_compile_error()

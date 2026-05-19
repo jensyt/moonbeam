@@ -12,7 +12,7 @@ Use this skill to systematically wrap up a feature or bug fix for the Moonbeam p
 Follow these steps in order to prepare your changes for a commit.
 
 ### 1. Analyze Changes
-Identify all modified files and determine their impact on the project's public API, core architecture, or existing functionality.
+Identify all modified files and determine their impact on the project's public API, core architecture, or existing functionality. If on a branch other than main, review all changes on the branch rather than just the currently modified files.
 
 ### 2. Update Documentation
 Systematically update the following files:

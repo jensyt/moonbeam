@@ -3,6 +3,7 @@
 - Rename lifetimes to be more useful
 - Macros have different levels of support for including / reording parameters
 - Macros make some poor assumptions about the input function signature's lifetime parameters
+- Pass spawner to middleware
 
 # Done
 - ETags for assets

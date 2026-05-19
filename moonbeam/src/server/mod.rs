@@ -10,7 +10,7 @@
 //!
 //! - `st`: Single-threaded server implementation using `serve`.
 //! - `mt`: Multi-threaded server implementation using `serve_multi` (requires `mt` feature).
-//! - `task`: Utilities for managing local tasks.
+//! - `task`: Task management and spawning.
 //!
 //! ## Core Trait: `Server`
 //!
@@ -72,20 +72,25 @@ fn max_body_size() -> usize {
 /// This trait is the core interface for defining request handlers in Moonbeam.
 /// Implementations are typically generated automatically by the `#[server]` or `router!` macros.
 ///
-/// Due to Moonbeam's single-threaded nature by default, the server instance requires a `'static`
-/// lifetime. This is because it is shared across all concurrently handled connections on the
-/// local executor without requiring `Arc` or `Send`/`Sync`.
+/// A note on lifetimes: the server instance is guaranteed to outlive the executor that runs
+/// requests, which lets you spawn sub-tasks that can safely reference the server. Unfortunately,
+/// this requires adding lifetime annotations to the `route` function (`<'s: 'e, 'e>`) and others
+/// it calls that may want to spawn sub-tasks. The `#[server]` and `router!` macros handle these
+/// lifetimes automatically.
 ///
 /// # Example
 /// ```
-/// use moonbeam::{Server, Request, Response};
-/// use std::future::Future;
+/// use moonbeam::{Server, Request, Response, Spawner};
 ///
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
-///         async { Response::ok() }
+///     async fn route<'s: 'e, 'e>(
+///         &'s self,
+///         _req: Request<'_, '_>,
+///         _spawner: Spawner<'e>) -> Response
+///     {
+///         Response::ok()
 ///     }
 /// }
 /// ```

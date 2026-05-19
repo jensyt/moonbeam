@@ -50,19 +50,19 @@ pub enum ThreadCount {
 /// creates a separate instance of your server state for each thread using the `server` factory
 /// closure.
 ///
-/// Note that server instances are leaked and should typically be cleaned up by providing a
-/// `cleanup` closure.
-///
 /// # Example
 /// ```no_run
-/// use moonbeam::{Server, Request, Response, serve_multi, ThreadCount};
-/// use std::future::Future;
+/// use moonbeam::{Server, Request, Response, Spawner, serve_multi, ThreadCount};
 ///
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
-///         async { Response::ok() }
+///     async fn route<'s: 'e, 'e>(
+///         &'s self,
+///         _req: Request<'_, '_>,
+///         _spawner: Spawner<'e>,
+///     ) -> Response {
+///         Response::ok()
 ///     }
 /// }
 ///
@@ -70,10 +70,6 @@ pub enum ThreadCount {
 ///     "127.0.0.1:8080",
 ///     ThreadCount::Default,
 ///     || MyServer, // Factory creates a new instance per thread
-///     |s| {
-///         // Safety: application is shutting down, so it is safe to clean up resources
-///         unsafe { s.destroy(); }
-///     }
 /// );
 /// ```
 #[inline(always)]
