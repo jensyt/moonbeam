@@ -13,5 +13,5 @@ impl Server for HelloNoMacros {
 
 fn main() {
 	println!("Running on 127.0.0.1:7463. Press Ctrl+C to exit");
-	moonbeam::serve("127.0.0.1:7463", HelloNoMacros("No Macros"));
+	moonbeam::serve("127.0.0.1:7463", || HelloNoMacros("No Macros"));
 }

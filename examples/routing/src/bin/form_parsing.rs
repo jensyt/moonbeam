@@ -32,5 +32,5 @@ fn main() {
 	println!("Serving form parsing example on 127.0.0.1:8081");
 	println!("Test with:");
 	println!("curl -X POST -d \"name=Jens&age=42&active=true\" http://127.0.0.1:8081/submit");
-	serve("127.0.0.1:8081", MyRouter);
+	serve("127.0.0.1:8081", || MyRouter);
 }

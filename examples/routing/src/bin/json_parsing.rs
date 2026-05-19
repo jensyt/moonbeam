@@ -31,5 +31,5 @@ router!(MyRouter {
 
 fn main() {
 	println!("Serving JSON API on 127.0.0.1:8080");
-	serve("127.0.0.1:8080", MyRouter);
+	serve("127.0.0.1:8080", || MyRouter);
 }

@@ -38,7 +38,7 @@ async fn handle_request(_req: Request, _spawner: Spawner<'_>) -> Response {
 }
 
 fn main() {
-    serve("127.0.0.1:8080", MyServer);
+    serve("127.0.0.1:8080", || MyServer);
 }
 ```
 
@@ -64,7 +64,7 @@ fn main() {
     };
     // The macro generates a tuple struct wrapper.
     // Pass the state to the generated struct constructor.
-    serve("127.0.0.1:8080", MyStatefulServer(state));
+    serve("127.0.0.1:8080", move || MyStatefulServer(state));
 }
 ```
 

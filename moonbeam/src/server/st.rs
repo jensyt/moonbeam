@@ -24,8 +24,8 @@ use async_net::{AsyncToSocketAddrs, TcpListener};
 /// connections concurrently on a single thread. Because it uses a `LocalExecutor`, you can safely
 /// use non-Send/Sync types like `Cell` and `RefCell` in your server state.
 ///
-/// It takes ownership of the server instance and leaks it to create a static reference, which is
-/// required to satisfy the executor's lifetime constraints.
+/// For consistency with [`serve_multi`], this function takes a state factory that is called once
+/// to create the server state.
 ///
 /// # Warning
 /// CPU-heavy operations or synchronous blocking I/O inside your handlers will block the entire
@@ -47,9 +47,14 @@ use async_net::{AsyncToSocketAddrs, TcpListener};
 ///     }
 /// }
 ///
-/// serve("127.0.0.1:8080", MyServer);
+/// serve("127.0.0.1:8080", || MyServer);
 /// ```
-pub fn serve<T: Server>(addr: impl AsyncToSocketAddrs, server: T) {
+pub fn serve<F, T>(addr: impl AsyncToSocketAddrs, factory: F)
+where
+	F: FnOnce() -> T,
+	T: Server,
+{
+	let server = factory();
 	let executor = Executor::new();
 	let spawner = executor.spawner();
 	async_io::block_on(executor.run(async {
@@ -164,11 +169,9 @@ mod test {
 			listener.local_addr().unwrap()
 		});
 
-		let server = MockServer;
-
 		// Spawn server in a thread
 		std::thread::spawn(move || {
-			serve(addr, server);
+			serve(addr, || MockServer);
 		});
 
 		// Give it a moment to start

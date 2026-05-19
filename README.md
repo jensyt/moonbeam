@@ -100,7 +100,7 @@ async fn serve(_request: Request, _spawner: Spawner<'_>) -> Response {
 
 fn main() {
     println!("Running on 127.0.0.1:8080");
-    moonbeam::serve("127.0.0.1:8080", HelloWorld);
+    moonbeam::serve("127.0.0.1:8080", || HelloWorld);
 }
 ```
 
@@ -126,7 +126,7 @@ async fn serve(_req: Request, _spawner: Spawner<'_>, state: &AppState) -> Respon
 
 fn main() {
     let state = AppState { count: Cell::new(0) };
-    moonbeam::serve("127.0.0.1:8080", CounterServer(state));
+    moonbeam::serve("127.0.0.1:8080", move || CounterServer(state));
 }
 ```
 
@@ -223,7 +223,7 @@ fn main() {
     });
 
     let state = AppState { api_key: "secret".to_string() };
-    serve("127.0.0.1:8080", ApiRouter::new(state));
+    serve("127.0.0.1:8080", move || ApiRouter::new(state));
 }
 ```
 
@@ -253,7 +253,7 @@ fn main() {
         post("/users") => create_user
     });
 
-    serve("127.0.0.1:8080", ApiRouter);
+    serve("127.0.0.1:8080", || ApiRouter);
 }
 ```
 
@@ -296,7 +296,7 @@ fn main() {
         get("/submit") => handle_form 
     });
 
-    serve("127.0.0.1:8080", App);
+    serve("127.0.0.1:8080", || App);
 }
 ```
 
@@ -309,6 +309,10 @@ use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 async fn serve(req: Request, _spawner: Spawner<'_>) -> Response {
     let etag = req.find_header("If-None-Match");
     get_asset(req.path, etag, "./public").await
+}
+
+fn main() {
+    moonbeam::serve("127.0.0.1:8080", || StaticServer);
 }
 ```
 

@@ -45,10 +45,11 @@ async fn handle_request(req: Request, _spawner: Spawner, state: &State) -> Respo
 }
 
 fn main() {
-	let state = State {
-		count: AtomicUsize::new(0),
-		request_log: RefCell::new(Vec::new()),
-	};
 	println!("Running on 127.0.0.1:7464. Press Ctrl+C to exit");
-	moonbeam::serve("127.0.0.1:7464", StatefulServer(state));
+	moonbeam::serve("127.0.0.1:7464", || {
+		StatefulServer(State {
+			count: AtomicUsize::new(0),
+			request_log: RefCell::new(Vec::new()),
+		})
+	});
 }

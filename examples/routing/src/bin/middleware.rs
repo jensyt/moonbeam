@@ -77,9 +77,10 @@ fn main() {
 		_ => not_found
 	});
 
-	let router = MyRouter::new(State {
-		api_key: "secret".to_string(),
-	});
 	println!("Running on 127.0.0.1:5678. Press Ctrl+C to exit");
-	serve("127.0.0.1:5678", router);
+	serve("127.0.0.1:5678", || {
+		MyRouter::new(State {
+			api_key: "secret".to_string(),
+		})
+	});
 }

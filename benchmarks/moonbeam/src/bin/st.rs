@@ -7,5 +7,5 @@ async fn serve(_request: Request, _spawner: Spawner) -> Response {
 
 fn main() {
 	println!("Moonbeam (ST) listening on http://127.0.0.1:3030/");
-	moonbeam::serve("127.0.0.1:3030", HelloWorld);
+	moonbeam::serve("127.0.0.1:3030", || HelloWorld);
 }
