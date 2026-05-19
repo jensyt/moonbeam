@@ -17,8 +17,8 @@ impl<'s> FromRequest<'_, '_, 's, State> for Name<'s> {
 	}
 }
 
-#[route]
-async fn echo_user<State>(Name(user): Name<'_>) -> Response {
+#[route(state = State)]
+async fn echo_user(Name(user): Name<'_>) -> Response {
 	Response::ok().with_body(format!("Hello {user}"), Body::TEXT)
 }
 

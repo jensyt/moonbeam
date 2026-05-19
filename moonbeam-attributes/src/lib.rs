@@ -304,6 +304,14 @@ fn is_impl_future(ty: &Type) -> bool {
 ///     Response::ok().with_body(format!("User {} requested by {}", id, state.app_name), Body::TEXT)
 /// }
 /// ```
+///
+/// # Example with Explicit State
+/// ```rust,ignore
+/// #[route(state = AppState)]
+/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
+///     // ...
+/// }
+/// ```
 #[cfg(feature = "router")]
 #[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 #[proc_macro_attribute]

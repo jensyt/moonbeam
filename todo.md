@@ -3,7 +3,6 @@
 - Rename lifetimes to be more useful
 - Macros have different levels of support for including / reording parameters
 - Macros make some poor assumptions about the input function signature's lifetime parameters
-- State extractors require passing a state parameter to a route or adding a generic (abusing Rust syntax)
 
 # Done
 - ETags for assets
@@ -29,3 +28,4 @@
 - Support newtype structs in moonbeam-serde forms
 - Fix incorrect URL decoding before splitting
 - Robust handling of URL-encoded delimiters and invalid UTF-8 in form data
+- State extractors require passing a state parameter to a route or adding a generic (abusing Rust syntax)

@@ -1,5 +1,35 @@
 use quote::quote;
-use syn::{FnArg, ItemFn, PathArguments, Type, parse_macro_input, parse_quote, spanned::Spanned};
+use syn::{
+	FnArg, Ident, ItemFn, PathArguments, Token, Type,
+	parse::{Parse, ParseStream},
+	parse_macro_input, parse_quote,
+	spanned::Spanned,
+};
+
+/// Arguments for the `#[route]` attribute macro.
+struct RouteArgs {
+	state: Option<Type>,
+}
+
+impl Parse for RouteArgs {
+	fn parse(input: ParseStream) -> syn::Result<Self> {
+		let mut state = None;
+		while !input.is_empty() {
+			let ident: Ident = input.parse()?;
+			if ident == "state" {
+				input.parse::<Token![=]>()?;
+				state = Some(input.parse()?);
+			} else {
+				return Err(syn::Error::new(ident.span(), "expected `state`"));
+			}
+
+			if !input.is_empty() {
+				input.parse::<Token![,]>()?;
+			}
+		}
+		Ok(RouteArgs { state })
+	}
+}
 
 /// Implementation logic for the `#[route]` attribute macro.
 ///
@@ -18,17 +48,26 @@ use syn::{FnArg, ItemFn, PathArguments, Type, parse_macro_input, parse_quote, sp
 /// }
 /// ```
 ///
+/// Explicitly specifying state type:
+/// ```ignore
+/// #[route(state = AppState)]
+/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
+///     // ...
+/// }
+/// ```
+///
 /// # Arguments
 ///
-/// * `_attr` - The attribute arguments (currently unused).
+/// * `attr` - The attribute arguments.
 /// * `item` - The decorated function as a `TokenStream`.
 pub(super) fn route_impl(
-	_attr: proc_macro::TokenStream,
+	attr: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
+	let args = parse_macro_input!(attr as RouteArgs);
 	let mut input_fn = parse_macro_input!(item as ItemFn);
 
-	let mut state_type: Option<Type> = None;
+	let mut state_type: Option<Type> = args.state;
 
 	// First pass: Identify state type and update lifetimes
 	for arg in &mut input_fn.sig.inputs {
@@ -48,7 +87,9 @@ pub(super) fn route_impl(
 
 			// Check for State reference
 			if let Type::Reference(type_ref) = &mut **ty {
-				state_type = Some(*type_ref.elem.clone());
+				if state_type.is_none() {
+					state_type = Some(*type_ref.elem.clone());
+				}
 				if type_ref.lifetime.is_none() {
 					type_ref.lifetime = Some(parse_quote!('s));
 				}
@@ -58,15 +99,6 @@ pub(super) fn route_impl(
 				.to_compile_error()
 				.into();
 		}
-	}
-
-	// Check if there's a state generic
-	if state_type.is_none()
-		&& let Some(s) = input_fn.sig.generics.type_params().next()
-	{
-		let ident = &s.ident;
-		state_type = Some(parse_quote!(#ident));
-		input_fn.sig.generics.params.clear();
 	}
 
 	if input_fn.sig.generics.lifetimes_mut().next().is_none() {
