@@ -66,6 +66,11 @@ impl<'e> Executor<'e> {
 	pub fn run<T>(&self, future: impl Future<Output = T>) -> impl Future<Output = T> {
 		self.executor.run(future)
 	}
+
+	#[inline(always)]
+	pub fn try_tick(&self) -> bool {
+		self.executor.try_tick()
+	}
 }
 
 impl<'e> Drop for Executor<'e> {

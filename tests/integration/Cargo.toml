@@ -46,3 +46,8 @@ required-features = ["router"]
 [[test]]
 name = "form_extraction"
 required-features = ["router"]
+
+[[test]]
+name = "spawn"
+required-features = ["router"]
+

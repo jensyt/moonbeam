@@ -36,7 +36,7 @@ fn test_rest_param() {
 	// Test /static/foo/bar
 	let headers = [];
 	let req = Request::new("GET", "/static/foo/bar", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	// Body should be "foo/bar"
 	if let Some(Body::Immediate(data)) = res.body {
@@ -54,7 +54,7 @@ fn test_mixed_rest_param() {
 	// Test /users/123/files/a/b/c
 	let headers = [];
 	let req = Request::new("GET", "/users/123/files/a/b/c", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	// Body should be "id: 123, path: a/b/c"
 	if let Some(Body::Immediate(data)) = res.body {
@@ -72,7 +72,7 @@ fn test_rest_param_with_separators() {
 	// Test /static/foo//bar
 	let headers = [];
 	let req = Request::new("GET", "/static/foo//bar", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	// Body should be "foo//bar" (preserving original separators)
 	if let Some(Body::Immediate(data)) = res.body {
@@ -91,7 +91,7 @@ fn test_long_rest_param() {
 	// /static/1/2/3/4/5/6/7/8/9/10 (11 segments total)
 	let headers = [];
 	let req = Request::new("GET", "/static/1/2/3/4/5/6/7/8/9/10", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 
 	if let Some(Body::Immediate(data)) = res.body {

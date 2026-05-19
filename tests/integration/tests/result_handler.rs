@@ -30,13 +30,13 @@ fn test_result_handlers() {
 
 	// Test Ok result
 	let req = Request::new("GET", "/ok", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "ok");
 
 	// Test Err result
 	let req = Request::new("GET", "/err", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 400);
 	assert_body(res.body, "error");
 }

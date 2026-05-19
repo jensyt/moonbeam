@@ -577,7 +577,7 @@ fn generate_group_arm(group: &[&FinalRoute], state: &TokenStream) -> TokenStream
 		let mut call_chain = match handler {
 			Handler::Path(p) => {
 				quote! {
-					::moonbeam::router::RouteHandler::call(&#p, req, &params, #state).await.into()
+					::moonbeam::router::RouteHandler::call(&#p, req, &params, spawner, #state).await.into()
 				}
 			}
 			Handler::Bang(_) => quote! {

@@ -62,7 +62,7 @@ fn test_integration_form_urlencoded() {
 		},
 	];
 	let req = Request::new("POST", "/submit", &headers, body);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "42:Jens:true");
 }
@@ -97,7 +97,7 @@ fn test_integration_form_multipart() {
 		},
 	];
 	let req = Request::new("POST", "/submit", &headers, body);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "42:Jens:true");
 }
@@ -129,7 +129,7 @@ fn test_integration_form_file_upload() {
 		},
 	];
 	let req = Request::new("POST", "/upload", &headers, body);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "My File:test.txt:11");
 }

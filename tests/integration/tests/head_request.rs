@@ -29,7 +29,7 @@ fn test_implicit_head() {
 	let executor = Executor::new();
 	let headers = [];
 	let req = Request::new("HEAD", "/implicit", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 
 	assert_eq!(
 		res.status, 200,
@@ -44,7 +44,7 @@ fn test_explicit_head() {
 	let executor = Executor::new();
 	let headers = [];
 	let req = Request::new("HEAD", "/explicit", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "HEAD explicit");

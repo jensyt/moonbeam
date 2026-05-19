@@ -35,23 +35,35 @@ pub(super) fn route_impl(
 		if let FnArg::Typed(pat_type) = arg {
 			let ty = &mut pat_type.ty;
 
-			// Check for Request and add lifetimes if needed
+			// Check for Request and Spawner and add lifetimes if needed
 			if let Type::Path(type_path) = &mut **ty
 				&& let Some(s) = type_path.path.segments.last_mut()
-				&& s.ident == "Request"
-				&& s.arguments.is_empty()
 			{
-				s.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
+				if s.ident == "Request" && s.arguments.is_empty() {
+					s.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
+				} else if s.ident == "Spawner" && s.arguments.is_empty() {
+					s.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
+				}
 			}
 
 			// Check for State reference
 			if let Type::Reference(type_ref) = &mut **ty {
 				state_type = Some(*type_ref.elem.clone());
+				if type_ref.lifetime.is_none() {
+					type_ref.lifetime = Some(parse_quote!('s));
+				}
 			}
 		} else {
 			return syn::Error::new(arg.span(), "Route handlers cannot take 'self'")
 				.to_compile_error()
 				.into();
+		}
+	}
+
+	if input_fn.sig.generics.lifetimes_mut().next().is_none() {
+		input_fn.sig.generics.params.push(parse_quote!('e));
+		if state_type.is_some() {
+			input_fn.sig.generics.params.push(parse_quote!('s: 'e));
 		}
 	}
 
@@ -83,15 +95,23 @@ pub(super) fn route_impl(
 			};
 
 			// Check for Request
-			let is_request = if let Type::Path(type_path) = &**ty {
-				type_path
-					.path
-					.segments
-					.last()
-					.map(|s| s.ident == "Request")
-					.unwrap_or(false)
+			let (is_request, is_spawner) = if let Type::Path(type_path) = &**ty {
+				(
+					type_path
+						.path
+						.segments
+						.last()
+						.map(|s| s.ident == "Request")
+						.unwrap_or(false),
+					type_path
+						.path
+						.segments
+						.last()
+						.map(|s| s.ident == "Spawner")
+						.unwrap_or(false),
+				)
 			} else {
-				false
+				(false, false)
 			};
 
 			if is_path_params {
@@ -104,6 +124,11 @@ pub(super) fn route_impl(
 			} else if is_request {
 				extractions.push(quote! {
 					let #arg_name = req;
+				});
+				call_args.push(quote!(#arg_name));
+			} else if is_spawner {
+				extractions.push(quote! {
+					let #arg_name = spawner;
 				});
 				call_args.push(quote!(#arg_name));
 			} else if let Type::Reference(_) = &**ty {
@@ -144,7 +169,7 @@ pub(super) fn route_impl(
 		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &[&'b str], state: &#state_ty_path)
+			fn call<'a, 'b, 's: 'e, 'e>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &[&'b str], spawner: ::moonbeam::server::task::Spawner<'e>, state: &'s #state_ty_path)
 				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
 				async move {

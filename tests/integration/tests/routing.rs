@@ -63,7 +63,7 @@ fn test_basic_routing() {
 	// Test GET /
 	let headers = [];
 	let req = Request::new("GET", "/", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "index");
 }
@@ -77,7 +77,7 @@ fn test_path_params() {
 	// Test GET /users/123
 	let headers = [];
 	let req = Request::new("GET", "/users/123", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "user: 123");
 }
@@ -91,7 +91,7 @@ fn test_multiple_path_params() {
 	// Test GET /users/123/posts/456
 	let headers = [];
 	let req = Request::new("GET", "/users/123/posts/456", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "user: 123, post: 456");
 }
@@ -105,7 +105,7 @@ fn test_state_access() {
 	// Test GET /state
 	let headers = [];
 	let req = Request::new("GET", "/state", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "state: 42");
 }
@@ -119,13 +119,13 @@ fn test_method_matching() {
 	// Test POST /items
 	let headers = [];
 	let req = Request::new("POST", "/items", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 201);
 	assert_body(res.body, "created");
 
 	// Test GET /items (should be 405 Method Not Allowed)
 	let req = Request::new("GET", "/items", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 405);
 	assert_eq!(
 		res.headers
@@ -146,7 +146,7 @@ fn test_not_found() {
 	// Test non-existent route
 	let headers = [];
 	let req = Request::new("GET", "/not-found", &headers, &[]);
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 	assert_eq!(res.status, 404);
 }
 

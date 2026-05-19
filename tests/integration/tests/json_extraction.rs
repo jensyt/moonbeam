@@ -29,7 +29,7 @@ fn test_json_extraction_borrowed() {
 	let headers = [];
 	let req = Request::new("POST", "/echo", &headers, body_content.as_bytes());
 
-	let res = block_on(executor.run(router.route(req, executor.spawner())));
+	let res = block_on(router.route(req, executor.spawner()));
 
 	assert_eq!(res.status, 200);
 	assert!(
