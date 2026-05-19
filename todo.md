@@ -3,6 +3,7 @@
 - Rename lifetimes to be more useful
 - Macros have different levels of support for including / reording parameters
 - Macros make some poor assumptions about the input function signature's lifetime parameters
+- State extractors require passing a state parameter to a route or adding a generic (abusing Rust syntax)
 
 # Done
 - ETags for assets

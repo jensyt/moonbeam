@@ -60,6 +60,15 @@ pub(super) fn route_impl(
 		}
 	}
 
+	// Check if there's a state generic
+	if state_type.is_none()
+		&& let Some(s) = input_fn.sig.generics.type_params().next()
+	{
+		let ident = &s.ident;
+		state_type = Some(parse_quote!(#ident));
+		input_fn.sig.generics.params.clear();
+	}
+
 	if input_fn.sig.generics.lifetimes_mut().next().is_none() {
 		input_fn.sig.generics.params.push(parse_quote!('e));
 		if state_type.is_some() {
@@ -139,7 +148,7 @@ pub(super) fn route_impl(
 			} else {
 				// FromRequest extractor
 				extractions.push(quote! {
-					let #arg_name = match <#ty as ::moonbeam::http::FromRequest<'a, 'b, #state_ty_path>>::from_request(req, state).await {
+					let #arg_name = match <#ty as ::moonbeam::http::FromRequest<'a, 'b, 's, #state_ty_path>>::from_request(req, state).await {
 						Ok(v) => v,
 						Err(e) => return ::core::convert::Into::into(e),
 					};

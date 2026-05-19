@@ -559,32 +559,32 @@ impl Debug for Body {
 }
 
 /// A trait for extracting data from an HTTP request.
-pub trait FromRequest<'a, 'b, S>: Sized {
+pub trait FromRequest<'h, 'b, 's, S>: Sized {
 	/// The error type returned if extraction fails.
 	type Error: Into<Response>;
 
 	/// Extracts data from the request.
 	fn from_request(
-		req: Request<'a, 'b>,
-		state: &S,
+		req: Request<'h, 'b>,
+		state: &'s S,
 	) -> impl Future<Output = Result<Self, Self::Error>>;
 }
 
 /// A trait for extractors that only need the raw request body.
-pub trait FromBody<'a>: Sized {
+pub trait FromBody<'b>: Sized {
 	/// The error type returned if extraction fails.
 	type Error: Into<Response>;
 
 	/// Extracts data from the raw body bytes.
-	fn from_body(body: &'a [u8]) -> Result<Self, Self::Error>;
+	fn from_body(body: &'b [u8]) -> Result<Self, Self::Error>;
 }
 
-impl<'a, 'b, S, T> FromRequest<'a, 'b, S> for T
+impl<'h, 'b, 's, S, T> FromRequest<'h, 'b, 's, S> for T
 where
 	T: FromBody<'b>,
 {
 	type Error = T::Error;
-	async fn from_request(req: Request<'a, 'b>, _state: &S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'h, 'b>, _state: &'s S) -> Result<Self, Self::Error> {
 		T::from_body(req.body)
 	}
 }
