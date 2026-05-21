@@ -65,6 +65,7 @@ EXAMPLES=(
     "examples-basic"
     "examples-routing"
     "examples-concurrent"
+    "examples-tls"
 )
 
 for example in "${EXAMPLES[@]}"; do
@@ -98,6 +99,7 @@ FEATURES=(
     "router"
     "mt"
     "disable-simd"
+    "tls"
 )
 
 for feature in "${FEATURES[@]}"; do
@@ -110,6 +112,8 @@ run_check --no-default-features --features "mt,signals"
 run_check --no-default-features --features "mt,tracing"
 run_check --no-default-features --features "router,compress"
 run_check --no-default-features --features "assets,compress"
+run_check --no-default-features --features "mt,tls"
+run_check --no-default-features --features "tls,signals"
 
 # 7. Moonbeam Attributes specific checks
 print_header "Moonbeam Attributes"

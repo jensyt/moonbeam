@@ -22,6 +22,7 @@ compress = ["moonbeam/compress"]
 router = ["moonbeam/router"]
 mt = ["moonbeam/mt"]
 disable-simd = ["moonbeam/disable-simd"]
+tls = ["moonbeam/tls"]
 
 [[test]]
 name = "head_request"

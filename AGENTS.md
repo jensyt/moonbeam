@@ -7,10 +7,11 @@
 - **Runtime**: `async-executor` (LocalExecutor), `async-io`, `futures-lite`.
 - **Networking**: `async-net`.
 - **Parsing**: `httparse`.
-- **Utilities**: `blocking` (for synchronous I/O), `flume` (async-ready channels), `percent-encoding`.
+- **Utilities**: `blocking` (for synchronous I/O), `flume` (async-ready channels).
 - **Compression**: `flate2` (gzip), `brotli`.
 - **Testing**: `piper` (for mock async streams).
 - **Log**: `tracing`.
+- **TLS**: `rustls`, `futures-rustls`, `rustls-pemfile` (optional, under `tls` feature).
 
 **CRITICAL**: This project does **NOT** use `tokio`. Do not introduce `tokio` dependencies, `tokio::spawn`, or `#[tokio::main]`. Use `async_io::block_on` or the project's own `serve`/`serve_multi` functions.
 
@@ -21,8 +22,9 @@
 
 ## Workspace Structure
 - **`moonbeam/`**: Core library.
-    - `src/server/st.rs`: Single-threaded runtime implementation.
-    - `src/server/mt.rs`: Multi-threaded runtime (requires `mt` feature).
+    - `src/server/st.rs`: Single-threaded runtime implementation (and `serve_tls` if `tls` feature is active).
+    - `src/server/mt.rs`: Multi-threaded runtime (requires `mt` feature, and `serve_multi_tls` if `tls` feature is active).
+    - `src/server/tls.rs`: Helper module to load TLS configurations from PEM files (requires `tls` feature).
     - `src/router/`: Routing logic and `PathParams` extraction.
     - `src/http/`: `Request`, `Response`, `Body`, `Cookies`, `Params` (query strings), and `PathIterator`.
     - `src/assets.rs`: Static file serving with ETag (SHA-based) and MIME detection.
