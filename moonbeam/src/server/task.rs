@@ -19,7 +19,7 @@
 //!     }
 //! }
 //!
-//! serve("127.0.0.1:8080", MyServer);
+//! serve("127.0.0.1:8080", || MyServer);
 //! ```
 use std::{cell::UnsafeCell, time::Duration};
 

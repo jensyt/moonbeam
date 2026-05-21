@@ -33,5 +33,5 @@ fn main() {
 	);
 
 	println!("Running on 127.0.0.1:5679. Press Ctrl+C to exit");
-	serve("127.0.0.1:5679", StatelessRouter);
+	serve("127.0.0.1:5679", || StatelessRouter);
 }

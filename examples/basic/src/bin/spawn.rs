@@ -24,9 +24,10 @@ async fn handle_request(_req: Request, spawner: Spawner, state: &State) -> Respo
 }
 
 fn main() {
-	let state = State {
-		count: Cell::new(0),
-	};
 	println!("Running on 127.0.0.1:7464. Press Ctrl+C to exit");
-	moonbeam::serve("127.0.0.1:7464", SpawningServer(state));
+	moonbeam::serve("127.0.0.1:7464", || {
+		SpawningServer(State {
+			count: Cell::new(0),
+		})
+	});
 }

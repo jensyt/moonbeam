@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **BREAKING**: Removed the `'static` lifetime requirement from the `Server` trait.
 - **BREAKING**: The `Server::route` method now accepts a `Spawner` argument.
+- **BREAKING**: `moonbeam::serve` now accepts a factory closure instead of a server instance, matching the signature of `serve_multi`.
 - **BREAKING**: `moonbeam::serve` and `moonbeam::serve_multi` no longer require the application state to be `'static`. They no longer leak the server state using `Box::leak`.
 - **BREAKING**: `FromRequest` trait now includes an additional lifetime parameter `'s` for the state reference.
 - **BREAKING**: `RouteHandler::call` now includes `Spawner` and has updated lifetime bounds.

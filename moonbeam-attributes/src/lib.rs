@@ -69,7 +69,7 @@ impl Parse for ServerArgs {
 /// }
 ///
 /// // Usage:
-/// // moonbeam::serve("127.0.0.1:8080", MyServer);
+/// // moonbeam::serve("127.0.0.1:8080", || MyServer);
 /// ```
 ///
 /// # Example: Stateful
@@ -87,7 +87,7 @@ impl Parse for ServerArgs {
 ///
 /// // Usage:
 /// // let state = AppState { count: Cell::new(0) };
-/// // moonbeam::serve("127.0.0.1:8080", MyServer(state));
+/// // moonbeam::serve("127.0.0.1:8080", move || MyServer(state));
 /// ```
 #[proc_macro_attribute]
 pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -360,7 +360,7 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// });
 ///
 /// // Usage:
-/// // moonbeam::serve("127.0.0.1:8080", MyRouter::new(state));
+/// // moonbeam::serve("127.0.0.1:8080", move || MyRouter::new(state));
 /// ```
 #[cfg(feature = "router")]
 #[cfg_attr(docsrs, doc(cfg(feature = "router")))]
