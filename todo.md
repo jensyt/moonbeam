@@ -29,4 +29,5 @@
 - Support newtype structs in moonbeam-serde forms
 - Fix incorrect URL decoding before splitting
 - Robust handling of URL-encoded delimiters and invalid UTF-8 in form data
+- Remove `'static` lifetime requirement from `Server` and `State`
 - State extractors require passing a state parameter to a route or adding a generic (abusing Rust syntax)

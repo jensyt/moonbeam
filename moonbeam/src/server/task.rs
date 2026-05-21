@@ -5,22 +5,22 @@
 //! same thread that spawned them.
 //!
 //! # Examples
-//! /// ```no_run
-/// use moonbeam::{Server, Request, Response, Spawner, serve};
-///
-/// struct MyServer;
-///
-/// impl Server for MyServer {
-///     async fn route<'s: 'e, 'e>(&'s self, _req: Request, spawner: Spawner<'e>) -> Response {
-///         spawner.spawn(async {
-///             // Do something interesting here after the request is processed
-///         });
-///         Response::ok()
-///     }
-/// }
-///
-/// serve("127.0.0.1:8080", MyServer);
-/// ```
+//! ```no_run
+//! use moonbeam::{Server, Request, Response, Spawner, serve};
+//!
+//! struct MyServer;
+//!
+//! impl Server for MyServer {
+//!     async fn route<'s: 'e, 'e>(&'s self, _req: Request<'_, '_>, spawner: Spawner<'e>) -> Response {
+//!         spawner.spawn(async {
+//!             // Do something interesting here after the request is processed
+//!         });
+//!         Response::ok()
+//!     }
+//! }
+//!
+//! serve("127.0.0.1:8080", MyServer);
+//! ```
 use std::{cell::UnsafeCell, time::Duration};
 
 #[cfg(feature = "signals")]
@@ -98,12 +98,7 @@ pub struct Executor<'e> {
 impl<'e> Executor<'e> {
 	/// Creates a new `Executor`.
 	pub fn new() -> Self {
-		Self {
-			executor: LocalExecutor::new(),
-			#[cfg(feature = "signals")]
-			tracker: TaskTracker::new(),
-			alive: UnsafeCell::new(true),
-		}
+		Self::default()
 	}
 
 	/// Returns a [`Spawner`] for this executor.
@@ -126,6 +121,17 @@ impl<'e> Executor<'e> {
 	#[inline(always)]
 	pub fn try_tick(&self) -> bool {
 		self.executor.try_tick()
+	}
+}
+
+impl<'e> Default for Executor<'e> {
+	fn default() -> Self {
+		Self {
+			executor: LocalExecutor::new(),
+			#[cfg(feature = "signals")]
+			tracker: TaskTracker::new(),
+			alive: UnsafeCell::new(true),
+		}
 	}
 }
 

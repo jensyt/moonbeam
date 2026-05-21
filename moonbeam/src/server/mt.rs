@@ -251,7 +251,7 @@ fn serve_multi_impl<F, T: Server>(
 			});
 		}
 
-		let executor = LocalExecutor::new();
+		let executor = Executor::new();
 		async_io::block_on(executor.run(async move {
 			let listener = TcpListener::bind(addr)
 				.await
