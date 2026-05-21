@@ -13,10 +13,12 @@
 //! - I/O is asynchronous, so multiple connections can be handled concurrently.
 //! - If a handler performs blocking I/O or heavy CPU work, it will block all other connections.
 
+use super::signal_gate::SignalGate;
 use super::task::{Executor, Spawner};
 use super::{Server, handle_socket};
 use crate::tracing;
 use async_net::{AsyncToSocketAddrs, TcpListener};
+use std::io::ErrorKind;
 
 /// Starts the server on the specified address using a single-threaded local executor.
 ///
@@ -65,32 +67,15 @@ where
 	}));
 }
 
-#[cfg(feature = "signals")]
 async fn accept_loop<'s: 'e, 'e, T: Server>(
 	listener: TcpListener,
 	server: &'s T,
 	spawner: Spawner<'e>,
 ) {
-	use async_signal::{Signal, Signals};
-	use futures_lite::{FutureExt, StreamExt};
-	use std::{
-		io::{Error, ErrorKind},
-		time::Duration,
-	};
-
-	let mut signals =
-		Signals::new([Signal::Int, Signal::Term]).expect("Failed to create signal handler");
+	let mut gate = SignalGate::new();
 
 	loop {
-		let signal_err = async {
-			let signal = signals.next().await;
-			Err(Error::new(
-				ErrorKind::Interrupted,
-				format!("Signal: {signal:?}"),
-			))
-		};
-
-		match listener.accept().or(signal_err).await {
+		match gate.or_signal(listener.accept()).await {
 			Ok((socket, addr)) => {
 				let _ = socket.set_nodelay(true);
 				spawner.spawn(handle_socket(socket, addr, server, spawner));
@@ -106,36 +91,7 @@ async fn accept_loop<'s: 'e, 'e, T: Server>(
 		}
 	}
 
-	let wait_for_tasks = spawner.wait_until_empty(Duration::from_secs(60));
-
-	let force_shutdown = async {
-		if let Some(_signal) = signals.next().await {
-			tracing::warn!(?_signal, "Received signal, forcing shutdown");
-		}
-	};
-
-	wait_for_tasks.or(force_shutdown).await;
-}
-
-#[cfg(not(feature = "signals"))]
-#[allow(clippy::while_let_loop)]
-async fn accept_loop<'s: 'e, 'e, T: Server>(
-	listener: TcpListener,
-	server: &'s T,
-	spawner: Spawner<'e>,
-) {
-	loop {
-		match listener.accept().await {
-			Ok((socket, addr)) => {
-				let _ = socket.set_nodelay(true);
-				spawner.spawn(handle_socket(socket, addr, server, spawner));
-			}
-			Err(_err) => {
-				tracing::error!(?_err, "Failed to accept connection, shutting down");
-				break;
-			}
-		}
-	}
+	gate.wait_for_shutdown(spawner).await;
 }
 
 #[cfg(test)]
