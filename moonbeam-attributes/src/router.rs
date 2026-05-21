@@ -595,7 +595,7 @@ fn generate_group_arm(group: &[&FinalRoute], state: &TokenStream) -> TokenStream
 			// Wrap with middlewares
 			for middleware in route.middleware_stack.iter().rev() {
 				call_chain = quote! {
-					#middleware(req, #state, |req| #call_chain)
+					#middleware(req, spawner, #state, |req| #call_chain)
 				};
 			}
 

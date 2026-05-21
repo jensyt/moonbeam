@@ -3,7 +3,6 @@
 - Rename lifetimes to be more useful
 - Macros have different levels of support for including / reording parameters
 - Macros make some poor assumptions about the input function signature's lifetime parameters
-- Pass spawner to middleware
 
 # Done
 - ETags for assets
@@ -31,3 +30,4 @@
 - Robust handling of URL-encoded delimiters and invalid UTF-8 in form data
 - Remove `'static` lifetime requirement from `Server` and `State`
 - State extractors require passing a state parameter to a route or adding a generic (abusing Rust syntax)
+- Pass spawner to middleware

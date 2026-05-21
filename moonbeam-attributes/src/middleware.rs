@@ -7,9 +7,10 @@ pub(super) fn middleware_impl(
 ) -> proc_macro::TokenStream {
 	let mut input_fn = parse_macro_input!(item as ItemFn);
 
-	// 1. Inject generics <'a, 'b, Fut>
+	// 1. Inject generics <'a, 'b, 'e, Fut>
 	input_fn.sig.generics.params.push(parse_quote!('a));
 	input_fn.sig.generics.params.push(parse_quote!('b));
+	input_fn.sig.generics.params.push(parse_quote!('e));
 	input_fn.sig.generics.params.push(parse_quote!(Fut));
 
 	// 2. Add where clause: where Fut: Future<Output = Response>
@@ -35,6 +36,16 @@ pub(super) fn middleware_impl(
 					// Add <'a, 'b>
 					tp.path.segments.last_mut().unwrap().arguments =
 						PathArguments::AngleBracketed(parse_quote!(<'a, 'b>));
+				} else if tp
+					.path
+					.segments
+					.last()
+					.map(|s| s.ident == "Spawner" && s.arguments.is_empty())
+					.unwrap_or(false)
+				{
+					// Add <'e>
+					tp.path.segments.last_mut().unwrap().arguments =
+						PathArguments::AngleBracketed(parse_quote!(<'e>));
 				} else if tp
 					.path
 					.segments

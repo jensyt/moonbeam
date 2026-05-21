@@ -121,10 +121,10 @@ The `#[middleware]` macro simplifies the creation of middleware. It injects the 
 #### Example
 
 ```rust
-use moonbeam::{Request, Response, middleware};
+use moonbeam::{Request, Response, middleware, Spawner};
 
 #[middleware]
-async fn logger(req: Request, state: &AppState, next: Next) -> Response {
+async fn logger(req: Request, spawner: Spawner, state: &AppState, next: Next) -> Response {
     println!("Request: {} {}", req.method, req.path);
     next(req).await
 }

@@ -69,7 +69,7 @@ Handlers can return anything that implements `Into<Response>`, including `Result
 Middleware signatures are simplified via `#[middleware]`:
 ```rust
 #[middleware]
-async fn my_middleware(req: Request, state: &State, next: Next) -> Response {
+async fn my_middleware(req: Request, spawner: Spawner, state: &State, next: Next) -> Response {
     // next(req) returns a Future<Output = Response>
     next(req).await
 }

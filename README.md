@@ -168,7 +168,7 @@ fn main() {
 The `router!` macro provides a clean domain-specific language for nesting routes and middleware.
 
 ```rust,no_run
-use moonbeam::{Body, Request, Response, route, router, serve, middleware};
+use moonbeam::{Body, Request, Response, Spawner, route, router, serve, middleware};
 use moonbeam::router::PathParams;
 
 struct AppState {
@@ -177,7 +177,7 @@ struct AppState {
 
 // Global Middleware
 #[middleware]
-async fn logger(req: Request, _state: &AppState, next: Next) -> Response {
+async fn logger(req: Request, _spawner: Spawner, _state: &AppState, next: Next) -> Response {
     let start = std::time::Instant::now();
     let res = next(req).await;
     println!("{} {} - {:?}", req.method, req.path, start.elapsed());
@@ -186,7 +186,7 @@ async fn logger(req: Request, _state: &AppState, next: Next) -> Response {
 
 // Scoped Middleware
 #[middleware]
-async fn require_auth(req: Request, state: &AppState, next: Next) -> Response {
+async fn require_auth(req: Request, _spawner: Spawner, state: &AppState, next: Next) -> Response {
     if req.find_header("X-Api-Key") == Some(state.api_key.as_bytes()) {
         next(req).await
     } else {

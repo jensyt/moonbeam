@@ -386,10 +386,10 @@ pub fn router(item: TokenStream) -> TokenStream {
 ///
 /// # Example
 /// ```rust,ignore
-/// use moonbeam::{Request, Response, middleware};
+/// use moonbeam::{Request, Response, middleware, Spawner};
 ///
 /// #[middleware]
-/// async fn logger(req: Request, state: &AppState, next: Next) -> Response {
+/// async fn logger(req: Request, spawner: Spawner, state: &AppState, next: Next) -> Response {
 ///     let start = std::time::Instant::now();
 ///     let response = next(req).await;
 ///     println!("{} {} - {:?}", req.method, req.path, start.elapsed());
