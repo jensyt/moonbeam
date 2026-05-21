@@ -6,18 +6,18 @@
 use crate::http::{FromRequest, Request, cookies::Cookies, params::Params};
 use std::convert::Infallible;
 
-impl<'a, 'b, S> FromRequest<'a, 'b, S> for Params<'b> {
+impl<'b, S> FromRequest<'_, 'b, '_, S> for Params<'b> {
 	type Error = Infallible;
 
-	async fn from_request(req: Request<'a, 'b>, _state: &'static S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'_, 'b>, _state: &S) -> Result<Self, Self::Error> {
 		Ok(req.params())
 	}
 }
 
-impl<'a, 'b, S> FromRequest<'a, 'b, S> for Cookies<'a> {
+impl<'b, S> FromRequest<'_, 'b, '_, S> for Cookies<'b> {
 	type Error = Infallible;
 
-	async fn from_request(req: Request<'a, 'b>, _state: &'static S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'_, 'b>, _state: &S) -> Result<Self, Self::Error> {
 		Ok(req.cookies())
 	}
 }

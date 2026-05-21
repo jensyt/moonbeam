@@ -1,6 +1,6 @@
 use futures_lite::future::block_on;
 use moonbeam::http::{Body, Request};
-use moonbeam::{Server, route, router};
+use moonbeam::{Executor, Server, route, router};
 use moonbeam_serde::Json;
 use serde::{Deserialize, Serialize};
 
@@ -22,13 +22,14 @@ router!(JsonRouter {
 
 #[test]
 fn test_json_extraction_borrowed() {
-	let router = Box::leak(Box::new(JsonRouter::new()));
+	let router = JsonRouter::new();
+	let executor = Executor::new();
 
 	let body_content = r#"{"id": 42, "name": "Jens"}"#;
 	let headers = [];
 	let req = Request::new("POST", "/echo", &headers, body_content.as_bytes());
 
-	let res = block_on(router.route(req));
+	let res = block_on(router.route(req, executor.spawner()));
 
 	assert_eq!(res.status, 200);
 	assert!(

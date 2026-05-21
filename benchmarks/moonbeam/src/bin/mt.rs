@@ -1,7 +1,7 @@
-use moonbeam::{Body, Request, Response, ThreadCount, serve_multi, server};
+use moonbeam::{Body, Request, Response, Spawner, ThreadCount, serve_multi, server};
 
 #[server(HelloWorld)]
-async fn serve(_req: Request) -> Response {
+async fn serve(_req: Request, _spawner: Spawner) -> Response {
 	Response::new_with_body("Hello, World!", Body::TEXT)
 }
 
@@ -11,6 +11,5 @@ pub fn main() {
 		"127.0.0.1:3030",
 		ThreadCount::Count(4),
 		|| HelloWorld,
-		|_| {},
 	);
 }

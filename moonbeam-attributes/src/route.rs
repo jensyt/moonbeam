@@ -1,5 +1,35 @@
 use quote::quote;
-use syn::{FnArg, ItemFn, PathArguments, Type, parse_macro_input, parse_quote, spanned::Spanned};
+use syn::{
+	FnArg, Ident, ItemFn, PathArguments, Token, Type,
+	parse::{Parse, ParseStream},
+	parse_macro_input, parse_quote,
+	spanned::Spanned,
+};
+
+/// Arguments for the `#[route]` attribute macro.
+struct RouteArgs {
+	state: Option<Type>,
+}
+
+impl Parse for RouteArgs {
+	fn parse(input: ParseStream) -> syn::Result<Self> {
+		let mut state = None;
+		while !input.is_empty() {
+			let ident: Ident = input.parse()?;
+			if ident == "state" {
+				input.parse::<Token![=]>()?;
+				state = Some(input.parse()?);
+			} else {
+				return Err(syn::Error::new(ident.span(), "expected `state`"));
+			}
+
+			if !input.is_empty() {
+				input.parse::<Token![,]>()?;
+			}
+		}
+		Ok(RouteArgs { state })
+	}
+}
 
 /// Implementation logic for the `#[route]` attribute macro.
 ///
@@ -18,43 +48,63 @@ use syn::{FnArg, ItemFn, PathArguments, Type, parse_macro_input, parse_quote, sp
 /// }
 /// ```
 ///
+/// Explicitly specifying state type:
+/// ```ignore
+/// #[route(state = AppState)]
+/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
+///     // ...
+/// }
+/// ```
+///
 /// # Arguments
 ///
-/// * `_attr` - The attribute arguments (currently unused).
+/// * `attr` - The attribute arguments.
 /// * `item` - The decorated function as a `TokenStream`.
 pub(super) fn route_impl(
-	_attr: proc_macro::TokenStream,
+	attr: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
+	let args = parse_macro_input!(attr as RouteArgs);
 	let mut input_fn = parse_macro_input!(item as ItemFn);
 
-	let mut state_type: Option<Type> = None;
+	let mut state_type: Option<Type> = args.state;
 
 	// First pass: Identify state type and update lifetimes
 	for arg in &mut input_fn.sig.inputs {
 		if let FnArg::Typed(pat_type) = arg {
 			let ty = &mut pat_type.ty;
 
-			// Check for Request and add lifetimes if needed
+			// Check for Request and Spawner and add lifetimes if needed
 			if let Type::Path(type_path) = &mut **ty
 				&& let Some(s) = type_path.path.segments.last_mut()
-				&& s.ident == "Request"
-				&& s.arguments.is_empty()
 			{
-				s.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
+				if s.ident == "Request" && s.arguments.is_empty() {
+					s.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
+				} else if s.ident == "Spawner" && s.arguments.is_empty() {
+					s.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
+				}
 			}
 
 			// Check for State reference
 			if let Type::Reference(type_ref) = &mut **ty {
-				if type_ref.lifetime.is_none() {
-					type_ref.lifetime = Some(parse_quote!('static));
+				if state_type.is_none() {
+					state_type = Some(*type_ref.elem.clone());
 				}
-				state_type = Some(*type_ref.elem.clone());
+				if type_ref.lifetime.is_none() {
+					type_ref.lifetime = Some(parse_quote!('s));
+				}
 			}
 		} else {
 			return syn::Error::new(arg.span(), "Route handlers cannot take 'self'")
 				.to_compile_error()
 				.into();
+		}
+	}
+
+	if input_fn.sig.generics.lifetimes_mut().next().is_none() {
+		input_fn.sig.generics.params.push(parse_quote!('e));
+		if state_type.is_some() {
+			input_fn.sig.generics.params.push(parse_quote!('s: 'e));
 		}
 	}
 
@@ -86,15 +136,23 @@ pub(super) fn route_impl(
 			};
 
 			// Check for Request
-			let is_request = if let Type::Path(type_path) = &**ty {
-				type_path
-					.path
-					.segments
-					.last()
-					.map(|s| s.ident == "Request")
-					.unwrap_or(false)
+			let (is_request, is_spawner) = if let Type::Path(type_path) = &**ty {
+				(
+					type_path
+						.path
+						.segments
+						.last()
+						.map(|s| s.ident == "Request")
+						.unwrap_or(false),
+					type_path
+						.path
+						.segments
+						.last()
+						.map(|s| s.ident == "Spawner")
+						.unwrap_or(false),
+				)
 			} else {
-				false
+				(false, false)
 			};
 
 			if is_path_params {
@@ -109,6 +167,11 @@ pub(super) fn route_impl(
 					let #arg_name = req;
 				});
 				call_args.push(quote!(#arg_name));
+			} else if is_spawner {
+				extractions.push(quote! {
+					let #arg_name = spawner;
+				});
+				call_args.push(quote!(#arg_name));
 			} else if let Type::Reference(_) = &**ty {
 				extractions.push(quote! {
 					let #arg_name = state;
@@ -117,7 +180,7 @@ pub(super) fn route_impl(
 			} else {
 				// FromRequest extractor
 				extractions.push(quote! {
-					let #arg_name = match <#ty as ::moonbeam::http::FromRequest<'a, 'b, #state_ty_path>>::from_request(req, state).await {
+					let #arg_name = match <#ty as ::moonbeam::http::FromRequest<'a, 'b, 's, #state_ty_path>>::from_request(req, state).await {
 						Ok(v) => v,
 						Err(e) => return ::core::convert::Into::into(e),
 					};
@@ -147,7 +210,7 @@ pub(super) fn route_impl(
 		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'a, 'b>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &'_[&'b str], state: &'static #state_ty_path)
+			fn call<'a, 'b, 's: 'e, 'e>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &[&'b str], spawner: ::moonbeam::server::task::Spawner<'e>, state: &'s #state_ty_path)
 				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
 				async move {

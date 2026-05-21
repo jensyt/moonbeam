@@ -87,10 +87,10 @@ impl<'a> TryFrom<Request<'_, 'a>> for Form<'a> {
 	}
 }
 
-impl<'a, S> FromRequest<'_, 'a, S> for Form<'a> {
+impl<'a, S> FromRequest<'_, 'a, '_, S> for Form<'a> {
 	type Error = FormError;
 
-	async fn from_request(req: Request<'_, 'a>, _state: &'static S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'_, 'a>, _state: &S) -> Result<Self, Self::Error> {
 		Self::try_from(req)
 	}
 }

@@ -42,10 +42,10 @@ use std::{
 ///
 /// # Example
 /// ```no_run
-/// use moonbeam::{Request, Response, server, assets::get_asset};
+/// use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 ///
 /// #[server(FileServer)]
-/// async fn serve(req: Request) -> Response {
+/// async fn serve(req: Request, _spawner: Spawner<'_>) -> Response {
 ///     let etag = req.find_header("If-None-Match");
 ///     get_asset(req.path, etag, "./public").await
 /// }

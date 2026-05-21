@@ -1,7 +1,7 @@
-use moonbeam::{Body, Request, Response, server};
+use moonbeam::{Body, Request, Response, Spawner, server};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request) -> Response {
+async fn serve(_request: Request, _spawner: Spawner) -> Response {
 	Response::new_with_body("Hello, World!", Body::TEXT)
 }
 

@@ -56,15 +56,15 @@ impl Parse for ServerArgs {
 ///
 /// The decorated function can accept one of two forms:
 ///
-/// 1. **Stateless**: `fn(Request) -> Response` (or `async fn`, or `-> impl Future`)
-/// 2. **Stateful**: `fn(Request, &State) -> Response` (requires passing state to the struct)
+/// 1. **Stateless**: `fn(Request, Spawner) -> Response`
+/// 2. **Stateful**: `fn(Request, Spawner, &State) -> Response` (requires passing state to the struct)
 ///
 /// # Example: Stateless
 /// ```rust,ignore
-/// use moonbeam::{Request, Response, server};
+/// use moonbeam::{Request, Response, Spawner, server};
 ///
 /// #[server(MyServer)]
-/// async fn handle(req: Request) -> Response {
+/// async fn handle(req: Request, _spawner: Spawner<'_>) -> Response {
 ///     Response::ok()
 /// }
 ///
@@ -74,13 +74,13 @@ impl Parse for ServerArgs {
 ///
 /// # Example: Stateful
 /// ```rust,ignore
-/// use moonbeam::{Request, Response, server};
+/// use moonbeam::{Request, Response, Spawner, server};
 /// use std::cell::Cell;
 ///
 /// struct AppState { count: Cell<usize> }
 ///
 /// #[server(MyServer)]
-/// async fn handle(req: Request, state: &AppState) -> Response {
+/// async fn handle(req: Request, _spawner: Spawner<'_>, state: &AppState) -> Response {
 ///     state.count.set(state.count.get() + 1);
 ///     Response::ok()
 /// }
@@ -110,93 +110,76 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 			.into();
 	}
 
-	let second_param = if sig.inputs.len() > 1 {
-		if check_state(sig.inputs.iter_mut().nth(1)).is_none() {
-			return syn::Error::new_spanned(
-				&sig.inputs,
-				"Second parameter must be: state: &'static State",
-			)
-			.to_compile_error()
-			.into();
+	let has_state = sig.inputs.len() > 2;
+	if check_spawner(sig.inputs.iter_mut().nth(1), has_state).is_none() {
+		return syn::Error::new_spanned(
+			input_fn.sig.inputs.iter().nth(1),
+			"Second parameter must be Spawner",
+		)
+		.to_compile_error()
+		.into();
+	}
+
+	let third_param = if has_state {
+		if check_state(sig.inputs.iter_mut().nth(2)).is_none() {
+			return syn::Error::new_spanned(&sig.inputs, "Third parameter must be: state: &State")
+				.to_compile_error()
+				.into();
 		} else {
-			Some(get_state(input_fn.sig.inputs.iter().nth(1)))
+			Some(get_state(input_fn.sig.inputs.iter().nth(2)))
 		}
 	} else {
 		None
 	};
 
+	// Inject lifetime parameters on input if needed
+	if has_state && input_fn.sig.generics.lifetimes_mut().next().is_none() {
+		input_fn.sig.generics.params.push(parse_quote!('e));
+		input_fn.sig.generics.params.push(parse_quote!('s: 'e));
+	}
+
 	let fn_name = &input_fn.sig.ident;
 
-	let output = if let Some(ref_type) = second_param {
+	let struct_impl = if let Some(ref_type) = third_param {
 		// State type
 		let elem = &ref_type.elem;
 
-		// Generate the route implementation based on async status
-		let route_impl = if is_async {
-			// Case 1: async fn
-			quote! {
-				#[inline(always)]
-				fn route(&'static self, request: ::moonbeam::http::Request<'_, '_>)
-					-> impl ::core::future::Future<Output = ::moonbeam::http::Response>
-				{
-					#fn_name(request, &self.0)
-				}
-			}
-		} else {
-			// Case 2: regular fn - wrap in async block
-			quote! {
-				#[inline(always)]
-				fn route(&'static self, request: ::moonbeam::http::Request<'_, '_>)
-					-> impl ::core::future::Future<Output = ::moonbeam::http::Response>
-				{
-					async move { #fn_name(request, &self.0) }
-				}
-			}
-		};
-
-		// Generate the output
 		quote! {
-			#input_fn
-
 			#[repr(transparent)]
 			pub(crate) struct #wrapper_name(#elem);
-
-			impl ::moonbeam::Server for #wrapper_name {
-				#route_impl
-			}
 		}
 	} else {
-		// Generate the route implementation based on async status
-		let route_impl = if is_async {
-			// Case 1: async fn
-			quote! {
-				#[inline(always)]
-				fn route(&'static self, request: ::moonbeam::http::Request<'_, '_>)
-					-> impl ::core::future::Future<Output = ::moonbeam::http::Response>
-				{
-					#fn_name(request)
-				}
-			}
-		} else {
-			// Case 2: regular fn - wrap in async block
-			quote! {
-				#[inline(always)]
-				fn route(&'static self, request: ::moonbeam::http::Request<'_, '_>)
-					-> impl ::core::future::Future<Output = ::moonbeam::http::Response>
-				{
-					async move { #fn_name(request) }
-				}
-			}
-		};
-
-		// Generate the output
 		quote! {
-			#input_fn
-
 			pub(crate) struct #wrapper_name;
+		}
+	};
 
-			impl ::moonbeam::Server for #wrapper_name {
-				#route_impl
+	let fn_impl = if is_async {
+		if has_state {
+			quote! { #fn_name(request, spawner, &self.0) }
+		} else {
+			quote! { #fn_name(request, spawner) }
+		}
+	} else {
+		if has_state {
+			quote! { async move { #fn_name(request, spawner, &self.0) } }
+		} else {
+			quote! { async move { #fn_name(request, spawner) } }
+		}
+	};
+
+	// Generate the output
+	let output = quote! {
+		#input_fn
+
+		#struct_impl
+
+		impl ::moonbeam::Server for #wrapper_name {
+			#[inline(always)]
+			fn route<'s: 'e, 'e>(&'s self, request: ::moonbeam::http::Request<'_, '_>, spawner: ::moonbeam::server::task::Spawner<'e>)
+				-> impl ::core::future::Future<Output = ::moonbeam::http::Response>
+			{
+				#fn_impl
 			}
 		}
 	};
@@ -220,13 +203,33 @@ fn check_request(arg: Option<&mut FnArg>) -> Option<()> {
 	}
 }
 
+fn check_spawner(arg: Option<&mut FnArg>, has_state: bool) -> Option<()> {
+	if let FnArg::Typed(pat_type) = arg?
+		&& let Type::Path(type_path) = &mut *pat_type.ty
+		&& let segment = type_path.path.segments.last_mut()?
+		&& segment.ident == "Spawner"
+	{
+		if segment.arguments.is_empty() {
+			// Inject default lifetime parameters if needed
+			if has_state {
+				segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
+			} else {
+				segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'_>));
+			}
+		}
+		Some(())
+	} else {
+		None
+	}
+}
+
 fn check_state(arg: Option<&mut FnArg>) -> Option<()> {
 	if let FnArg::Typed(pat_type) = arg?
 		&& let Type::Reference(type_ref) = &mut *pat_type.ty
 	{
 		if type_ref.lifetime.is_none() {
 			// Inject static lifetime if needed
-			type_ref.lifetime = Some(parse_quote!('static));
+			type_ref.lifetime = Some(parse_quote!('s));
 		}
 		Some(())
 	} else {
@@ -299,6 +302,14 @@ fn is_impl_future(ty: &Type) -> bool {
 ///     PathParams(id): PathParams<&str>
 /// ) -> Response {
 ///     Response::ok().with_body(format!("User {} requested by {}", id, state.app_name), Body::TEXT)
+/// }
+/// ```
+///
+/// # Example with Explicit State
+/// ```rust,ignore
+/// #[route(state = AppState)]
+/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
+///     // ...
 /// }
 /// ```
 #[cfg(feature = "router")]
@@ -375,10 +386,10 @@ pub fn router(item: TokenStream) -> TokenStream {
 ///
 /// # Example
 /// ```rust,ignore
-/// use moonbeam::{Request, Response, middleware};
+/// use moonbeam::{Request, Response, middleware, Spawner};
 ///
 /// #[middleware]
-/// async fn logger(req: Request, state: &AppState, next: Next) -> Response {
+/// async fn logger(req: Request, spawner: Spawner, state: &AppState, next: Next) -> Response {
 ///     let start = std::time::Instant::now();
 ///     let response = next(req).await;
 ///     println!("{} {} - {:?}", req.method, req.path, start.elapsed());

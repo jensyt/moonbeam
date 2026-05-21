@@ -10,7 +10,7 @@
 //!
 //! - `st`: Single-threaded server implementation using `serve`.
 //! - `mt`: Multi-threaded server implementation using `serve_multi` (requires `mt` feature).
-//! - `task`: Utilities for managing local tasks.
+//! - `task`: Task management and spawning.
 //!
 //! ## Core Trait: `Server`
 //!
@@ -34,6 +34,7 @@ use std::{
 	sync::OnceLock,
 	time::{Duration, Instant, SystemTime},
 };
+use task::Spawner;
 
 const BUFSIZE: usize = 16 * 1024;
 
@@ -71,40 +72,38 @@ fn max_body_size() -> usize {
 /// This trait is the core interface for defining request handlers in Moonbeam.
 /// Implementations are typically generated automatically by the `#[server]` or `router!` macros.
 ///
-/// Due to Moonbeam's single-threaded nature by default, the server instance requires a `'static`
-/// lifetime. This is because it is shared across all concurrently handled connections on the
-/// local executor without requiring `Arc` or `Send`/`Sync`.
+/// A note on lifetimes: the server instance is guaranteed to outlive the executor that runs
+/// requests, which lets you spawn sub-tasks that can safely reference the server. Unfortunately,
+/// this requires adding lifetime annotations to the `route` function (`<'s: 'e, 'e>`) and others
+/// it calls that may want to spawn sub-tasks. The `#[server]` and `router!` macros handle these
+/// lifetimes automatically.
 ///
 /// # Example
 /// ```
-/// use moonbeam::{Server, Request, Response};
-/// use std::future::Future;
+/// use moonbeam::{Server, Request, Response, Spawner};
 ///
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     fn route(&'static self, _req: Request) -> impl Future<Output = Response> {
-///         async { Response::ok() }
+///     async fn route<'s: 'e, 'e>(
+///         &'s self,
+///         _req: Request<'_, '_>,
+///         _spawner: Spawner<'e>) -> Response
+///     {
+///         Response::ok()
 ///     }
 /// }
 /// ```
 pub trait Server
 where
-	Self: 'static + Sized,
+	Self: Sized,
 {
 	/// Handles an incoming HTTP request and returns a future that resolves to a response.
-	fn route(&'static self, request: Request) -> impl Future<Output = Response>;
-
-	/// Clean up resources.
-	///
-	/// # Safety
-	/// This function drops the static reference to self. It should only be called when the server
-	/// is shutting down.
-	unsafe fn destroy(&'static self) {
-		unsafe {
-			drop(Box::from_raw(&raw const *self as *mut Self));
-		}
-	}
+	fn route<'s: 'e, 'e>(
+		&'s self,
+		request: Request,
+		spawner: Spawner<'e>,
+	) -> impl Future<Output = Response>;
 }
 
 macro_rules! socket_write {
@@ -130,8 +129,12 @@ macro_rules! socket_write {
 /// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
 /// * `addr` - The remote address of the connection (used for logging only).
 /// * `router` - The server implementation to route requests to.
-async fn handle_socket<R: Server, S>(mut socket: S, _addr: SocketAddr, router: &'static R)
-where
+async fn handle_socket<'r: 'e, 'e, R: Server, S>(
+	mut socket: S,
+	_addr: SocketAddr,
+	router: &'r R,
+	spawner: Spawner<'e>,
+) where
 	S: AsyncRead + AsyncWrite + Unpin + 'static,
 {
 	let mut buf = vec![0; BUFSIZE];
@@ -179,6 +182,7 @@ where
 				req,
 				&mut socket,
 				router,
+				spawner,
 				respbuf,
 				body,
 				total - offset,
@@ -232,10 +236,11 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn process_request<'a, 'b, R: Server, S>(
-	mut req: Request<'a, 'b>,
+async fn process_request<'b, 'r: 'e, 'e, R: Server, S>(
+	mut req: Request<'_, 'b>,
 	socket: &mut S,
-	router: &'static R,
+	router: &'r R,
+	spawner: Spawner<'e>,
 	respbuf: &mut [u8],
 	body: &'b mut [u8],
 	valid_body_len: usize,
@@ -289,9 +294,12 @@ where
 
 	let head_method = req.method.eq_ignore_ascii_case("head");
 	#[cfg(not(feature = "catchpanic"))]
-	let mut resp = router.route(req).await;
+	let mut resp = router.route(req, spawner).await;
 	#[cfg(feature = "catchpanic")]
-	let mut resp = match AssertUnwindSafe(router.route(req)).catch_unwind().await {
+	let mut resp = match AssertUnwindSafe(router.route(req, spawner))
+		.catch_unwind()
+		.await
+	{
 		Ok(resp) => resp,
 		Err(_error) => {
 			tracing::error!(?_error, "Panic in response handler");
@@ -636,6 +644,7 @@ where
 
 #[cfg(test)]
 mod tests {
+	use super::task::Executor;
 	use super::*;
 	use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 	use piper::{Reader, Writer};
@@ -763,7 +772,11 @@ mod tests {
 
 	struct MockServer;
 	impl Server for MockServer {
-		async fn route(&'static self, req: Request<'_, '_>) -> Response {
+		async fn route<'s: 'e, 'e>(
+			&'s self,
+			req: Request<'_, '_>,
+			_spawner: Spawner<'e>,
+		) -> Response {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}
@@ -777,9 +790,15 @@ mod tests {
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
 
-		let server = Box::leak(Box::new(MockServer));
+		let server = MockServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let test_future = async move {
 			client_tx
@@ -806,9 +825,15 @@ mod tests {
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
 
-		let server = Box::leak(Box::new(MockServer));
+		let server = MockServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let test_future = async move {
 			client_tx
@@ -841,9 +866,15 @@ mod tests {
 		let (reader, mut client_tx) = piper::pipe(1024);
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
-		let server = Box::leak(Box::new(MockServer));
+		let server = MockServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let test_future = async move {
 			client_tx.write_all(b"GARBAGE\r\n\r\n").await.unwrap();
@@ -866,9 +897,15 @@ mod tests {
 		let (reader, mut client_tx) = piper::pipe(1024);
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
-		let server = Box::leak(Box::new(MockServer));
+		let server = MockServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let test_future = async move {
 			client_tx
@@ -890,7 +927,11 @@ mod tests {
 
 	struct StreamServer;
 	impl Server for StreamServer {
-		async fn route(&'static self, req: Request<'_, '_>) -> Response {
+		async fn route<'s: 'e, 'e>(
+			&'s self,
+			req: Request<'_, '_>,
+			_spawner: Spawner<'e>,
+		) -> Response {
 			if req.path == "/stream" {
 				let content = "Streamed Content";
 				let body = Body::Stream {
@@ -917,9 +958,15 @@ mod tests {
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
 
-		let server = Box::leak(Box::new(StreamServer));
+		let server = StreamServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let test_future = async move {
 			client_tx
@@ -964,9 +1011,15 @@ mod tests {
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
 
-		let server = Box::leak(Box::new(StreamServer));
+		let server = StreamServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let test_future = async move {
 			client_tx
@@ -1059,7 +1112,11 @@ mod tests {
 
 	struct EchoServer;
 	impl Server for EchoServer {
-		async fn route(&'static self, req: Request<'_, '_>) -> Response {
+		async fn route<'s: 'e, 'e>(
+			&'s self,
+			req: Request<'_, '_>,
+			_spawner: Spawner<'e>,
+		) -> Response {
 			// Return body length as string
 			let len = req.body.len();
 			Response::ok().with_body(format!("{}", len), Body::DEFAULT_CONTENT_TYPE)
@@ -1072,9 +1129,15 @@ mod tests {
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
 
-		let server = Box::leak(Box::new(EchoServer));
+		let server = EchoServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let body_size = 20 * 1024; // 20KB
 		let body_content = vec![b'a'; body_size];
@@ -1107,9 +1170,15 @@ mod tests {
 		let (mut client_rx, writer) = piper::pipe(1024);
 		let socket = MockStream { reader, writer };
 
-		let server = Box::leak(Box::new(EchoServer));
+		let server = EchoServer;
+		let executor = Executor::new();
 
-		let handle_future = handle_socket(socket, "127.0.0.1:80".parse().unwrap(), server);
+		let handle_future = handle_socket(
+			socket,
+			"127.0.0.1:80".parse().unwrap(),
+			&server,
+			executor.spawner(),
+		);
 
 		let body_size = 1024 * 1024 + 10; // 1MB + 10 bytes
 

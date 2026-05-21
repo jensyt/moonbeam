@@ -1,7 +1,7 @@
-use moonbeam::{Request, Response, server, assets::get_asset};
+use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 
 #[server(StaticServer)]
-async fn serve(req: Request) -> Response {
+async fn serve(req: Request, _spawner: Spawner) -> Response {
 	let etag = req.find_header("If-None-Match");
 	get_asset(req.path, etag, "benchmarks/static").await
 }

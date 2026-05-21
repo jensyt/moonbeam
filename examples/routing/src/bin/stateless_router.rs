@@ -1,5 +1,5 @@
 use moonbeam::router::PathParams;
-use moonbeam::{Body, Request, Response, middleware, route, router, serve};
+use moonbeam::{Body, Request, Response, Spawner, middleware, route, router, serve};
 
 #[route]
 async fn index(req: Request) -> Response {
@@ -18,7 +18,7 @@ fn hello(PathParams(name): PathParams<&str>) -> Response {
 }
 
 #[middleware]
-async fn test<S>(request: Request, _state: &S, next: Next) -> Response {
+async fn test<S>(request: Request, _spawner: Spawner, _state: &S, next: Next) -> Response {
 	next(request).await
 }
 

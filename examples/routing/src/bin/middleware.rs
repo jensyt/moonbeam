@@ -1,19 +1,19 @@
 use moonbeam::http::{Request, Response};
 use moonbeam::router::PathParams;
-use moonbeam::{Body, middleware, route, router, serve};
+use moonbeam::{Body, Spawner, middleware, route, router, serve};
 
 struct State {
 	api_key: String,
 }
 
 #[middleware]
-async fn logger(req: Request, _state: &State, next: Next) -> Response {
+async fn logger(req: Request, _spawner: Spawner, _state: &State, next: Next) -> Response {
 	println!("Log: {} {}", req.method, req.path);
 	next(req).await
 }
 
 #[middleware]
-async fn auth(req: Request, state: &State, next: Next) -> Response {
+async fn auth(req: Request, _spawner: Spawner, state: &State, next: Next) -> Response {
 	if let Some(auth_header) = req.find_header("Authorization")
 		&& auth_header == state.api_key.as_bytes()
 	{

@@ -14,7 +14,6 @@ Before building with Moonbeam, it's essential to understand its execution model:
 - **No Tokio**: Moonbeam is built on `async-io` and the `smol` ecosystem. **It does not use `tokio` dependencies**. This means no `tokio::spawn`, no `#[tokio::main]`, and no tokio-specific database drivers (unless they support `async-io` or `smol`).
 - **Blocking I/O**: Because Moonbeam runs handlers on a `LocalExecutor` on the main thread, any CPU-heavy computation or blocking I/O (like reading a large file synchronously) **will block the entire server**.
   - *Solution*: `smol` supports async I/O via the `blocking::unblock` primitive for offloading heavy tasks to a background thread pool, or you can use the `async_io` crate for native non-blocking operations.
-- **Static Lifetimes & State**: To satisfy the executor's requirements, the server instance and its state are typically leaked to the `'static` lifetime using `Box::leak` (which is what `moonbeam::serve` does internally). This is a safe and common pattern for long-lived server processes, and Moonbeam offers a function (`moonbeam::Server::destroy`) to handle dropping the state object when it is no longer needed.
 
 ## Features
 
@@ -87,15 +86,15 @@ Moonbeam honors the following environment variables:
 
 ## Examples
 
-### 1. Stateless Server
+### Stateless Server
 
 The simplest way to use Moonbeam.
 
 ```rust,no_run
-use moonbeam::{Body, Request, Response, server};
+use moonbeam::{Body, Request, Response, Spawner, server};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request) -> Response {
+async fn serve(_request: Request, _spawner: Spawner<'_>) -> Response {
     Response::ok().with_body("Hello, World!", Body::TEXT)
 }
 
@@ -105,20 +104,20 @@ fn main() {
 }
 ```
 
-### 2. Stateful Server (Interior Mutability)
+### Stateful Server (Interior Mutability)
 
 Because the executor runs locally, you can use `std::cell::Cell` without `Mutex`.
 
 ```rust,no_run
 use std::cell::Cell;
-use moonbeam::{Body, Request, Response, server};
+use moonbeam::{Body, Request, Response, Spawner, server};
 
 struct AppState {
     count: Cell<u64>,
 }
 
 #[server(CounterServer)]
-async fn serve(_req: Request, state: &'static AppState) -> Response {
+async fn serve(_req: Request, _spawner: Spawner<'_>, state: &AppState) -> Response {
     let count = state.count.get();
     state.count.set(count + 1);
     
@@ -131,12 +130,12 @@ fn main() {
 }
 ```
 
-### 3. Multi-threaded "Share-Nothing" Server
+### Multi-threaded "Share-Nothing" Server
 
 Use the `mt` feature flag to scale across multiple CPU cores.
 
 ```rust,no_run
-use moonbeam::{Request, Response, ThreadCount, Body, server, serve_multi};
+use moonbeam::{Request, Response, ThreadCount, Body, Spawner, server, serve_multi};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct WorkerState {
@@ -144,7 +143,7 @@ struct WorkerState {
 }
 
 #[server(Worker)]
-async fn serve(_req: Request, state: &WorkerState) -> Response {
+async fn serve(_req: Request, _spawner: Spawner<'_>, state: &WorkerState) -> Response {
     Response::ok().with_body(format!("Hello from thread {}", state.thread_id), Body::TEXT)
 }
 
@@ -159,18 +158,17 @@ fn main() {
             // This closure runs on each new thread to construct its local state
             let id = next_id.fetch_add(1, Ordering::Relaxed);
             Worker(WorkerState { thread_id: id })
-        },
-        |_| {} // Optional cleanup logic on shutdown
+        }
     );
 }
 ```
 
-### 4. Advanced Routing
+### Advanced Routing
 
 The `router!` macro provides a clean domain-specific language for nesting routes and middleware.
 
 ```rust,no_run
-use moonbeam::{Body, Request, Response, route, router, serve, middleware};
+use moonbeam::{Body, Request, Response, Spawner, route, router, serve, middleware};
 use moonbeam::router::PathParams;
 
 struct AppState {
@@ -179,7 +177,7 @@ struct AppState {
 
 // Global Middleware
 #[middleware]
-async fn logger(req: Request, _state: &AppState, next: Next) -> Response {
+async fn logger(req: Request, _spawner: Spawner, _state: &AppState, next: Next) -> Response {
     let start = std::time::Instant::now();
     let res = next(req).await;
     println!("{} {} - {:?}", req.method, req.path, start.elapsed());
@@ -188,7 +186,7 @@ async fn logger(req: Request, _state: &AppState, next: Next) -> Response {
 
 // Scoped Middleware
 #[middleware]
-async fn require_auth(req: Request, state: &AppState, next: Next) -> Response {
+async fn require_auth(req: Request, _spawner: Spawner, state: &AppState, next: Next) -> Response {
     if req.find_header("X-Api-Key") == Some(state.api_key.as_bytes()) {
         next(req).await
     } else {
@@ -229,7 +227,7 @@ fn main() {
 }
 ```
 
-### 5. JSON Parsing (Typed Body Extraction)
+### JSON Parsing (Typed Body Extraction)
 
 Use the `moonbeam-serde` crate for flexible, typed body extraction. This supports zero-copy deserialization by borrowing directly from the request buffer.
 
@@ -259,7 +257,7 @@ fn main() {
 }
 ```
 
-### 6. HTML Forms (URL-Encoded and Multipart)
+### HTML Forms (URL-Encoded and Multipart)
 
 Use the `moonbeam-forms` crate to parse incoming form data, including file uploads.
 
@@ -305,10 +303,10 @@ fn main() {
 ## Serving Static Files
 
 ```rust,no_run
-use moonbeam::{Request, Response, server, assets::get_asset};
+use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 
 #[server(StaticServer)]
-async fn serve(req: Request) -> Response {
+async fn serve(req: Request, _spawner: Spawner<'_>) -> Response {
     let etag = req.find_header("If-None-Match");
     get_asset(req.path, etag, "./public").await
 }

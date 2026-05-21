@@ -333,7 +333,7 @@ pub(super) fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStr
 			}
 
 			impl ::moonbeam::Server for #router_name {
-				fn route(&'static self, req: ::moonbeam::http::Request<'_, '_>) ->
+				fn route<'s: 'e, 'e>(&'s self, req: ::moonbeam::http::Request<'_, '_>, spawner: ::moonbeam::server::task::Spawner<'e>) ->
 					impl ::std::future::Future<Output = ::moonbeam::http::Response>
 				{
 					use ::std::ops::Deref;
@@ -577,7 +577,7 @@ fn generate_group_arm(group: &[&FinalRoute], state: &TokenStream) -> TokenStream
 		let mut call_chain = match handler {
 			Handler::Path(p) => {
 				quote! {
-					::moonbeam::router::RouteHandler::call(&#p, req, &params, #state).await.into()
+					::moonbeam::router::RouteHandler::call(&#p, req, &params, spawner, #state).await.into()
 				}
 			}
 			Handler::Bang(_) => quote! {
@@ -595,7 +595,7 @@ fn generate_group_arm(group: &[&FinalRoute], state: &TokenStream) -> TokenStream
 			// Wrap with middlewares
 			for middleware in route.middleware_stack.iter().rev() {
 				call_chain = quote! {
-					#middleware(req, #state, |req| #call_chain)
+					#middleware(req, spawner, #state, |req| #call_chain)
 				};
 			}
 
