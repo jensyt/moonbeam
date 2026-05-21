@@ -66,7 +66,6 @@ async fn accept_loop<'s: 'e, 'e, T: Server>(
 	server: &'s T,
 	spawner: Spawner<'e>,
 ) {
-	use super::task_tracker::get_local_tracker;
 	use async_signal::{Signal, Signals};
 	use futures_lite::{FutureExt, StreamExt};
 	use std::{
@@ -102,7 +101,7 @@ async fn accept_loop<'s: 'e, 'e, T: Server>(
 		}
 	}
 
-	let wait_for_tasks = get_local_tracker().wait_until_empty(Duration::from_secs(60));
+	let wait_for_tasks = spawner.wait_until_empty(Duration::from_secs(60));
 
 	let force_shutdown = async {
 		if let Some(_signal) = signals.next().await {

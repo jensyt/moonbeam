@@ -21,7 +21,7 @@
 ///
 /// serve("127.0.0.1:8080", MyServer);
 /// ```
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, time::Duration};
 
 #[cfg(feature = "signals")]
 use crate::server::task_tracker::TaskTracker;
@@ -61,6 +61,21 @@ impl<'e> Spawner<'e> {
 				(*self.ex).executor.spawn(future).detach();
 			} else {
 				tracing::warn!("Attempting to spawn a task on an inactive executor");
+			}
+		}
+	}
+
+	#[allow(unused)]
+	pub(super) async fn wait_until_empty(self, timeout: Duration) {
+		// SAFETY:
+		// Tasks are owned by the LocalExecutor. They can only execute or be dropped while the
+		// Executor is valid in memory, so derefencing the pointers will always be valid here.
+		// The alive flag is toggled in the Executor's drop method, so as long as it returns true
+		// the executor is valid and the ex pointer is safe to dereference and use the tracker.
+		#[cfg(feature = "signals")]
+		unsafe {
+			if *self.alive {
+				(*self.ex).tracker.wait_until_empty(timeout).await
 			}
 		}
 	}
@@ -122,43 +137,4 @@ impl<'e> Drop for Executor<'e> {
 			*self.alive.get() = false;
 		}
 	}
-}
-
-pub(super) fn get_local_executor() -> &'static LocalExecutor<'static> {
-	thread_local! {
-		static EXECUTOR: LocalExecutor = const { LocalExecutor::new() };
-	}
-
-	EXECUTOR.with(|ex| {
-		// SAFETY: The thread-local executor lives for the entire thread lifetime
-		unsafe { std::mem::transmute(ex) }
-	})
-}
-
-/// Spawns a new task on the local executor.
-///
-/// This function spawns a task that runs on the current thread's executor.
-/// The task is detached and will run concurrently with other tasks.
-///
-/// If the `signals` feature is enabled, this task is tracked for graceful shutdown.
-#[cfg(feature = "signals")]
-pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
-	use super::task_tracker::get_local_tracker;
-
-	let guard = get_local_tracker().track();
-	get_local_executor()
-		.spawn(async {
-			let _guard = guard;
-			future.await
-		})
-		.detach();
-}
-
-/// Spawns a new task on the local executor.
-///
-/// This function spawns a task that runs on the current thread's executor.
-/// The task is detached and will run concurrently with other tasks.
-#[cfg(not(feature = "signals"))]
-pub fn new_local_task<T: 'static>(future: impl Future<Output = T> + 'static) {
-	get_local_executor().spawn(future).detach();
 }

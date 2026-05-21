@@ -24,9 +24,10 @@
 //! handles it locally.
 
 use super::task::Executor;
+#[cfg(feature = "signals")]
+use super::task::Spawner;
 use super::{Server, handle_socket};
 use crate::tracing;
-use async_executor::LocalExecutor;
 use async_net::{AsyncToSocketAddrs, TcpListener, TcpStream};
 use std::io::ErrorKind;
 use std::{net::SocketAddr, num::NonZeroUsize, thread};
@@ -89,7 +90,6 @@ fn serve_multi_impl<F, T: Server>(
 ) where
 	F: FnOnce() -> T + Send + Clone,
 {
-	use super::task_tracker::get_local_tracker;
 	use futures_lite::FutureExt;
 	use std::time::Duration;
 
@@ -126,7 +126,7 @@ fn serve_multi_impl<F, T: Server>(
 
 					tracing::debug!(id = _i, "Worker thread shutting down");
 
-					get_local_tracker()
+					spawner
 						.wait_until_empty(Duration::from_secs(60))
 						.or(async {
 							let _ = worker_force_shutdown.recv_async().await;
@@ -141,20 +141,19 @@ fn serve_multi_impl<F, T: Server>(
 		drop(worker_force_shutdown);
 		drop(worker_done_shutdown);
 
-		let executor = LocalExecutor::new();
-		executor
-			.spawn(async move {
-				let _ = all_workers_shutdown.recv_async().await;
-				tracing::debug!("All worker threads shut down");
-			})
-			.detach();
+		let executor = Executor::new();
+		let spawner = executor.spawner();
+		spawner.spawn(async move {
+			let _ = all_workers_shutdown.recv_async().await;
+			tracing::debug!("All worker threads shut down");
+		});
 
 		async_io::block_on(executor.run(async move {
 			let listener = TcpListener::bind(addr)
 				.await
 				.expect("Failed to bind to socket");
 
-			accept_loop(listener, send).await;
+			accept_loop(listener, send, spawner).await;
 		}));
 
 		tracing::debug!("Server shut down");
@@ -163,8 +162,11 @@ fn serve_multi_impl<F, T: Server>(
 }
 
 #[cfg(feature = "signals")]
-async fn accept_loop(listener: TcpListener, sender: flume::Sender<(TcpStream, SocketAddr)>) {
-	use super::task_tracker::get_local_tracker;
+async fn accept_loop(
+	listener: TcpListener,
+	sender: flume::Sender<(TcpStream, SocketAddr)>,
+	spawner: Spawner<'_>,
+) {
 	use async_signal::{Signal, Signals};
 	use futures_lite::{FutureExt, StreamExt};
 	use std::{io::Error, time::Duration};
@@ -200,7 +202,7 @@ async fn accept_loop(listener: TcpListener, sender: flume::Sender<(TcpStream, So
 	}
 	drop(sender);
 
-	let wait_for_tasks = get_local_tracker().wait_until_empty(Duration::from_secs(60));
+	let wait_for_tasks = spawner.wait_until_empty(Duration::from_secs(60));
 
 	let force_shutdown = async {
 		if let Some(_signal) = signals.next().await {

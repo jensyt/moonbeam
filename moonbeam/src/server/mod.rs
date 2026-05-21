@@ -104,17 +104,6 @@ where
 		request: Request,
 		spawner: Spawner<'e>,
 	) -> impl Future<Output = Response>;
-
-	/// Clean up resources.
-	///
-	/// # Safety
-	/// This function drops the static reference to self. It should only be called when the server
-	/// is shutting down.
-	unsafe fn destroy(&'static self) {
-		unsafe {
-			drop(Box::from_raw(&raw const *self as *mut Self));
-		}
-	}
 }
 
 macro_rules! socket_write {
