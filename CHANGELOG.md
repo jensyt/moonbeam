@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-21
+
 ### Added
 - `Spawner` and `Executor` types in `moonbeam::server::task` to manage asynchronous task execution without global state.
 - Handlers can now take `Spawner` as an argument to spawn tasks that live as long as the server or less.
