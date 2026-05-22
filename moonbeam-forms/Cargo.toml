@@ -1,6 +1,6 @@
 [package]
 name = "moonbeam-forms"
-version = "0.2.0"
+version = "0.3.0"
 description = "HTML form and multipart support for Moonbeam"
 edition.workspace = true
 authors.workspace = true
@@ -10,8 +10,8 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-moonbeam = { path = "../moonbeam", version = "0.6", default-features = false }
+moonbeam = { path = "../moonbeam", version = "0.7", default-features = false }
 httparse = "1.10"
 
 [dev-dependencies]
-moonbeam = { path = "../moonbeam", version = "0.6", features = ["router"] }
+moonbeam = { path = "../moonbeam", version = "0.7", features = ["router"] }
