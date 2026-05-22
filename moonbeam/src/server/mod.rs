@@ -44,6 +44,7 @@ mod compress;
 #[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
 pub mod mt;
 mod parsing;
+mod signal_gate;
 pub mod st;
 pub mod task;
 #[cfg(feature = "signals")]
