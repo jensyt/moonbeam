@@ -329,7 +329,7 @@ async fn accept_loop(
 	gate.wait_for_shutdown(spawner).await;
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tls"))]
 mod test {
 	use super::*;
 	use crate::http::{Body, Request, Response};
@@ -350,7 +350,6 @@ mod test {
 	}
 
 	#[test]
-	#[cfg(feature = "tls")]
 	fn test_serve_multi_tls() {
 		use async_net::TcpListener;
 		use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
