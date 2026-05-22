@@ -32,3 +32,4 @@
 - State extractors require passing a state parameter to a route or adding a generic (abusing Rust syntax)
 - Pass spawner to middleware
 - Standardize `serve` and `serve_multi` APIs to both use a factory closure
+- Implement TLS support via `rustls` (single-threaded and multi-threaded servers)

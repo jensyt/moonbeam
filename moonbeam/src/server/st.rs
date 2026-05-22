@@ -18,6 +18,8 @@ use super::task::{Executor, Spawner};
 use super::{Server, handle_socket};
 use crate::tracing;
 use async_net::{AsyncToSocketAddrs, TcpListener};
+#[cfg(feature = "tls")]
+use rustls::ServerConfig;
 use std::io::ErrorKind;
 
 /// Starts the server on the specified address using a single-threaded local executor.
@@ -94,6 +96,71 @@ async fn accept_loop<'s: 'e, 'e, T: Server>(
 	gate.wait_for_shutdown(spawner).await;
 }
 
+/// Serves a single-threaded HTTPS server using TLS.
+///
+/// Under the hood, TLS handshakes are processed asynchronously in spawned tasks
+/// to ensure that the accept loop is not blocked by slow TLS handshakes.
+#[cfg(feature = "tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+pub fn serve_tls<F, T>(addr: impl AsyncToSocketAddrs, tls_config: ServerConfig, factory: F)
+where
+	F: FnOnce() -> T,
+	T: Server,
+{
+	let server = factory();
+	let executor = Executor::new();
+	let spawner = executor.spawner();
+	async_io::block_on(executor.run(async {
+		let listener = TcpListener::bind(addr)
+			.await
+			.expect("Failed to bind to socket");
+		accept_loop_tls(listener, tls_config, &server, spawner).await;
+	}));
+}
+
+#[cfg(feature = "tls")]
+async fn accept_loop_tls<'s: 'e, 'e, T: Server>(
+	listener: TcpListener,
+	tls_config: ServerConfig,
+	server: &'s T,
+	spawner: Spawner<'e>,
+) {
+	use futures_rustls::TlsAcceptor;
+	use std::sync::Arc;
+
+	let mut gate = SignalGate::new();
+	let acceptor = TlsAcceptor::from(Arc::new(tls_config));
+
+	loop {
+		match gate.or_signal(listener.accept()).await {
+			Ok((socket, addr)) => {
+				let _ = socket.set_nodelay(true);
+				let acceptor = acceptor.clone();
+				spawner.spawn(async move {
+					match acceptor.accept(socket).await {
+						Ok(tls_stream) => {
+							handle_socket(tls_stream, addr, server, spawner).await;
+						}
+						Err(_err) => {
+							tracing::error!(?_err, "TLS handshake failed");
+						}
+					}
+				});
+			}
+			Err(err) => {
+				if err.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?err, "Got signal to shut down");
+				} else {
+					tracing::error!(?err, "Failed to accept connection, shutting down");
+				}
+				break;
+			}
+		}
+	}
+
+	gate.wait_for_shutdown(spawner).await;
+}
+
 #[cfg(test)]
 mod test {
 	use super::*;
@@ -146,6 +213,68 @@ mod test {
 			let response = std::str::from_utf8(&buf[..n]).unwrap();
 
 			assert!(response.contains("Hello /serve"));
+		});
+	}
+
+	#[test]
+	#[cfg(feature = "tls")]
+	fn test_serve_tls() {
+		use async_net::TcpListener;
+		use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+		use std::sync::Arc;
+		use std::time::Duration;
+
+		// Generate cert
+		let subject_alt_names = vec!["127.0.0.1".to_string(), "localhost".to_string()];
+		let cert = rcgen::generate_simple_self_signed(subject_alt_names).unwrap();
+		let cert_der = cert.cert.der().to_vec();
+		let key_der = cert.key_pair.serialize_der();
+
+		let certs = vec![CertificateDer::from(cert_der.clone())];
+		let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));
+		let server_config = rustls::ServerConfig::builder()
+			.with_no_client_auth()
+			.with_single_cert(certs, key)
+			.unwrap();
+
+		// Pick a random port
+		let addr = futures_lite::future::block_on(async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			listener.local_addr().unwrap()
+		});
+
+		// Spawn server in a thread
+		let server_config_clone = server_config.clone();
+		std::thread::spawn(move || {
+			serve_tls(addr, server_config_clone, || MockServer);
+		});
+
+		// Give it a moment to start
+		std::thread::sleep(Duration::from_millis(100));
+
+		// Connect as client
+		futures_lite::future::block_on(async {
+			let mut root_store = rustls::RootCertStore::empty();
+			root_store.add(CertificateDer::from(cert_der)).unwrap();
+			let client_config = rustls::ClientConfig::builder()
+				.with_root_certificates(root_store)
+				.with_no_client_auth();
+
+			let connector = futures_rustls::TlsConnector::from(Arc::new(client_config));
+			let stream = async_net::TcpStream::connect(addr).await.unwrap();
+			let domain = ServerName::try_from("127.0.0.1").unwrap();
+			let mut tls_stream = connector.connect(domain, stream).await.unwrap();
+
+			tls_stream
+				.write_all(b"GET /serve_tls HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let n = tls_stream.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("Hello /serve_tls"));
 		});
 	}
 }

@@ -28,6 +28,7 @@ Before building with Moonbeam, it's essential to understand its execution model:
 - **Panic Handling**: Optional `catchpanic` feature safely catches panics and returns a 500 error.
 - **Response Compression**: On-the-fly `compress` support (Gzip, Brotli, Zlib).
 - **Graceful Shutdown**: Intercepts `signals` for clean exit.
+- **TLS Support**: Secure your server with `rustls` (behind the `tls` feature).
 
 ## Is it fast?
 
@@ -77,6 +78,7 @@ Moonbeam is configurable via Cargo features. Most users will want the `default` 
 - `compress`: Enables automatic response compression. (Depends on `flate2` and `brotli`).
 - `router`: Enables the routing macros (`#[route]`, `#[middleware]`, and `router!`).
 - `mt`: Exposes `serve_multi` to run multiple independent server isolates across available CPU cores.
+- `tls`: Enables HTTPS support via `rustls`. Exposes `serve_tls`, `serve_multi_tls`, and `TlsConfig`.
 
 ## Configuration
 
@@ -160,6 +162,29 @@ fn main() {
             Worker(WorkerState { thread_id: id })
         }
     );
+}
+```
+
+### HTTPS Server (TLS)
+
+Secure your server using the `tls` feature.
+
+```rust,no_run
+use moonbeam::{Body, Request, Response, Spawner, server, TlsConfig, serve_tls};
+
+#[server(HelloWorld)]
+async fn serve(_request: Request, _spawner: Spawner<'_>) -> Response {
+    Response::ok().with_body("Hello, Secure World!", Body::TEXT)
+}
+
+fn main() {
+    let tls_config = TlsConfig::from_pem("cert.pem", "key.pem")
+        .expect("Failed to load TLS certificates")
+        .into_server_config()
+        .expect("Failed to create server config");
+
+    println!("Running HTTPS on 127.0.0.1:4433");
+    serve_tls("127.0.0.1:4433", tls_config, || HelloWorld);
 }
 ```
 

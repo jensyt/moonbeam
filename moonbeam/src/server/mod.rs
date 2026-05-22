@@ -50,6 +50,9 @@ pub mod task;
 #[cfg(feature = "signals")]
 #[cfg_attr(docsrs, doc(cfg(feature = "signals")))]
 mod task_tracker;
+#[cfg(feature = "tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+pub mod tls;
 
 /// Returns the maximum allowed size for an HTTP request body in bytes.
 ///

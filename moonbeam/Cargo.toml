@@ -27,6 +27,9 @@ moonbeam-attributes = {path = "../moonbeam-attributes", version = "0.4", optiona
 flate2 = {version = "1.1", optional = true}
 brotli = {version = "8", optional = true, features = ["std"]}
 flume = {version = "0.12", default-features = false, features = ["async"]}
+rustls = { version = "0.23", optional = true }
+futures-rustls = { version = "0.26", optional = true }
+rustls-pemfile = { version = "2.1", optional = true }
 
 [features]
 default = ["assets", "macros", "catchpanic", "signals", "router"]
@@ -39,6 +42,8 @@ compress = ["dep:flate2", "dep:brotli"]
 router = ["macros", "moonbeam-attributes/router", "moonbeam-attributes/autohead"]
 mt = []
 disable-simd = []
+tls = ["dep:rustls", "dep:futures-rustls", "dep:rustls-pemfile"]
 
 [dev-dependencies]
 piper = "0.2"
+rcgen = "0.13"
