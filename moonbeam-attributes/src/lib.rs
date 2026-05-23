@@ -19,6 +19,7 @@ use syn::{
 	FnArg, Ident, ItemFn, PathArguments, ReturnType, Type, TypeImplTrait, TypeReference,
 	parse::{Parse, ParseStream},
 	parse_macro_input, parse_quote,
+	spanned::Spanned,
 };
 
 #[cfg(feature = "router")]
@@ -105,38 +106,97 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 		};
 
 	if check_request(sig.inputs.first_mut()).is_none() {
-		return syn::Error::new_spanned(&input_fn.sig.inputs, "First parameter must be Request")
+		let span = sig
+			.inputs
+			.first()
+			.map(|f| f.span())
+			.unwrap_or_else(|| sig.inputs.span());
+		return syn::Error::new(span, "First parameter must be Request")
 			.to_compile_error()
 			.into();
 	}
 
 	let has_state = sig.inputs.len() > 2;
-	if check_spawner(sig.inputs.iter_mut().nth(1), has_state).is_none() {
-		return syn::Error::new_spanned(
-			input_fn.sig.inputs.iter().nth(1),
-			"Second parameter must be Spawner",
-		)
-		.to_compile_error()
-		.into();
-	}
-
-	let third_param = if has_state {
-		if check_state(sig.inputs.iter_mut().nth(2)).is_none() {
-			return syn::Error::new_spanned(&sig.inputs, "Third parameter must be: state: &State")
+	let spawner_lt = match check_spawner(sig.inputs.iter_mut().nth(1), has_state) {
+		Some(lt) => lt,
+		None => {
+			let span = sig
+				.inputs
+				.iter()
+				.nth(1)
+				.map(|f| f.span())
+				.unwrap_or_else(|| sig.inputs.span());
+			return syn::Error::new(span, "Second parameter must be Spawner")
 				.to_compile_error()
 				.into();
-		} else {
-			Some(get_state(input_fn.sig.inputs.iter().nth(2)))
+		}
+	};
+
+	let third_param = if has_state {
+		match check_state(sig.inputs.iter_mut().nth(2)) {
+			Some(lt) => {
+				// Inject lifetimes dynamically into generics
+				let mut existing_lifetimes = std::collections::HashSet::new();
+				for param in &input_fn.sig.generics.params {
+					if let syn::GenericParam::Lifetime(g_lt) = param {
+						existing_lifetimes.insert(g_lt.lifetime.ident.to_string());
+					}
+				}
+
+				if let Some(ref lt_e) = spawner_lt
+					&& !existing_lifetimes.contains(&lt_e.ident.to_string())
+				{
+					input_fn
+						.sig
+						.generics
+						.params
+						.push(syn::GenericParam::Lifetime(syn::LifetimeParam::new(
+							lt_e.clone(),
+						)));
+				}
+
+				if !existing_lifetimes.contains(&lt.ident.to_string()) {
+					let mut lt_param = syn::LifetimeParam::new(lt.clone());
+					if let Some(ref lt_e) = spawner_lt {
+						lt_param.bounds.push(lt_e.clone());
+					}
+					input_fn
+						.sig
+						.generics
+						.params
+						.push(syn::GenericParam::Lifetime(lt_param));
+				}
+
+				if let Some(ref lt_e) = spawner_lt {
+					for param in &mut input_fn.sig.generics.params {
+						if let syn::GenericParam::Lifetime(lt_param) = param
+							&& lt_param.lifetime.ident == lt.ident
+						{
+							if !lt_param.bounds.iter().any(|b| b.ident == lt_e.ident) {
+								lt_param.bounds.push(lt_e.clone());
+							}
+							break;
+						}
+					}
+				}
+
+				Some(get_state(input_fn.sig.inputs.iter().nth(2)))
+			}
+			None => {
+				let span = sig
+					.inputs
+					.iter()
+					.nth(2)
+					.map(|f| f.span())
+					.unwrap_or_else(|| sig.inputs.span());
+				return syn::Error::new(span, "Third parameter must be: state: &State")
+					.to_compile_error()
+					.into();
+			}
 		}
 	} else {
 		None
 	};
-
-	// Inject lifetime parameters on input if needed
-	if has_state && input_fn.sig.generics.lifetimes_mut().next().is_none() {
-		input_fn.sig.generics.params.push(parse_quote!('e));
-		input_fn.sig.generics.params.push(parse_quote!('s: 'e));
-	}
 
 	let fn_name = &input_fn.sig.ident;
 
@@ -203,35 +263,55 @@ fn check_request(arg: Option<&mut FnArg>) -> Option<()> {
 	}
 }
 
-fn check_spawner(arg: Option<&mut FnArg>, has_state: bool) -> Option<()> {
+fn check_spawner(arg: Option<&mut FnArg>, has_state: bool) -> Option<Option<syn::Lifetime>> {
 	if let FnArg::Typed(pat_type) = arg?
 		&& let Type::Path(type_path) = &mut *pat_type.ty
 		&& let segment = type_path.path.segments.last_mut()?
 		&& segment.ident == "Spawner"
 	{
-		if segment.arguments.is_empty() {
-			// Inject default lifetime parameters if needed
-			if has_state {
-				segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
-			} else {
-				segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'_>));
+		let mut spawner_lt = None;
+		let mut has_lifetime = false;
+		if let PathArguments::AngleBracketed(ab) = &segment.arguments {
+			for g_arg in &ab.args {
+				if let syn::GenericArgument::Lifetime(lt) = g_arg {
+					if lt.ident != "_" {
+						spawner_lt = Some(lt.clone());
+						has_lifetime = true;
+					}
+					break;
+				}
 			}
 		}
-		Some(())
+		if !has_lifetime && has_state {
+			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
+			spawner_lt = Some(parse_quote!('e));
+		} else if !has_lifetime {
+			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'_>));
+		}
+		Some(spawner_lt)
 	} else {
 		None
 	}
 }
 
-fn check_state(arg: Option<&mut FnArg>) -> Option<()> {
+fn check_state(arg: Option<&mut FnArg>) -> Option<syn::Lifetime> {
 	if let FnArg::Typed(pat_type) = arg?
 		&& let Type::Reference(type_ref) = &mut *pat_type.ty
 	{
-		if type_ref.lifetime.is_none() {
-			// Inject static lifetime if needed
-			type_ref.lifetime = Some(parse_quote!('s));
+		let mut state_lt = None;
+		let mut has_lifetime = false;
+		if let Some(lt) = &type_ref.lifetime
+			&& lt.ident != "_"
+		{
+			state_lt = Some(lt.clone());
+			has_lifetime = true;
 		}
-		Some(())
+		if !has_lifetime {
+			let lt: syn::Lifetime = parse_quote!('s);
+			type_ref.lifetime = Some(lt.clone());
+			state_lt = Some(lt);
+		}
+		Some(state_lt.unwrap_or_else(|| parse_quote!('s)))
 	} else {
 		None
 	}
