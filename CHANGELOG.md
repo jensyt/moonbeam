@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - TLS support via `rustls` (behind the `tls` cargo feature). Exposes `serve_tls` and `serve_multi_tls` functions for starting single-threaded or multi-threaded HTTPS servers.
 - `moonbeam::TlsConfig` helper to load certificates and private keys from PEM files.
+- Support for custom-named generic lifetimes and return types in `#[route]`, `#[server]`, and `#[middleware]` macros. Lifetimes and type parameters on `Request`, `Spawner`, and `State` parameters are dynamically extracted and merged with function generics, preventing unused lifetime warnings.
+- Better syntax validation and precise `syn::Error` compiler diagnostics with targeted spans for arguments in `#[route]`, `#[server]`, and `#[middleware]` macros.
+
+### Changed
+- Enforced strict parameter order (`Request, Spawner, State, Next`) and reference types for `State` in the `#[middleware]` macro.
 
 ## [0.7.0] - 2026-05-21
 

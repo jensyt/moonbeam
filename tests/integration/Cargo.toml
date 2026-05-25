@@ -53,5 +53,9 @@ name = "spawn"
 required-features = ["router"]
 
 [[test]]
+name = "custom_lifetimes"
+required-features = ["router"]
+
+[[test]]
 name = "state_extraction"
 required-features = ["router"]

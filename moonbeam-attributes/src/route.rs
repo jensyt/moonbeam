@@ -69,19 +69,37 @@ pub(super) fn route_impl(
 
 	let mut state_type: Option<Type> = args.state;
 
-	// First pass: Identify state type and update lifetimes
+	let mut spawner_lt: Option<syn::Lifetime> = None;
+	let mut state_lt: Option<syn::Lifetime> = None;
+
+	// First pass: Identify state type and update/extract lifetimes
 	for arg in &mut input_fn.sig.inputs {
 		if let FnArg::Typed(pat_type) = arg {
 			let ty = &mut pat_type.ty;
 
-			// Check for Request and Spawner and add lifetimes if needed
+			// Check for Request and Spawner and add/extract lifetimes if needed
 			if let Type::Path(type_path) = &mut **ty
 				&& let Some(s) = type_path.path.segments.last_mut()
 			{
 				if s.ident == "Request" && s.arguments.is_empty() {
 					s.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
-				} else if s.ident == "Spawner" && s.arguments.is_empty() {
-					s.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
+				} else if s.ident == "Spawner" {
+					let mut has_lifetime = false;
+					if let PathArguments::AngleBracketed(ab) = &s.arguments {
+						for g_arg in &ab.args {
+							if let syn::GenericArgument::Lifetime(lt) = g_arg {
+								if lt.ident != "_" {
+									spawner_lt = Some(lt.clone());
+									has_lifetime = true;
+								}
+								break;
+							}
+						}
+					}
+					if !has_lifetime {
+						s.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
+						spawner_lt = Some(parse_quote!('e));
+					}
 				}
 			}
 
@@ -90,8 +108,17 @@ pub(super) fn route_impl(
 				if state_type.is_none() {
 					state_type = Some(*type_ref.elem.clone());
 				}
-				if type_ref.lifetime.is_none() {
-					type_ref.lifetime = Some(parse_quote!('s));
+				let mut has_lifetime = false;
+				if let Some(lt) = &type_ref.lifetime
+					&& lt.ident != "_"
+				{
+					state_lt = Some(lt.clone());
+					has_lifetime = true;
+				}
+				if !has_lifetime {
+					let lt: syn::Lifetime = parse_quote!('s);
+					type_ref.lifetime = Some(lt.clone());
+					state_lt = Some(lt);
 				}
 			}
 		} else {
@@ -101,10 +128,49 @@ pub(super) fn route_impl(
 		}
 	}
 
-	if input_fn.sig.generics.lifetimes_mut().next().is_none() {
-		input_fn.sig.generics.params.push(parse_quote!('e));
-		if state_type.is_some() {
-			input_fn.sig.generics.params.push(parse_quote!('s: 'e));
+	let mut existing_lifetimes = std::collections::HashSet::new();
+	for param in &input_fn.sig.generics.params {
+		if let syn::GenericParam::Lifetime(lt) = param {
+			existing_lifetimes.insert(lt.lifetime.ident.to_string());
+		}
+	}
+
+	if let Some(ref lt) = spawner_lt
+		&& !existing_lifetimes.contains(&lt.ident.to_string())
+	{
+		input_fn
+			.sig
+			.generics
+			.params
+			.push(syn::GenericParam::Lifetime(syn::LifetimeParam::new(
+				lt.clone(),
+			)));
+	}
+
+	if let Some(ref lt_s) = state_lt
+		&& !existing_lifetimes.contains(&lt_s.ident.to_string())
+	{
+		let mut lt_param = syn::LifetimeParam::new(lt_s.clone());
+		if let Some(ref lt_e) = spawner_lt {
+			lt_param.bounds.push(lt_e.clone());
+		}
+		input_fn
+			.sig
+			.generics
+			.params
+			.push(syn::GenericParam::Lifetime(lt_param));
+	}
+
+	if let (Some(lt_s), Some(lt_e)) = (&state_lt, &spawner_lt) {
+		for param in &mut input_fn.sig.generics.params {
+			if let syn::GenericParam::Lifetime(lt_param) = param
+				&& lt_param.lifetime.ident == lt_s.ident
+			{
+				if !lt_param.bounds.iter().any(|b| b.ident == lt_e.ident) {
+					lt_param.bounds.push(lt_e.clone());
+				}
+				break;
+			}
 		}
 	}
 
