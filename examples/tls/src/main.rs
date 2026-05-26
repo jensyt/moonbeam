@@ -26,7 +26,7 @@ fn main() {
 		.expect("Failed to generate self-signed certificate");
 
 	let cert_der = cert.cert.der().to_vec();
-	let key_der = cert.key_pair.serialize_der();
+	let key_der = cert.signing_key.serialize_der();
 
 	let server_config = TlsConfig::from_raw(vec![cert_der], key_der)
 		.into_server_config()

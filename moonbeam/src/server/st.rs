@@ -228,7 +228,7 @@ mod test {
 		let subject_alt_names = vec!["127.0.0.1".to_string(), "localhost".to_string()];
 		let cert = rcgen::generate_simple_self_signed(subject_alt_names).unwrap();
 		let cert_der = cert.cert.der().to_vec();
-		let key_der = cert.key_pair.serialize_der();
+		let key_der = cert.signing_key.serialize_der();
 
 		let certs = vec![CertificateDer::from(cert_der.clone())];
 		let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der));

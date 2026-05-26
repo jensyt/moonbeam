@@ -46,4 +46,4 @@ tls = ["dep:rustls", "dep:futures-rustls", "dep:rustls-pemfile"]
 
 [dev-dependencies]
 piper = "0.2"
-rcgen = "0.13"
+rcgen = "0.14"
