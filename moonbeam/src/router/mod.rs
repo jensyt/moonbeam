@@ -39,6 +39,7 @@ pub trait RouteHandler<S> {
 	///
 	/// * `req` - The incoming HTTP request.
 	/// * `params` - A slice of path parameter values extracted from the URL.
+	/// * `spawner` - A spawner for asynchronous task execution.
 	/// * `state` - A reference to the application state.
 	fn call<'b, 's: 'e, 'e>(
 		&self,

@@ -56,6 +56,19 @@ Yes. Moonbeam is designed for high performance with minimal overhead. In simple 
 | Rouille | Thread-per-connection | ~56,000 |
 | Node.js | Single-Threaded | ~51,000 |
 
+### Build Times & Install Size
+
+Moonbeam also offers relatively fast compilation times and a small disk footprint. For the simple benchmarks:
+
+| Framework | Clean Build Time | Install Size (Avg) |
+| :--- | :--- | :--- |
+| **Moonbeam** | **~4.6s** | **~926 KB** |
+| Axum (Tokio) | ~8.6s | ~1.6 MB |
+| Rouille | ~8.9s | ~933 KB |
+| Node.js | 0s | ~78 MB |
+
+*Note: The Node.js benchmark does not require any build step and relies entirely on built-in standard library modules. However, the Node.js runtime itself typically requires an installation footprint of around 50–100 MB depending on the platform.*
+
 ## Installation
 
 Add `moonbeam` to your `Cargo.toml`:
