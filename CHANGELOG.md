@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-25
+
 ### Added
 - TLS support via `rustls` (behind the `tls` cargo feature). Exposes `serve_tls` and `serve_multi_tls` functions for starting single-threaded or multi-threaded HTTPS servers.
 - `moonbeam::TlsConfig` helper to load certificates and private keys from PEM files.
