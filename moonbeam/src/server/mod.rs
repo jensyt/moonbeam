@@ -56,10 +56,9 @@ pub mod tls;
 
 /// Returns the maximum allowed size for an HTTP request body in bytes.
 ///
-/// This value is read from the `MOONBEAM_MAX_BODY_SIZE` environment variable,
-/// which is expected to be in Kilobytes (KB).
-/// If the variable is not set or cannot be parsed as a `usize`, it defaults to 1024 KB (1MB).
-/// The value is cached after the first read for performance.
+/// This value is read from the `MOONBEAM_MAX_BODY_SIZE` environment variable, which is expected to
+/// be in Kilobytes (KB). If the variable is not set or cannot be parsed as a `usize`, it defaults
+/// to 1024 KB (1MB). The value is cached after the first read for performance.
 fn max_body_size() -> usize {
 	static SIZE: OnceLock<usize> = OnceLock::new();
 	*SIZE.get_or_init(|| {
@@ -78,9 +77,9 @@ fn max_body_size() -> usize {
 ///
 /// A note on lifetimes: the server instance is guaranteed to outlive the executor that runs
 /// requests, which lets you spawn sub-tasks that can safely reference the server. Unfortunately,
-/// this requires adding lifetime annotations to the `route` function (`<'s: 'e, 'e>`) and others
-/// it calls that may want to spawn sub-tasks. The `#[server]` and `router!` macros handle these
-/// lifetimes automatically.
+/// this requires adding lifetime annotations to the `route` function (`<'server: 'exec, 'exec>`)
+/// and others it calls that may want to spawn sub-tasks. The `#[server]` and `router!` macros
+/// handle these lifetimes automatically.
 ///
 /// # Example
 /// ```
@@ -89,10 +88,10 @@ fn max_body_size() -> usize {
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     async fn route<'s: 'e, 'e>(
-///         &'s self,
+///     async fn route<'server: 'exec, 'exec>(
+///         &'server self,
 ///         _req: Request<'_, '_>,
-///         _spawner: Spawner<'e>) -> Response
+///         _spawner: Spawner<'exec>) -> Response
 ///     {
 ///         Response::ok()
 ///     }
@@ -103,10 +102,10 @@ where
 	Self: Sized,
 {
 	/// Handles an incoming HTTP request and returns a future that resolves to a response.
-	fn route<'s: 'e, 'e>(
-		&'s self,
+	fn route<'server: 'exec, 'exec>(
+		&'server self,
 		request: Request,
-		spawner: Spawner<'e>,
+		spawner: Spawner<'exec>,
 	) -> impl Future<Output = Response>;
 }
 
@@ -133,11 +132,11 @@ macro_rules! socket_write {
 /// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
 /// * `addr` - The remote address of the connection (used for logging only).
 /// * `router` - The server implementation to route requests to.
-async fn handle_socket<'r: 'e, 'e, R: Server, S>(
+async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 	mut socket: S,
 	_addr: SocketAddr,
-	router: &'r R,
-	spawner: Spawner<'e>,
+	router: &'server R,
+	spawner: Spawner<'exec>,
 ) where
 	S: AsyncRead + AsyncWrite + Unpin + 'static,
 {
@@ -240,13 +239,13 @@ async fn handle_socket<'r: 'e, 'e, R: Server, S>(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn process_request<'b, 'r: 'e, 'e, R: Server, S>(
-	mut req: Request<'_, 'b>,
+async fn process_request<'buf, 'server: 'exec, 'exec, R: Server, S>(
+	mut req: Request<'_, 'buf>,
 	socket: &mut S,
-	router: &'r R,
-	spawner: Spawner<'e>,
+	router: &'server R,
+	spawner: Spawner<'exec>,
 	respbuf: &mut [u8],
-	body: &'b mut [u8],
+	body: &'buf mut [u8],
 	valid_body_len: usize,
 	contentlength: usize,
 	_start_time: Instant,
@@ -368,13 +367,13 @@ where
 	Ok(())
 }
 
-async fn read_from_socket<R>(
-	socket: &mut R,
+async fn read_from_socket<S>(
+	socket: &mut S,
 	buf: &mut [u8],
 	total: usize,
 ) -> Result<(usize, usize), Option<Response>>
 where
-	R: AsyncRead + Unpin,
+	S: AsyncRead + Unpin,
 {
 	match socket
 		.read(buf)
@@ -423,10 +422,10 @@ fn write_sanitized<W: Write>(mut writer: W, s: &str) -> Result<(), Error> {
 	writer.write_all(&bytes[last..])
 }
 
-fn write_response<'b>(
+fn write_response<'buf>(
 	response: &Response,
-	buffer: &'b mut [u8],
-) -> Result<(&'b [u8], &'b mut [u8]), Error> {
+	buffer: &'buf mut [u8],
+) -> Result<(&'buf [u8], &'buf mut [u8]), Error> {
 	let mut writer = &mut buffer[..];
 
 	write!(
@@ -629,9 +628,9 @@ where
 	Ok(())
 }
 
-async fn write_error_response<W>(socket: &mut W, response: Response, buffer: &mut [u8])
+async fn write_error_response<S>(socket: &mut S, response: Response, buffer: &mut [u8])
 where
-	W: AsyncWrite + Unpin,
+	S: AsyncWrite + Unpin,
 {
 	let (head, _) = match write_response(&response, buffer) {
 		Ok(buf) => buf,

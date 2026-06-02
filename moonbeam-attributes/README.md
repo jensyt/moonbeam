@@ -33,7 +33,7 @@ The function can be `async` or return `impl Future`.
 use moonbeam::{Body, Request, Response, Spawner, server, serve};
 
 #[server(MyServer)]
-async fn handle_request(_req: Request, _spawner: Spawner<'_>) -> Response {
+async fn handle_request(_req: Request, _spawner: Spawner) -> Response {
     Response::ok().with_body("Hello, World!", Body::TEXT)
 }
 
@@ -53,7 +53,7 @@ struct State {
 }
 
 #[server(MyStatefulServer)]
-async fn handle_request(_req: Request, _spawner: Spawner<'_>, state: &State) -> Response {
+async fn handle_request(_req: Request, _spawner: Spawner, state: &State) -> Response {
     let count = state.count.fetch_add(1, Ordering::Relaxed);
     Response::ok().with_body(format!("Request count: {}", count), Body::TEXT)
 }

@@ -30,13 +30,13 @@
 /// assert_eq!(cookies.find("user"), Some(b"alice" as &[u8]));
 /// assert_eq!(cookies.find("session"), Some(b"123" as &[u8]));
 /// ```
-pub struct Cookies<'a> {
-	cookies: &'a [u8],
+pub struct Cookies<'buf> {
+	cookies: &'buf [u8],
 }
 
-impl<'a> Cookies<'a> {
+impl<'buf> Cookies<'buf> {
 	/// Creates a new `Cookies` helper from the Cookie header value.
-	pub fn new(cookies: Option<&'a [u8]>) -> Self {
+	pub fn new(cookies: Option<&'buf [u8]>) -> Self {
 		Cookies {
 			cookies: cookies.unwrap_or(b""),
 		}
@@ -53,7 +53,7 @@ impl<'a> Cookies<'a> {
 	/// let cookies = Cookies::new(Some(b"user=\"alice\""));
 	/// assert_eq!(cookies.find("user"), Some(b"alice" as &[u8]));
 	/// ```
-	pub fn find(&self, cookie: &str) -> Option<&'a [u8]> {
+	pub fn find(&self, cookie: &str) -> Option<&'buf [u8]> {
 		for mut c in self.cookies.split(|&v| v == b';') {
 			// Strip all leading whitespace
 			while let Some((b' ', rest)) = c.split_first() {

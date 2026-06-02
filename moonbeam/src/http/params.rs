@@ -32,13 +32,13 @@ use std::borrow::Cow;
 /// let params = Params::new("key=value");
 /// assert_eq!(params.find("key").next(), Some(Cow::Borrowed("value")));
 /// ```
-pub struct Params<'a> {
-	params: &'a str,
+pub struct Params<'buf> {
+	params: &'buf str,
 }
 
-impl<'a> Params<'a> {
+impl<'buf> Params<'buf> {
 	/// Creates a new `Params` helper from the query string.
-	pub fn new(params: &'a str) -> Self {
+	pub fn new(params: &'buf str) -> Self {
 		Params { params }
 	}
 
@@ -55,7 +55,7 @@ impl<'a> Params<'a> {
 	/// assert_eq!(a.next(), Some(Cow::Borrowed("3")));
 	/// assert_eq!(a.next(), None);
 	/// ```
-	pub fn find<'b>(&self, param: &'b str) -> ParamIter<'a, 'b> {
+	pub fn find<'p>(&self, param: &'p str) -> ParamIter<'buf, 'p> {
 		ParamIter::new(self.params, param)
 	}
 
@@ -72,7 +72,7 @@ impl<'a> Params<'a> {
 	/// assert_eq!(it.next(), Some((Cow::Borrowed("b"), Cow::Borrowed("2"))));
 	/// assert_eq!(it.next(), None);
 	/// ```
-	pub fn iter(&self) -> AllParamIter<'a> {
+	pub fn iter(&self) -> AllParamIter<'buf> {
 		AllParamIter {
 			remaining: self.params,
 		}
@@ -80,12 +80,12 @@ impl<'a> Params<'a> {
 }
 
 /// Iterator over all query parameters as key-value pairs.
-pub struct AllParamIter<'a> {
-	remaining: &'a str,
+pub struct AllParamIter<'buf> {
+	remaining: &'buf str,
 }
 
-impl<'a> Iterator for AllParamIter<'a> {
-	type Item = (Cow<'a, str>, Cow<'a, str>);
+impl<'buf> Iterator for AllParamIter<'buf> {
+	type Item = (Cow<'buf, str>, Cow<'buf, str>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.remaining.is_empty() {
@@ -107,21 +107,21 @@ impl<'a> Iterator for AllParamIter<'a> {
 	}
 }
 
-impl<'a> AllParamIter<'a> {
+impl<'buf> AllParamIter<'buf> {
 	/// Creates a new `AllParamIter` to iterate all parameters.
-	pub fn new(params: &'a str) -> Self {
+	pub fn new(params: &'buf str) -> Self {
 		Self { remaining: params }
 	}
 }
 
 /// Iterator over values for a specific query parameter.
-pub struct ParamIter<'a, 'b> {
-	remaining: &'a str,
-	filter: &'b str,
+pub struct ParamIter<'buf, 'param> {
+	remaining: &'buf str,
+	filter: &'param str,
 }
 
-impl<'a, 'b> Iterator for ParamIter<'a, 'b> {
-	type Item = Cow<'a, str>;
+impl<'buf, 'param> Iterator for ParamIter<'buf, 'param> {
+	type Item = Cow<'buf, str>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		while !self.remaining.is_empty() {
@@ -148,9 +148,9 @@ impl<'a, 'b> Iterator for ParamIter<'a, 'b> {
 	}
 }
 
-impl<'a, 'b> ParamIter<'a, 'b> {
+impl<'buf, 'param> ParamIter<'buf, 'param> {
 	/// Creates a new `ParamIter` to filter the given query string by parameter name.
-	pub fn new(params: &'a str, filter: &'b str) -> Self {
+	pub fn new(params: &'buf str, filter: &'param str) -> Self {
 		Self {
 			remaining: params,
 			filter,
@@ -158,7 +158,7 @@ impl<'a, 'b> ParamIter<'a, 'b> {
 	}
 
 	/// Returns the parameter name being filtered for.
-	pub fn name(&self) -> &'b str {
+	pub fn name(&self) -> &'param str {
 		self.filter
 	}
 }

@@ -202,10 +202,10 @@ impl std::fmt::Debug for ParseError {
 	}
 }
 
-pub(super) fn parse_http_request<'buf, 'header>(
+pub(super) fn parse_http_request<'buf, 'headers>(
 	buffer: &'buf [u8],
-	headers: &'header mut [MaybeUninit<Header<'buf>>],
-) -> Result<Request<'header, 'buf>, ParseError> {
+	headers: &'headers mut [MaybeUninit<Header<'buf>>],
+) -> Result<Request<'headers, 'buf>, ParseError> {
 	let mut req = RawRequest::new(&mut []);
 	match req.parse_with_uninit_headers(buffer, headers) {
 		Ok(Status::Partial) => Err(ParseError::NoEndFound),
@@ -231,25 +231,6 @@ pub(super) fn get_important_headers(request: &Request) -> (usize, bool) {
 	}
 	(contentlength, close)
 }
-
-// pub(super) fn get_contentlength(request: &Request) -> usize {
-// 	request
-// 		.headers
-// 		.iter()
-// 		.find(|h| h.name.eq_ignore_ascii_case("content-length"))
-// 		.and_then(|h| std::str::from_utf8(h.value).ok())
-// 		.and_then(|v| v.parse().ok())
-// 		.unwrap_or(0)
-// }
-
-// pub(super) fn get_connectionclose(request: &Request) -> bool {
-// 	request
-// 		.headers
-// 		.iter()
-// 		.find(|h| h.name.eq_ignore_ascii_case("connection"))
-// 		.and_then(|h| std::str::from_utf8(h.value).ok())
-// 		.map_or(false, |v| v.eq_ignore_ascii_case("close"))
-// }
 
 #[cfg(test)]
 mod tests {

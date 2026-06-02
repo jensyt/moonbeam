@@ -94,13 +94,13 @@ pub struct Form<T>(pub T);
 /// }
 /// ```
 #[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct File<'a> {
+pub struct File<'buf> {
 	/// The original filename provided by the client, if any.
-	pub name: Option<Cow<'a, str>>,
+	pub name: Option<Cow<'buf, str>>,
 	/// The content type of the file, if any.
-	pub content_type: Option<Cow<'a, str>>,
+	pub content_type: Option<Cow<'buf, str>>,
 	/// The raw bytes of the file.
-	pub data: &'a [u8],
+	pub data: &'buf [u8],
 }
 
 /// An error that can occur when deserializing a form.
@@ -147,10 +147,10 @@ impl std::fmt::Display for SerdeFormError {
 
 impl std::error::Error for SerdeFormError {}
 
-impl<'a, T: Deserialize<'a>> TryFrom<Request<'_, 'a>> for Form<T> {
+impl<'buf, T: Deserialize<'buf>> TryFrom<Request<'_, 'buf>> for Form<T> {
 	type Error = SerdeFormError;
 
-	fn try_from(req: Request<'_, 'a>) -> Result<Self, Self::Error> {
+	fn try_from(req: Request<'_, 'buf>) -> Result<Self, Self::Error> {
 		let raw_form = RawForm::try_from(req).map_err(SerdeFormError::FormError)?;
 		let mut map = BTreeMap::new();
 
@@ -189,27 +189,27 @@ impl<'a, T: Deserialize<'a>> TryFrom<Request<'_, 'a>> for Form<T> {
 	}
 }
 
-impl<'a, T: Deserialize<'a>, S> FromRequest<'_, 'a, '_, S> for Form<T> {
+impl<'buf, T: Deserialize<'buf>, S> FromRequest<'_, 'buf, '_, S> for Form<T> {
 	type Error = Response;
 
-	async fn from_request(req: Request<'_, 'a>, _state: &S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'_, 'buf>, _state: &S) -> Result<Self, Self::Error> {
 		Form::try_from(req).map_err(|e| e.into())
 	}
 }
 
 #[derive(Debug)]
-enum Value<'a> {
-	Text(Cow<'a, str>),
-	File(File<'a>),
+enum Value<'buf> {
+	Text(Cow<'buf, str>),
+	File(File<'buf>),
 }
 
-struct FormDeserializer<'a> {
-	iter: std::collections::btree_map::IntoIter<Cow<'a, str>, Vec<Value<'a>>>,
-	current_value: Option<Vec<Value<'a>>>,
+struct FormDeserializer<'buf> {
+	iter: std::collections::btree_map::IntoIter<Cow<'buf, str>, Vec<Value<'buf>>>,
+	current_value: Option<Vec<Value<'buf>>>,
 }
 
-impl<'a> FormDeserializer<'a> {
-	fn new(map: BTreeMap<Cow<'a, str>, Vec<Value<'a>>>) -> Self {
+impl<'buf> FormDeserializer<'buf> {
+	fn new(map: BTreeMap<Cow<'buf, str>, Vec<Value<'buf>>>) -> Self {
 		Self {
 			iter: map.into_iter(),
 			current_value: None,
@@ -217,12 +217,12 @@ impl<'a> FormDeserializer<'a> {
 	}
 }
 
-impl<'de> de::Deserializer<'de> for FormDeserializer<'de> {
+impl<'buf> de::Deserializer<'buf> for FormDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		Err(de::Error::custom(
 			"form deserialization only supported for structs",
@@ -236,24 +236,25 @@ impl<'de> de::Deserializer<'de> for FormDeserializer<'de> {
 		visitor: V,
 	) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		visitor.visit_map(self)
 	}
 
 	forward_to_deserialize_any! {
+		<V: Visitor<'buf>>
 		bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
 		option unit unit_struct newtype_struct seq tuple bytes byte_buf
 		tuple_struct map enum identifier ignored_any
 	}
 }
 
-impl<'de> de::MapAccess<'de> for FormDeserializer<'de> {
+impl<'buf> de::MapAccess<'buf> for FormDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
 	where
-		K: de::DeserializeSeed<'de>,
+		K: de::DeserializeSeed<'buf>,
 	{
 		match self.iter.next() {
 			Some((key, value)) => {
@@ -266,7 +267,7 @@ impl<'de> de::MapAccess<'de> for FormDeserializer<'de> {
 
 	fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
 	where
-		V: de::DeserializeSeed<'de>,
+		V: de::DeserializeSeed<'buf>,
 	{
 		let values = self
 			.current_value
@@ -276,21 +277,21 @@ impl<'de> de::MapAccess<'de> for FormDeserializer<'de> {
 	}
 }
 
-struct KeyDeserializer<'a>(Cow<'a, str>);
+struct KeyDeserializer<'buf>(Cow<'buf, str>);
 
-impl<'de> de::Deserializer<'de> for KeyDeserializer<'de> {
+impl<'buf> de::Deserializer<'buf> for KeyDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		Err(de::Error::custom("keys must be identifiers"))
 	}
 
 	fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match self.0 {
 			Cow::Borrowed(s) => visitor.visit_borrowed_str(s),
@@ -299,19 +300,20 @@ impl<'de> de::Deserializer<'de> for KeyDeserializer<'de> {
 	}
 
 	forward_to_deserialize_any! {
+		<V: Visitor<'buf>>
 		bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
 		option unit unit_struct newtype_struct seq tuple struct bytes byte_buf
 		tuple_struct map enum ignored_any
 	}
 }
 
-struct ValuesDeserializer<'a>(std::vec::IntoIter<Value<'a>>);
+struct ValuesDeserializer<'buf>(std::vec::IntoIter<Value<'buf>>);
 
 macro_rules! impl_values_deserialize {
 	($name:ident) => {
 		fn $name<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 		where
-			V: Visitor<'de>,
+			V: Visitor<'buf>,
 		{
 			match self.0.last() {
 				Some(v) => ValueDeserializer(v).$name(visitor),
@@ -323,7 +325,7 @@ macro_rules! impl_values_deserialize {
 	};
 }
 
-impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
+impl<'buf> de::Deserializer<'buf> for ValuesDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	impl_values_deserialize!(deserialize_any);
@@ -346,7 +348,7 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 
 	fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		eprintln!("seq");
 		visitor.visit_seq(self)
@@ -359,7 +361,7 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 		visitor: V,
 	) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match self.0.last() {
 			Some(v) => ValueDeserializer(v).deserialize_struct(name, fields, visitor),
@@ -375,7 +377,7 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 		visitor: V,
 	) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match self.0.last() {
 			Some(v) => visitor.visit_newtype_struct(ValueDeserializer(v)),
@@ -387,7 +389,7 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 
 	fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match self.0.last() {
 			Some(v) => visitor.visit_some(ValueDeserializer(v)),
@@ -396,18 +398,19 @@ impl<'de> de::Deserializer<'de> for ValuesDeserializer<'de> {
 	}
 
 	forward_to_deserialize_any! {
+		<V: Visitor<'buf>>
 		str string
 		unit unit_struct tuple
 		tuple_struct map enum identifier ignored_any
 	}
 }
 
-impl<'de> de::SeqAccess<'de> for ValuesDeserializer<'de> {
+impl<'buf> de::SeqAccess<'buf> for ValuesDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
 	where
-		T: de::DeserializeSeed<'de>,
+		T: de::DeserializeSeed<'buf>,
 	{
 		match self.0.next() {
 			Some(v) => seed.deserialize(ValueDeserializer(v)).map(Some),
@@ -416,14 +419,14 @@ impl<'de> de::SeqAccess<'de> for ValuesDeserializer<'de> {
 	}
 }
 
-struct ValueDeserializer<'a>(Value<'a>);
+struct ValueDeserializer<'buf>(Value<'buf>);
 
 macro_rules! impl_value_deserialize {
 	($type:ty) => {
 		paste! {
 			fn [< deserialize_ $type >]<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 			where
-				V: Visitor<'de>,
+				V: Visitor<'buf>,
 			{
 				if let Value::Text(t) = &self.0 {
 					if let Ok(v) = t.parse::<$type>() {
@@ -436,12 +439,12 @@ macro_rules! impl_value_deserialize {
 	};
 }
 
-impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
+impl<'buf> de::Deserializer<'buf> for ValueDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match self.0 {
 			Value::Text(t) => match t {
@@ -454,7 +457,7 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 
 	fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		visitor.visit_some(self)
 	}
@@ -466,7 +469,7 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 		visitor: V,
 	) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		if name == "File" {
 			match self.0 {
@@ -488,14 +491,14 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 		visitor: V,
 	) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		visitor.visit_newtype_struct(self)
 	}
 
 	fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		if let Value::Text(t) = &self.0 {
 			match t.as_ref() {
@@ -509,7 +512,7 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 
 	fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		if let Value::Text(t) = &self.0 {
 			match t {
@@ -531,7 +534,7 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 
 	fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match self.0 {
 			Value::Text(t) => match t {
@@ -544,7 +547,7 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 
 	fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		self.deserialize_bytes(visitor)
 	}
@@ -563,46 +566,48 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer<'de> {
 	impl_value_deserialize!(f64);
 
 	forward_to_deserialize_any! {
+		<V: Visitor<'buf>>
 		str string
 		unit unit_struct seq tuple
 		tuple_struct map enum identifier ignored_any
 	}
 }
 
-struct FileDeserializer<'a> {
-	file: File<'a>,
+struct FileDeserializer<'buf> {
+	file: File<'buf>,
 	state: u8,
 }
 
-impl<'a> FileDeserializer<'a> {
-	fn new(file: File<'a>) -> Self {
+impl<'buf> FileDeserializer<'buf> {
+	fn new(file: File<'buf>) -> Self {
 		Self { file, state: 0 }
 	}
 }
 
-impl<'de> de::Deserializer<'de> for FileDeserializer<'de> {
+impl<'buf> de::Deserializer<'buf> for FileDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		visitor.visit_map(self)
 	}
 
 	forward_to_deserialize_any! {
+		<V: Visitor<'buf>>
 		bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
 		struct option unit unit_struct seq tuple bytes byte_buf newtype_struct
 		tuple_struct map enum identifier ignored_any
 	}
 }
 
-impl<'de> de::MapAccess<'de> for FileDeserializer<'de> {
+impl<'buf> de::MapAccess<'buf> for FileDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
 	where
-		K: de::DeserializeSeed<'de>,
+		K: de::DeserializeSeed<'buf>,
 	{
 		match self.state {
 			0 => {
@@ -624,7 +629,7 @@ impl<'de> de::MapAccess<'de> for FileDeserializer<'de> {
 
 	fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
 	where
-		V: de::DeserializeSeed<'de>,
+		V: de::DeserializeSeed<'buf>,
 	{
 		match self.state {
 			1 => {
@@ -644,21 +649,21 @@ impl<'de> de::MapAccess<'de> for FileDeserializer<'de> {
 	}
 }
 
-struct SimpleOptionDeserializer<'a>(Option<Cow<'a, str>>);
+struct SimpleOptionDeserializer<'buf>(Option<Cow<'buf, str>>);
 
-impl<'de> de::Deserializer<'de> for SimpleOptionDeserializer<'de> {
+impl<'buf> de::Deserializer<'buf> for SimpleOptionDeserializer<'buf> {
 	type Error = SerdeFormError;
 
 	fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		Err(de::Error::custom("Expected Option"))
 	}
 
 	fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match &self.0 {
 			Some(_) => visitor.visit_some(self),
@@ -668,7 +673,7 @@ impl<'de> de::Deserializer<'de> for SimpleOptionDeserializer<'de> {
 
 	fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		match self.0 {
 			Some(Cow::Borrowed(v)) => visitor.visit_borrowed_str(v),
@@ -681,12 +686,13 @@ impl<'de> de::Deserializer<'de> for SimpleOptionDeserializer<'de> {
 
 	fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
 	where
-		V: Visitor<'de>,
+		V: Visitor<'buf>,
 	{
 		self.deserialize_str(visitor)
 	}
 
 	forward_to_deserialize_any! {
+		<V: Visitor<'buf>>
 		bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char
 		unit unit_struct newtype_struct seq tuple bytes byte_buf struct
 		tuple_struct map enum identifier ignored_any

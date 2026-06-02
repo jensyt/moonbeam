@@ -63,10 +63,10 @@ pub enum ThreadCount {
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     async fn route<'s: 'e, 'e>(
-///         &'s self,
+///     async fn route<'server: 'exec, 'exec>(
+///         &'server self,
 ///         _req: Request<'_, '_>,
-///         _spawner: Spawner<'e>,
+///         _spawner: Spawner<'exec>,
 ///     ) -> Response {
 ///         Response::ok()
 ///     }
@@ -79,8 +79,11 @@ pub enum ThreadCount {
 /// );
 /// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
-pub fn serve_multi<F, T: Server>(addr: impl AsyncToSocketAddrs, num_threads: ThreadCount, server: F)
-where
+pub fn serve_multi<F, T: Server>(
+	addr: impl AsyncToSocketAddrs,
+	num_threads: ThreadCount,
+	factory: F,
+) where
 	F: FnOnce() -> T + Send + Clone,
 {
 	let _span = tracing::trace_span!("thread", id = "main").entered();
@@ -93,7 +96,7 @@ where
 			make_signals();
 
 		for _i in 0..num_threads {
-			let server = server.clone();
+			let server = factory.clone();
 			let worker_done_shutdown = worker_done_shutdown.clone();
 			let worker_force_shutdown = worker_force_shutdown.clone();
 			let recv = recv.clone();
@@ -211,7 +214,7 @@ pub fn serve_multi_tls<F, T: Server>(
 	addr: impl AsyncToSocketAddrs,
 	num_threads: ThreadCount,
 	tls_config: ServerConfig,
-	server: F,
+	factory: F,
 ) where
 	F: FnOnce() -> T + Send + Clone,
 {
@@ -229,7 +232,7 @@ pub fn serve_multi_tls<F, T: Server>(
 
 		let acceptor = TlsAcceptor::from(Arc::new(tls_config));
 		for _i in 0..num_threads {
-			let server = server.clone();
+			let server = factory.clone();
 			let worker_done_shutdown = worker_done_shutdown.clone();
 			let worker_force_shutdown = worker_force_shutdown.clone();
 			let recv = recv.clone();

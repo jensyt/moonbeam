@@ -39,19 +39,19 @@ impl TaskTracker {
 	}
 }
 
-pub(super) struct TaskGuard<'a> {
-	tracker: &'a TaskTracker,
+pub(super) struct TaskGuard<'t> {
+	tracker: &'t TaskTracker,
 }
 
-impl<'a> TaskGuard<'a> {
-	pub fn new(tracker: &'a TaskTracker) -> Self {
+impl<'t> TaskGuard<'t> {
+	pub fn new(tracker: &'t TaskTracker) -> Self {
 		tracker.count.set(tracker.count.get() + 1);
 		tracing::trace!(count = tracker.count.get(), "Task guard created");
 		TaskGuard { tracker }
 	}
 }
 
-impl<'a> Drop for TaskGuard<'a> {
+impl<'t> Drop for TaskGuard<'t> {
 	fn drop(&mut self) {
 		self.tracker.count.set(self.tracker.count.get() - 1);
 		tracing::trace!(count = self.tracker.count.get(), "Task guard dropped");

@@ -33,16 +33,16 @@ use async_executor::LocalExecutor;
 /// Spawners can be cheaply cloned and passed around. Tasks spawned via a `Spawner` are owned by the
 /// parent `Executor` and will be dropped when the executor is dropped.
 #[derive(Clone, Copy)]
-pub struct Spawner<'e> {
-	ex: *const Executor<'e>,
+pub struct Spawner<'exec> {
+	ex: *const Executor<'exec>,
 	alive: *mut bool,
 }
 
-impl<'e> Spawner<'e> {
+impl<'exec> Spawner<'exec> {
 	/// Spawns a task onto the executor.
 	///
 	/// The task is detached and will run to completion (or until the executor is dropped).
-	pub fn spawn<T: 'e>(&self, future: impl Future<Output = T> + 'e) {
+	pub fn spawn<T: 'exec>(&self, future: impl Future<Output = T> + 'exec) {
 		// SAFETY:
 		// Tasks are owned by the LocalExecutor. They can only execute or be dropped while the
 		// Executor is valid in memory, so derefencing the pointers will always be valid here.
@@ -88,21 +88,21 @@ impl<'e> Spawner<'e> {
 ///
 /// This type is primarily exposed for testing and debugging purposes. Moonbeam manages the
 /// lifecycle of executors internally, so users should not need to interact with this type directly.
-pub struct Executor<'e> {
-	executor: LocalExecutor<'e>,
+pub struct Executor<'exec> {
+	executor: LocalExecutor<'exec>,
 	#[cfg(feature = "signals")]
 	tracker: TaskTracker,
 	alive: UnsafeCell<bool>,
 }
 
-impl<'e> Executor<'e> {
+impl<'exec> Executor<'exec> {
 	/// Creates a new `Executor`.
 	pub fn new() -> Self {
 		Self::default()
 	}
 
 	/// Returns a [`Spawner`] for this executor.
-	pub fn spawner(&self) -> Spawner<'e> {
+	pub fn spawner(&self) -> Spawner<'exec> {
 		Spawner {
 			ex: self,
 			alive: self.alive.get(),
@@ -124,7 +124,7 @@ impl<'e> Executor<'e> {
 	}
 }
 
-impl<'e> Default for Executor<'e> {
+impl<'exec> Default for Executor<'exec> {
 	fn default() -> Self {
 		Self {
 			executor: LocalExecutor::new(),
@@ -135,7 +135,7 @@ impl<'e> Default for Executor<'e> {
 	}
 }
 
-impl<'e> Drop for Executor<'e> {
+impl<'exec> Drop for Executor<'exec> {
 	fn drop(&mut self) {
 		// SAFETY:
 		// `self.alive` can be safely dereferenced and written to before drop is completed

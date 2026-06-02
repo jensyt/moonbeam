@@ -109,7 +109,7 @@ The simplest way to use Moonbeam.
 use moonbeam::{Body, Request, Response, Spawner, server};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request, _spawner: Spawner<'_>) -> Response {
+async fn serve(_request: Request, _spawner: Spawner) -> Response {
     Response::ok().with_body("Hello, World!", Body::TEXT)
 }
 
@@ -132,7 +132,7 @@ struct AppState {
 }
 
 #[server(CounterServer)]
-async fn serve(_req: Request, _spawner: Spawner<'_>, state: &AppState) -> Response {
+async fn serve(_req: Request, _spawner: Spawner, state: &AppState) -> Response {
     let count = state.count.get();
     state.count.set(count + 1);
     
@@ -158,7 +158,7 @@ struct WorkerState {
 }
 
 #[server(Worker)]
-async fn serve(_req: Request, _spawner: Spawner<'_>, state: &WorkerState) -> Response {
+async fn serve(_req: Request, _spawner: Spawner, state: &WorkerState) -> Response {
     Response::ok().with_body(format!("Hello from thread {}", state.thread_id), Body::TEXT)
 }
 
@@ -186,7 +186,7 @@ Secure your server using the `tls` feature.
 use moonbeam::{Body, Request, Response, Spawner, server, TlsConfig, serve_tls};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request, _spawner: Spawner<'_>) -> Response {
+async fn serve(_request: Request, _spawner: Spawner) -> Response {
     Response::ok().with_body("Hello, Secure World!", Body::TEXT)
 }
 
@@ -344,7 +344,7 @@ fn main() {
 use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 
 #[server(StaticServer)]
-async fn serve(req: Request, _spawner: Spawner<'_>) -> Response {
+async fn serve(req: Request, _spawner: Spawner) -> Response {
     let etag = req.find_header("If-None-Match");
     get_asset(req.path, etag, "./public").await
 }
