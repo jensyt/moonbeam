@@ -145,6 +145,42 @@ fn main() {
 }
 ```
 
+### Avoiding Macros
+
+If you prefer not to use macros, the same examples above can be easily achieved with only slightly
+more boilerplate. Make sure to update `Cargo.toml` to disable default features:
+
+```toml
+[dependencies]
+moonbeam = { version = "0.7", default-features = false }
+```
+
+```rust,no_run
+use std::cell::Cell;
+use moonbeam::{Body, Request, Response, Spawner, Server};
+
+struct CounterServer {
+    count: Cell<u64>,
+}
+
+impl Server for CounterServer {
+	async fn route<'server: 'exec, 'exec>(
+		&'server self,
+		_req: Request<'_, '_>,
+		_spawner: Spawner<'exec>,
+	) -> Response {
+		let count = self.count.get();
+    	self.count.set(count + 1);
+    
+    	Response::ok().with_body(format!("Request #{}", count), Body::TEXT)
+	}
+}
+
+fn main() {
+    moonbeam::serve("127.0.0.1:8080", || CounterServer { count: Cell::new(0) });
+}
+```
+
 ### Multi-threaded "Share-Nothing" Server
 
 Use the `mt` feature flag to scale across multiple CPU cores.
