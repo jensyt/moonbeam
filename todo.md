@@ -1,6 +1,5 @@
 # Todo
 - Make tracing meaningful
-- Rename lifetimes to be more useful
 - Macros have different levels of support for including / reording parameters
 
 # Done
@@ -33,3 +32,4 @@
 - Standardize `serve` and `serve_multi` APIs to both use a factory closure
 - Implement TLS support via `rustls` (single-threaded and multi-threaded servers)
 - Solve macro assumptions about input function signatures' lifetime parameters by dynamically extracting and merging them
+- Rename lifetimes to be more useful
