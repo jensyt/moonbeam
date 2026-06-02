@@ -89,9 +89,9 @@ fn do_middleware_impl(
 		}
 	}
 	if !has_req_lifetimes {
-		seg1.arguments = PathArguments::AngleBracketed(parse_quote!(<'a, 'b>));
-		req_lt_a = Some(parse_quote!('a));
-		req_lt_b = Some(parse_quote!('b));
+		seg1.arguments = PathArguments::AngleBracketed(parse_quote!(<'headers, 'buf>));
+		req_lt_a = Some(parse_quote!('headers));
+		req_lt_b = Some(parse_quote!('buf));
 	}
 
 	// Arg 2: Spawner
@@ -112,8 +112,8 @@ fn do_middleware_impl(
 		}
 	}
 	if !has_spawner_lifetime {
-		seg2.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
-		spawner_lt = Some(parse_quote!('e));
+		seg2.arguments = PathArguments::AngleBracketed(parse_quote!(<'exec>));
+		spawner_lt = Some(parse_quote!('exec));
 	}
 
 	// Arg 3: State

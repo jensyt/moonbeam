@@ -109,7 +109,7 @@ The simplest way to use Moonbeam.
 use moonbeam::{Body, Request, Response, Spawner, server};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request, _spawner: Spawner<'_>) -> Response {
+async fn serve(_request: Request, _spawner: Spawner) -> Response {
     Response::ok().with_body("Hello, World!", Body::TEXT)
 }
 
@@ -132,7 +132,7 @@ struct AppState {
 }
 
 #[server(CounterServer)]
-async fn serve(_req: Request, _spawner: Spawner<'_>, state: &AppState) -> Response {
+async fn serve(_req: Request, _spawner: Spawner, state: &AppState) -> Response {
     let count = state.count.get();
     state.count.set(count + 1);
     
@@ -142,6 +142,42 @@ async fn serve(_req: Request, _spawner: Spawner<'_>, state: &AppState) -> Respon
 fn main() {
     let state = AppState { count: Cell::new(0) };
     moonbeam::serve("127.0.0.1:8080", move || CounterServer(state));
+}
+```
+
+### Avoiding Macros
+
+If you prefer not to use macros, the same examples above can be easily achieved with only slightly
+more boilerplate. Make sure to update `Cargo.toml` to disable default features:
+
+```toml
+[dependencies]
+moonbeam = { version = "0.7", default-features = false }
+```
+
+```rust,no_run
+use std::cell::Cell;
+use moonbeam::{Body, Request, Response, Spawner, Server};
+
+struct CounterServer {
+    count: Cell<u64>,
+}
+
+impl Server for CounterServer {
+	async fn route<'server: 'exec, 'exec>(
+		&'server self,
+		_req: Request<'_, '_>,
+		_spawner: Spawner<'exec>,
+	) -> Response {
+		let count = self.count.get();
+    	self.count.set(count + 1);
+    
+    	Response::ok().with_body(format!("Request #{}", count), Body::TEXT)
+	}
+}
+
+fn main() {
+    moonbeam::serve("127.0.0.1:8080", || CounterServer { count: Cell::new(0) });
 }
 ```
 
@@ -158,7 +194,7 @@ struct WorkerState {
 }
 
 #[server(Worker)]
-async fn serve(_req: Request, _spawner: Spawner<'_>, state: &WorkerState) -> Response {
+async fn serve(_req: Request, _spawner: Spawner, state: &WorkerState) -> Response {
     Response::ok().with_body(format!("Hello from thread {}", state.thread_id), Body::TEXT)
 }
 
@@ -186,7 +222,7 @@ Secure your server using the `tls` feature.
 use moonbeam::{Body, Request, Response, Spawner, server, TlsConfig, serve_tls};
 
 #[server(HelloWorld)]
-async fn serve(_request: Request, _spawner: Spawner<'_>) -> Response {
+async fn serve(_request: Request, _spawner: Spawner) -> Response {
     Response::ok().with_body("Hello, Secure World!", Body::TEXT)
 }
 
@@ -344,7 +380,7 @@ fn main() {
 use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 
 #[server(StaticServer)]
-async fn serve(req: Request, _spawner: Spawner<'_>) -> Response {
+async fn serve(req: Request, _spawner: Spawner) -> Response {
     let etag = req.find_header("If-None-Match");
     get_asset(req.path, etag, "./public").await
 }

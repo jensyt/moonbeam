@@ -23,3 +23,4 @@ Update the version of the specified packages to the given version numbers or sem
    ```bash
    cargo check --workspace --all-features
    ```
+4. Update `CHANGELOG.md` to move unreleased changes under the new version heading. Note that version numbers in the changelog are based on the core `moonbeam` version.

@@ -12,43 +12,42 @@ use std::borrow::Cow;
 
 /// Represents a single piece of form data.
 #[derive(Debug, PartialEq, Clone)]
-pub enum FormData<'a> {
+pub enum FormData<'buf> {
 	/// Simple text data.
-	Text(Cow<'a, str>),
+	Text(Cow<'buf, str>),
 	/// File upload data.
 	File {
 		/// The original filename provided by the client, if any.
-		name: Option<Cow<'a, str>>,
+		name: Option<Cow<'buf, str>>,
 		/// The content type of the file, if any.
-		content_type: Option<Cow<'a, str>>,
+		content_type: Option<Cow<'buf, str>>,
 		/// The raw bytes of the file.
-		data: &'a [u8],
+		data: &'buf [u8],
 	},
 }
 
 /// An extractor for HTML form data.
 ///
-/// Handles both URL-encoded and multipart form data depending on the request's
-/// `Content-Type`.
+/// Handles both URL-encoded and multipart form data depending on the request's `Content-Type`.
 #[non_exhaustive]
-pub enum Form<'a> {
+pub enum Form<'buf> {
 	/// URL-encoded form data.
-	URLEncoded(Params<'a>),
+	URLEncoded(Params<'buf>),
 	/// Multipart form data.
-	Multipart(Multipart<'a>),
+	Multipart(Multipart<'buf>),
 }
 
-impl<'a> Form<'a> {
+impl<'buf> Form<'buf> {
 	/// Returns an iterator over values for a specific field name.
-	pub fn find<'b>(&self, name: &'b str) -> FormIterator<'a, 'b, '_> {
+	pub fn find<'p>(&self, param: &'p str) -> FormIterator<'buf, 'p, '_> {
 		match self {
-			Form::URLEncoded(p) => FormIterator::URLEncoded(p.find(name)),
-			Form::Multipart(m) => FormIterator::Multipart(m.find(name)),
+			Form::URLEncoded(p) => FormIterator::URLEncoded(p.find(param)),
+			Form::Multipart(m) => FormIterator::Multipart(m.find(param)),
 		}
 	}
 
 	/// Returns an iterator over all form fields.
-	pub fn iter(&self) -> AllFormIterator<'a, '_> {
+	pub fn iter(&self) -> AllFormIterator<'buf, '_> {
 		match self {
 			Form::URLEncoded(p) => AllFormIterator::URLEncoded(p.iter()),
 			Form::Multipart(m) => AllFormIterator::Multipart(m.iter()),
@@ -56,10 +55,10 @@ impl<'a> Form<'a> {
 	}
 }
 
-impl<'a> TryFrom<Request<'_, 'a>> for Form<'a> {
+impl<'buf> TryFrom<Request<'_, 'buf>> for Form<'buf> {
 	type Error = FormError;
 
-	fn try_from(req: Request<'_, 'a>) -> Result<Self, Self::Error> {
+	fn try_from(req: Request<'_, 'buf>) -> Result<Self, Self::Error> {
 		if req.method.eq_ignore_ascii_case("get") {
 			return Ok(Form::URLEncoded(req.params()));
 		} else if !req.method.eq_ignore_ascii_case("post") {
@@ -87,25 +86,25 @@ impl<'a> TryFrom<Request<'_, 'a>> for Form<'a> {
 	}
 }
 
-impl<'a, S> FromRequest<'_, 'a, '_, S> for Form<'a> {
+impl<'buf, S> FromRequest<'_, 'buf, '_, S> for Form<'buf> {
 	type Error = FormError;
 
-	async fn from_request(req: Request<'_, 'a>, _state: &S) -> Result<Self, Self::Error> {
+	async fn from_request(req: Request<'_, 'buf>, _state: &S) -> Result<Self, Self::Error> {
 		Self::try_from(req)
 	}
 }
 
 /// An iterator over form fields.
 #[non_exhaustive]
-pub enum FormIterator<'a, 'b, 'c> {
+pub enum FormIterator<'buf, 'param, 'parent> {
 	/// Iterator over specific URL-encoded form fields.
-	URLEncoded(ParamIter<'c, 'b>),
+	URLEncoded(ParamIter<'buf, 'param>),
 	/// Iterator over multipart form fields.
-	Multipart(PartIter<'a, 'b, 'c>),
+	Multipart(PartIter<'buf, 'param, 'parent>),
 }
 
-impl<'a> Iterator for FormIterator<'_, '_, 'a> {
-	type Item = FormData<'a>;
+impl<'parent> Iterator for FormIterator<'_, '_, 'parent> {
+	type Item = FormData<'parent>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
@@ -117,15 +116,15 @@ impl<'a> Iterator for FormIterator<'_, '_, 'a> {
 
 /// An iterator over all form fields.
 #[non_exhaustive]
-pub enum AllFormIterator<'a, 'b> {
+pub enum AllFormIterator<'buf, 'parent> {
 	/// Iterator over all URL-encoded form fields.
-	URLEncoded(AllParamIter<'b>),
+	URLEncoded(AllParamIter<'buf>),
 	/// Iterator over all multipart form fields.
-	Multipart(AllPartIter<'a, 'b>),
+	Multipart(AllPartIter<'buf, 'parent>),
 }
 
-impl<'a, 'b> Iterator for AllFormIterator<'a, 'b> {
-	type Item = (Option<Cow<'b, str>>, FormData<'b>);
+impl<'buf> Iterator for AllFormIterator<'buf, '_> {
+	type Item = (Option<Cow<'buf, str>>, FormData<'buf>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		match self {
@@ -166,13 +165,13 @@ impl From<FormError> for Response {
 }
 
 /// An extractor for multipart form data (`multipart/form-data`).
-pub struct Multipart<'a> {
-	parts: Vec<&'a [u8]>,
+pub struct Multipart<'buf> {
+	parts: Vec<&'buf [u8]>,
 }
 
-impl<'a> Multipart<'a> {
+impl<'buf> Multipart<'buf> {
 	/// Creates a new `Multipart` struct from the given boundary and body.
-	pub fn new(boundary: &'a [u8], body: &'a [u8]) -> Multipart<'a> {
+	pub fn new(boundary: &'buf [u8], body: &'buf [u8]) -> Multipart<'buf> {
 		let mut parts = vec![];
 		let bound = find_next_boundary(body, boundary, b"--");
 
@@ -187,15 +186,15 @@ impl<'a> Multipart<'a> {
 	}
 
 	/// Returns an iterator over parts matching a specific field name.
-	pub fn find<'b>(&self, name: &'b str) -> PartIter<'a, 'b, '_> {
+	pub fn find<'p, 's>(&'s self, param: &'p str) -> PartIter<'buf, 'p, 's> {
 		PartIter {
 			remaining: &self.parts,
-			filter: name,
+			filter: param,
 		}
 	}
 
 	/// Returns an iterator over all parts in the multipart data.
-	pub fn iter(&self) -> AllPartIter<'a, '_> {
+	pub fn iter(&self) -> AllPartIter<'buf, '_> {
 		AllPartIter {
 			remaining: &self.parts,
 		}
@@ -203,13 +202,13 @@ impl<'a> Multipart<'a> {
 }
 
 /// An iterator over parts in a multipart form data request.
-pub struct PartIter<'a, 'b, 'c> {
-	remaining: &'c [&'a [u8]],
-	filter: &'b str,
+pub struct PartIter<'buf, 'param, 'parent> {
+	remaining: &'parent [&'buf [u8]],
+	filter: &'param str,
 }
 
-impl<'a> Iterator for PartIter<'a, '_, '_> {
-	type Item = FormData<'a>;
+impl<'buf> Iterator for PartIter<'buf, '_, '_> {
+	type Item = FormData<'buf>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(&part) = self.remaining.split_off_first() {
@@ -249,8 +248,8 @@ impl<'a> Iterator for PartIter<'a, '_, '_> {
 }
 
 /// An iterator over parts in a multipart form data request.
-pub struct AllPartIter<'a, 'b> {
-	remaining: &'b [&'a [u8]],
+pub struct AllPartIter<'buf, 'parent> {
+	remaining: &'parent [&'buf [u8]],
 }
 
 impl<'a> Iterator for AllPartIter<'a, '_> {

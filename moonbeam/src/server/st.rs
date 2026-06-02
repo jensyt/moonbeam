@@ -42,10 +42,10 @@ use std::io::ErrorKind;
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     async fn route<'s: 'e, 'e>(
-///         &'s self,
+///     async fn route<'server: 'exec, 'exec>(
+///         &'server self,
 ///         _req: Request<'_, '_>,
-///         _spawner: Spawner<'e>,
+///         _spawner: Spawner<'exec>,
 ///     ) -> Response {
 ///         Response::ok()
 ///     }
@@ -69,10 +69,10 @@ where
 	}));
 }
 
-async fn accept_loop<'s: 'e, 'e, T: Server>(
+async fn accept_loop<'server: 'exec, 'exec, S: Server>(
 	listener: TcpListener,
-	server: &'s T,
-	spawner: Spawner<'e>,
+	server: &'server S,
+	spawner: Spawner<'exec>,
 ) {
 	let mut gate = SignalGate::new();
 
@@ -119,11 +119,11 @@ where
 }
 
 #[cfg(feature = "tls")]
-async fn accept_loop_tls<'s: 'e, 'e, T: Server>(
+async fn accept_loop_tls<'server: 'exec, 'exec, S: Server>(
 	listener: TcpListener,
 	tls_config: ServerConfig,
-	server: &'s T,
-	spawner: Spawner<'e>,
+	server: &'server S,
+	spawner: Spawner<'exec>,
 ) {
 	use futures_rustls::TlsAcceptor;
 	use std::sync::Arc;

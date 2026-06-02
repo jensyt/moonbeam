@@ -65,7 +65,7 @@ impl Parse for ServerArgs {
 /// use moonbeam::{Request, Response, Spawner, server};
 ///
 /// #[server(MyServer)]
-/// async fn handle(req: Request, _spawner: Spawner<'_>) -> Response {
+/// async fn handle(req: Request, _spawner: Spawner) -> Response {
 ///     Response::ok()
 /// }
 ///
@@ -81,7 +81,7 @@ impl Parse for ServerArgs {
 /// struct AppState { count: Cell<usize> }
 ///
 /// #[server(MyServer)]
-/// async fn handle(req: Request, _spawner: Spawner<'_>, state: &AppState) -> Response {
+/// async fn handle(req: Request, _spawner: Spawner, state: &AppState) -> Response {
 ///     state.count.set(state.count.get() + 1);
 ///     Response::ok()
 /// }
@@ -236,7 +236,10 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 		impl ::moonbeam::Server for #wrapper_name {
 			#[inline(always)]
-			fn route<'s: 'e, 'e>(&'s self, request: ::moonbeam::http::Request<'_, '_>, spawner: ::moonbeam::server::task::Spawner<'e>)
+			fn route<'state: 'exec, 'exec>(
+				&'state self,
+				request: ::moonbeam::http::Request<'_, '_>,
+				spawner: ::moonbeam::server::task::Spawner<'exec>)
 				-> impl ::core::future::Future<Output = ::moonbeam::http::Response>
 			{
 				#fn_impl
@@ -283,8 +286,8 @@ fn check_spawner(arg: Option<&mut FnArg>, has_state: bool) -> Option<Option<syn:
 			}
 		}
 		if !has_lifetime && has_state {
-			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
-			spawner_lt = Some(parse_quote!('e));
+			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'exec>));
+			spawner_lt = Some(parse_quote!('exec));
 		} else if !has_lifetime {
 			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'_>));
 		}
@@ -307,11 +310,11 @@ fn check_state(arg: Option<&mut FnArg>) -> Option<syn::Lifetime> {
 			has_lifetime = true;
 		}
 		if !has_lifetime {
-			let lt: syn::Lifetime = parse_quote!('s);
+			let lt: syn::Lifetime = parse_quote!('state);
 			type_ref.lifetime = Some(lt.clone());
 			state_lt = Some(lt);
 		}
-		Some(state_lt.unwrap_or_else(|| parse_quote!('s)))
+		Some(state_lt.unwrap_or_else(|| parse_quote!('state)))
 	} else {
 		None
 	}

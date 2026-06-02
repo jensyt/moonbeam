@@ -25,19 +25,19 @@ use std::borrow::Cow;
 ///
 /// This iterator yields each segment of the path, including the leading `/`.
 /// For example, `/path/to/somewhere` yields `/path`, `/to`, and `/somewhere`.
-pub struct PathIterator<'a> {
-	remainder: &'a str,
+pub struct PathIterator<'buf> {
+	remainder: &'buf str,
 }
 
-impl<'a> PathIterator<'a> {
+impl<'buf> PathIterator<'buf> {
 	/// Creates a new `PathIterator` from the given raw path string.
-	pub fn new(input: &'a str) -> Self {
+	pub fn new(input: &'buf str) -> Self {
 		Self { remainder: input }
 	}
 }
 
-impl<'a> Iterator for PathIterator<'a> {
-	type Item = Cow<'a, str>;
+impl<'buf> Iterator for PathIterator<'buf> {
+	type Item = Cow<'buf, str>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.remainder.is_empty() {

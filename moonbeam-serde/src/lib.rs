@@ -34,10 +34,10 @@ pub use forms::{File, Form};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Json<T>(pub T);
 
-impl<'a, T: Deserialize<'a>> FromBody<'a> for Json<T> {
+impl<'buf, T: Deserialize<'buf>> FromBody<'buf> for Json<T> {
 	type Error = Response;
 
-	fn from_body(body: &'a [u8]) -> Result<Self, Self::Error> {
+	fn from_body(body: &'buf [u8]) -> Result<Self, Self::Error> {
 		serde_json::from_slice(body)
 			.map(Json)
 			.map_err(|_| Response::bad_request())

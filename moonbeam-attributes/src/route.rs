@@ -97,8 +97,8 @@ pub(super) fn route_impl(
 						}
 					}
 					if !has_lifetime {
-						s.arguments = PathArguments::AngleBracketed(parse_quote!(<'e>));
-						spawner_lt = Some(parse_quote!('e));
+						s.arguments = PathArguments::AngleBracketed(parse_quote!(<'exec>));
+						spawner_lt = Some(parse_quote!('exec));
 					}
 				}
 			}
@@ -116,7 +116,7 @@ pub(super) fn route_impl(
 					has_lifetime = true;
 				}
 				if !has_lifetime {
-					let lt: syn::Lifetime = parse_quote!('s);
+					let lt: syn::Lifetime = parse_quote!('state);
 					type_ref.lifetime = Some(lt.clone());
 					state_lt = Some(lt);
 				}
@@ -246,7 +246,7 @@ pub(super) fn route_impl(
 			} else {
 				// FromRequest extractor
 				extractions.push(quote! {
-					let #arg_name = match <#ty as ::moonbeam::http::FromRequest<'a, 'b, 's, #state_ty_path>>::from_request(req, state).await {
+					let #arg_name = match <#ty as ::moonbeam::http::FromRequest<'headers, 'buf, 'state, #state_ty_path>>::from_request(req, state).await {
 						Ok(v) => v,
 						Err(e) => return ::core::convert::Into::into(e),
 					};
@@ -276,8 +276,13 @@ pub(super) fn route_impl(
 		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'a, 'b, 's: 'e, 'e>(&self, req: ::moonbeam::http::Request<'a, 'b>, params: &[&'b str], spawner: ::moonbeam::server::task::Spawner<'e>, state: &'s #state_ty_path)
-				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
+			fn call<'headers, 'buf, 'state: 'exec, 'exec>(
+				&self,
+				req: ::moonbeam::http::Request<'headers, 'buf>,
+				params: &[&'buf str],
+				spawner: ::moonbeam::server::task::Spawner<'exec>,
+				state: &'state #state_ty_path)
+			-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
 				async move {
 					#(#extractions)*

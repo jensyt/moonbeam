@@ -333,8 +333,11 @@ pub(super) fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStr
 			}
 
 			impl ::moonbeam::Server for #router_name {
-				fn route<'s: 'e, 'e>(&'s self, req: ::moonbeam::http::Request<'_, '_>, spawner: ::moonbeam::server::task::Spawner<'e>) ->
-					impl ::std::future::Future<Output = ::moonbeam::http::Response>
+				fn route<'server: 'exec, 'exec>(
+					&'server self,
+					req: ::moonbeam::http::Request<'_, '_>,
+					spawner: ::moonbeam::server::task::Spawner<'exec>)
+				-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 				{
 					use ::std::ops::Deref;
 					use ::moonbeam::http::percent_decode::PercentDecode;
