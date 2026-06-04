@@ -1,5 +1,4 @@
 # Todo
-- Make tracing meaningful
 - Macros have different levels of support for including / reording parameters
 
 # Done
@@ -33,3 +32,4 @@
 - Implement TLS support via `rustls` (single-threaded and multi-threaded servers)
 - Solve macro assumptions about input function signatures' lifetime parameters by dynamically extracting and merging them
 - Rename lifetimes to be more useful
+- Make tracing meaningful

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Updated tracing to provide more useful information
+- Downgraded client errors (e.g. malformed headers) from error to debug log level
+
 ## [0.7.1] - 2026-05-25
 
 ### Added

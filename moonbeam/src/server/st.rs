@@ -82,11 +82,11 @@ async fn accept_loop<'server: 'exec, 'exec, S: Server>(
 				let _ = socket.set_nodelay(true);
 				spawner.spawn(handle_socket(socket, addr, server, spawner));
 			}
-			Err(err) => {
-				if err.kind() == ErrorKind::Interrupted {
-					tracing::debug!(?err, "Got signal to shut down");
+			Err(error) => {
+				if error.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?error, "Got signal to shut down");
 				} else {
-					tracing::error!(?err, "Failed to accept connection, shutting down");
+					tracing::error!(?error, "Failed to accept connection, shutting down");
 				}
 				break;
 			}
@@ -142,16 +142,16 @@ async fn accept_loop_tls<'server: 'exec, 'exec, S: Server>(
 							handle_socket(tls_stream, addr, server, spawner).await;
 						}
 						Err(_err) => {
-							tracing::error!(?_err, "TLS handshake failed");
+							tracing::debug!(error = ?_err, "TLS handshake failed");
 						}
 					}
 				});
 			}
-			Err(err) => {
-				if err.kind() == ErrorKind::Interrupted {
-					tracing::debug!(?err, "Got signal to shut down");
+			Err(error) => {
+				if error.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?error, "Got signal to shut down");
 				} else {
-					tracing::error!(?err, "Failed to accept connection, shutting down");
+					tracing::error!(?error, "Failed to accept connection, shutting down");
 				}
 				break;
 			}

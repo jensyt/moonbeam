@@ -10,7 +10,8 @@ pub mod http;
 pub mod router;
 pub mod server;
 #[macro_use]
-mod tracing;
+#[doc(hidden)]
+pub mod tracing;
 
 pub use crate::http::{Body, Request, Response};
 #[cfg(all(feature = "tls", feature = "mt"))]
