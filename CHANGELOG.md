@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added a tracing example (`examples/tracing`) demonstrating how to integrate `tracing-subscriber` and log requests, route handler spans, and spawned tasks.
+
 ### Changed
 - Updated tracing to provide more useful information
 - Downgraded client errors (e.g. malformed headers) from error to debug log level

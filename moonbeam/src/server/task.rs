@@ -144,3 +144,44 @@ impl<'exec> Drop for Executor<'exec> {
 		}
 	}
 }
+
+/// Spawns a task onto the executor, instrumenting it with a child span that inherits the current
+/// tracing context.
+///
+/// Under the hood, this creates a span named `"spawned_task"` with the tag `task = "name"`. You can
+/// optionally supply additional key-value properties to log metadata.
+///
+/// If the `tracing` feature is disabled, this compiles down to a direct call to
+/// `spawner.spawn(future)` with no runtime or allocation overhead.
+///
+/// # Examples
+/// ```
+/// # use moonbeam::{Spawner, spawn_with_span};
+/// # async fn example(spawner: Spawner<'_>) {
+/// // Simple spawn
+/// spawn_with_span!(spawner, "send_email", async { /* ... */ });
+///
+/// // Spawn with custom metadata fields
+/// spawn_with_span!(spawner, "db_cleanup", async { /* ... */ }, user_id = 42, count = 10);
+/// # }
+/// ```
+#[macro_export]
+macro_rules! spawn_with_span {
+	// With key-value fields: spawn_with_span!(spawner, "name", future, key1 = val1, key2 = val2, ...)
+	($spawner:expr, $name:expr, $future:expr, $($field:ident = $val:expr),+ $(,)?) => {
+		{
+			use $crate::tracing::Instrument;
+			let span = $crate::tracing::info_span!("spawned_task", task = $name, $($field = $val),*);
+			$spawner.spawn($future.instrument(span));
+		}
+	};
+
+	// Without key-value fields: spawn_with_span!(spawner, "name", future)
+	($spawner:expr, $name:expr, $future:expr) => {
+		{
+			use $crate::tracing::Instrument;
+			let span = $crate::tracing::info_span!("spawned_task", task = $name);
+			$spawner.spawn($future.instrument(span));
+		}
+	};
+}

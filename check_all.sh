@@ -66,6 +66,7 @@ EXAMPLES=(
     "examples-routing"
     "examples-concurrent"
     "examples-tls"
+    "examples-tracing"
 )
 
 for example in "${EXAMPLES[@]}"; do
