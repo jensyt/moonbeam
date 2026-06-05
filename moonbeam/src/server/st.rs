@@ -16,7 +16,7 @@
 use super::signal_gate::SignalGate;
 use super::task::{Executor, Spawner};
 use super::{Server, handle_socket};
-use crate::tracing;
+use crate::tracing::{self, Instrument};
 use async_net::{AsyncToSocketAddrs, TcpListener};
 #[cfg(feature = "tls")]
 use rustls::ServerConfig;
@@ -78,9 +78,12 @@ async fn accept_loop<'server: 'exec, 'exec, S: Server>(
 
 	loop {
 		match gate.or_signal(listener.accept()).await {
-			Ok((socket, addr)) => {
+			Ok((socket, _addr)) => {
 				let _ = socket.set_nodelay(true);
-				spawner.spawn(handle_socket(socket, addr, server, spawner));
+				spawner.spawn(
+					handle_socket(socket, server, spawner)
+						.instrument(tracing::info_span!("conn", remote = %_addr)),
+				);
 			}
 			Err(error) => {
 				if error.kind() == ErrorKind::Interrupted {
@@ -133,13 +136,15 @@ async fn accept_loop_tls<'server: 'exec, 'exec, S: Server>(
 
 	loop {
 		match gate.or_signal(listener.accept()).await {
-			Ok((socket, addr)) => {
+			Ok((socket, _addr)) => {
 				let _ = socket.set_nodelay(true);
 				let acceptor = acceptor.clone();
 				spawner.spawn(async move {
 					match acceptor.accept(socket).await {
 						Ok(tls_stream) => {
-							handle_socket(tls_stream, addr, server, spawner).await;
+							handle_socket(tls_stream, server, spawner)
+								.instrument(tracing::info_span!("conn", remote = %_addr))
+								.await;
 						}
 						Err(_err) => {
 							tracing::debug!(error = ?_err, "TLS handshake failed");

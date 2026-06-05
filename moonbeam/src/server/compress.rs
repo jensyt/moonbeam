@@ -198,12 +198,7 @@ mod tests {
 		let (mut client_rx, writer) = piper::pipe(65536);
 		let socket = MockStream { reader, writer };
 		let executor = Executor::new();
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			let mut headers = "GET / HTTP/1.1\r\n".to_string();

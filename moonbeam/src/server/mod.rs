@@ -30,7 +30,6 @@ use std::{
 	borrow::Cow,
 	io::{Error, ErrorKind, Read, Write},
 	mem::MaybeUninit,
-	net::SocketAddr,
 	sync::OnceLock,
 	time::{Duration, Instant, SystemTime},
 };
@@ -132,11 +131,9 @@ macro_rules! socket_write {
 /// # Arguments
 ///
 /// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
-/// * `addr` - The remote address of the connection (used for logging only).
 /// * `router` - The server implementation to route requests to.
 async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 	mut socket: S,
-	_addr: SocketAddr,
 	router: &'server R,
 	spawner: Spawner<'exec>,
 ) where
@@ -200,7 +197,6 @@ async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 				"request",
 				method = req.method,
 				path = req.path,
-				remote = %_addr,
 				request_id,
 				status = tracing::field::Empty,
 			))
@@ -480,12 +476,12 @@ fn write_response<'buf>(
 	}
 
 	tracing::trace!(
-		server,
-		date,
-		content_type,
-		content_length,
-		nosniff,
-		referrer,
+		server = !server,
+		date = !date,
+		content_type = !content_type,
+		content_length = !content_length,
+		nosniff = !nosniff,
+		referrer = !referrer,
 		"Writing default response headers"
 	);
 
@@ -814,12 +810,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -849,12 +840,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -890,12 +876,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx.write_all(b"GARBAGE\r\n\r\n").await.unwrap();
@@ -921,12 +902,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -982,12 +958,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -1035,12 +1006,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -1153,12 +1119,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let body_size = 20 * 1024; // 20KB
 		let body_content = vec![b'a'; body_size];
@@ -1194,12 +1155,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let body_size = 1024 * 1024 + 10; // 1MB + 10 bytes
 
