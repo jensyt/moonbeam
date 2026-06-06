@@ -9,6 +9,8 @@ jobs:
   publish:
     name: Publish Crates
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -104,3 +106,35 @@ jobs:
             echo "Error: Crates.io API returned $STATUS"
             exit 1
           fi
+
+      - name: Extract Release Notes from CHANGELOG.md
+        run: |
+          python3 -c "
+          import re, sys
+          tag = sys.argv[1]
+          version = tag.lstrip('v')
+          try:
+              with open('CHANGELOG.md', 'r') as f:
+                  content = f.read()
+              pattern = rf'(?s)(##\s*\[{re.escape(version)}\].*?)(?=\n##\s*\[|\n#\s|\Z)'
+              match = re.search(pattern, content)
+              if match:
+                  body = '\n'.join(match.group(1).splitlines()[1:]).strip()
+                  with open('release_notes.md', 'w') as out:
+                      out.write(body)
+                  print('Found release notes for tag ' + tag)
+                  sys.exit(0)
+          except Exception as e:
+              print('Error extracting release notes:', e)
+          # Fallback if not found or on error
+          print('No changelog entry found for tag ' + tag)
+          with open('release_notes.md', 'w') as out:
+              out.write('Release ' + tag)
+          " "${{ github.ref_name }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release_notes.md
+          generate_release_notes: false
