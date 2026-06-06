@@ -30,13 +30,14 @@ use std::{
 	borrow::Cow,
 	io::{Error, ErrorKind, Read, Write},
 	mem::MaybeUninit,
-	net::SocketAddr,
 	sync::OnceLock,
 	time::{Duration, Instant, SystemTime},
 };
 use task::Spawner;
 
 const BUFSIZE: usize = 16 * 1024;
+#[cfg(feature = "tracing")]
+static REQUEST_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 #[cfg(feature = "compress")]
 mod compress;
@@ -112,7 +113,7 @@ where
 macro_rules! socket_write {
 	($e:expr) => {
 		if let Err(_error) = $e.await {
-			tracing::error!(?_error, "Failed to write response");
+			tracing::debug!(error = ?_error, "Failed to write response");
 			return Err(());
 		}
 	};
@@ -130,11 +131,9 @@ macro_rules! socket_write {
 /// # Arguments
 ///
 /// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
-/// * `addr` - The remote address of the connection (used for logging only).
 /// * `router` - The server implementation to route requests to.
 async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 	mut socket: S,
-	_addr: SocketAddr,
 	router: &'server R,
 	spawner: Spawner<'exec>,
 ) where
@@ -167,7 +166,7 @@ async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 			let mut headers = [const { MaybeUninit::<Header>::uninit() }; 32];
 			let req = match parse_http_request(head, &mut headers) {
 				Err(_error) => {
-					tracing::error!(?_error, "Failed to parse HTTP header");
+					tracing::debug!(error = ?_error, "Failed to parse HTTP header");
 					write_error_response(
 						&mut socket,
 						Response::bad_request().with_header("Connection", "close"),
@@ -181,6 +180,8 @@ async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 
 			let (contentlength, close) = get_important_headers(&req);
 
+			#[cfg(feature = "tracing")]
+			let request_id = REQUEST_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 			let result = process_request(
 				req,
 				&mut socket,
@@ -196,12 +197,13 @@ async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 				"request",
 				method = req.method,
 				path = req.path,
-				remote = %_addr,
+				request_id,
+				status = tracing::field::Empty,
 			))
 			.await;
 
 			if result.is_err() {
-				tracing::trace!(reason = "Error", "Closing connection");
+				// All error paths in process_request log errors, so no need to do so here
 				return;
 			}
 
@@ -231,7 +233,7 @@ async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 		respbuf,
 	)
 	.await;
-	tracing::error!(
+	tracing::debug!(
 		error = "request headers too large",
 		"Failed to read HTTP request"
 	);
@@ -258,7 +260,7 @@ where
 
 	let body = {
 		if contentlength > max_body_size() {
-			tracing::error!(
+			tracing::debug!(
 				content_length = contentlength,
 				max_size = max_body_size(),
 				"Failed to read HTTP body: too big"
@@ -276,7 +278,7 @@ where
 			let mut new_body = vec![0; contentlength];
 			new_body[..valid_body_len].copy_from_slice(&body[..valid_body_len]);
 			if let Err(_error) = socket.read_exact(&mut new_body[valid_body_len..]).await {
-				tracing::error!(?_error, "Failed to read HTTP body");
+				tracing::debug!(error = ?_error, "Failed to read HTTP body");
 				return Err(());
 			}
 			Cow::Owned(new_body)
@@ -286,7 +288,7 @@ where
 					.read_exact(&mut body[valid_body_len..contentlength])
 					.await
 			{
-				tracing::error!(?_error, "Failed to read HTTP body");
+				tracing::debug!(error = ?_error, "Failed to read HTTP body");
 				return Err(());
 			}
 
@@ -305,7 +307,8 @@ where
 	{
 		Ok(resp) => resp,
 		Err(_error) => {
-			tracing::error!(?_error, "Panic in response handler");
+			tracing::Span::current().record("status", 500);
+			tracing::error!(error = ?_error, "Panic in response handler");
 			write_error_response(socket, Response::internal_server_error(), respbuf).await;
 			// We can process additional requests after this, so return Ok
 			return Ok(());
@@ -315,8 +318,9 @@ where
 	#[cfg(feature = "compress")]
 	compress::apply_compression(&req, &mut resp);
 
+	tracing::Span::current().record("status", resp.status);
+
 	tracing::info!(
-		response.status = resp.status,
 		response.content_type = resp
 			.headers
 			.iter()
@@ -330,7 +334,7 @@ where
 	let (head, mut rest) = match write_response(&resp, respbuf) {
 		Ok(buf) => buf,
 		Err(_error) => {
-			tracing::error!(?_error, "Failed to write response");
+			tracing::debug!(error = ?_error, "Failed to write response");
 			write_error_response(socket, Response::internal_server_error(), respbuf).await;
 			// We can try to process additional requests after this, so return Ok
 			return Ok(());
@@ -402,7 +406,7 @@ where
 					Response::request_timeout().with_header("Connection", "close"),
 				))
 			} else {
-				tracing::error!(?error, "Error reading socket");
+				tracing::debug!(?error, "Error reading socket");
 				Err(None)
 			}
 		}
@@ -470,6 +474,16 @@ fn write_response<'buf>(
 		write_sanitized(&mut writer, value)?;
 		writer.write_all(b"\r\n")?;
 	}
+
+	tracing::trace!(
+		server = !server,
+		date = !date,
+		content_type = !content_type,
+		content_length = !content_length,
+		nosniff = !nosniff,
+		referrer = !referrer,
+		"Writing default response headers"
+	);
 
 	// Add default headers
 	if !server {
@@ -635,13 +649,13 @@ where
 	let (head, _) = match write_response(&response, buffer) {
 		Ok(buf) => buf,
 		Err(_error) => {
-			tracing::error!(?_error, "Failed to write response");
+			tracing::debug!(error = ?_error, "Failed to write response");
 			return;
 		}
 	};
 
 	if let Err(_error) = socket.write_all(head).await {
-		tracing::error!(?_error, "Failed to write response");
+		tracing::debug!(error = ?_error, "Failed to write response");
 	}
 }
 
@@ -796,12 +810,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -831,12 +840,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -872,12 +876,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx.write_all(b"GARBAGE\r\n\r\n").await.unwrap();
@@ -903,12 +902,7 @@ mod tests {
 		let server = MockServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -964,12 +958,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -1017,12 +1006,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let test_future = async move {
 			client_tx
@@ -1135,12 +1119,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let body_size = 20 * 1024; // 20KB
 		let body_content = vec![b'a'; body_size];
@@ -1176,12 +1155,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = Executor::new();
 
-		let handle_future = handle_socket(
-			socket,
-			"127.0.0.1:80".parse().unwrap(),
-			&server,
-			executor.spawner(),
-		);
+		let handle_future = handle_socket(socket, &server, executor.spawner());
 
 		let body_size = 1024 * 1024 + 10; // 1MB + 10 bytes
 

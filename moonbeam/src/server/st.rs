@@ -16,7 +16,7 @@
 use super::signal_gate::SignalGate;
 use super::task::{Executor, Spawner};
 use super::{Server, handle_socket};
-use crate::tracing;
+use crate::tracing::{self, Instrument};
 use async_net::{AsyncToSocketAddrs, TcpListener};
 #[cfg(feature = "tls")]
 use rustls::ServerConfig;
@@ -78,15 +78,18 @@ async fn accept_loop<'server: 'exec, 'exec, S: Server>(
 
 	loop {
 		match gate.or_signal(listener.accept()).await {
-			Ok((socket, addr)) => {
+			Ok((socket, _addr)) => {
 				let _ = socket.set_nodelay(true);
-				spawner.spawn(handle_socket(socket, addr, server, spawner));
+				spawner.spawn(
+					handle_socket(socket, server, spawner)
+						.instrument(tracing::info_span!("conn", remote = %_addr)),
+				);
 			}
-			Err(err) => {
-				if err.kind() == ErrorKind::Interrupted {
-					tracing::debug!(?err, "Got signal to shut down");
+			Err(error) => {
+				if error.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?error, "Got signal to shut down");
 				} else {
-					tracing::error!(?err, "Failed to accept connection, shutting down");
+					tracing::error!(?error, "Failed to accept connection, shutting down");
 				}
 				break;
 			}
@@ -133,25 +136,27 @@ async fn accept_loop_tls<'server: 'exec, 'exec, S: Server>(
 
 	loop {
 		match gate.or_signal(listener.accept()).await {
-			Ok((socket, addr)) => {
+			Ok((socket, _addr)) => {
 				let _ = socket.set_nodelay(true);
 				let acceptor = acceptor.clone();
 				spawner.spawn(async move {
 					match acceptor.accept(socket).await {
 						Ok(tls_stream) => {
-							handle_socket(tls_stream, addr, server, spawner).await;
+							handle_socket(tls_stream, server, spawner)
+								.instrument(tracing::info_span!("conn", remote = %_addr))
+								.await;
 						}
 						Err(_err) => {
-							tracing::error!(?_err, "TLS handshake failed");
+							tracing::debug!(error = ?_err, "TLS handshake failed");
 						}
 					}
 				});
 			}
-			Err(err) => {
-				if err.kind() == ErrorKind::Interrupted {
-					tracing::debug!(?err, "Got signal to shut down");
+			Err(error) => {
+				if error.kind() == ErrorKind::Interrupted {
+					tracing::debug!(?error, "Got signal to shut down");
 				} else {
-					tracing::error!(?err, "Failed to accept connection, shutting down");
+					tracing::error!(?error, "Failed to accept connection, shutting down");
 				}
 				break;
 			}

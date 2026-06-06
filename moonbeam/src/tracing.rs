@@ -1,6 +1,8 @@
 #[cfg(feature = "tracing")]
 #[allow(unused_imports)]
-pub use tracing::{Instrument, debug, error, info, info_span, trace, trace_span, warn};
+pub use tracing::{
+	Instrument, Span, debug, debug_span, error, field, info, info_span, trace, warn,
+};
 
 #[cfg(not(feature = "tracing"))]
 mod tracing_impl {
@@ -9,6 +11,16 @@ mod tracing_impl {
 	impl Span {
 		#[allow(unused)]
 		pub fn entered(self) -> Self {
+			self
+		}
+
+		#[allow(unused)]
+		pub fn current() -> Self {
+			self::Span
+		}
+
+		#[allow(unused)]
+		pub fn record<Q: ?Sized, V>(&self, _field: &Q, _value: V) -> &Self {
 			self
 		}
 	}
@@ -20,6 +32,11 @@ mod tracing_impl {
 	}
 
 	impl<T: Sized> Instrument for T {}
+
+	pub mod field {
+		#[allow(dead_code)]
+		pub struct Empty;
+	}
 
 	#[macro_export]
 	#[doc(hidden)]
@@ -55,7 +72,7 @@ mod tracing_impl {
 	}
 	#[macro_export]
 	#[doc(hidden)]
-	macro_rules! trace_span {
+	macro_rules! debug_span {
 		($($arg:tt)*) => {
 			$crate::tracing::Span
 		};
@@ -64,7 +81,7 @@ mod tracing_impl {
 
 #[cfg(not(feature = "tracing"))]
 #[allow(unused_imports)]
-pub(crate) use {
-	crate::debug, crate::error, crate::info, crate::info_span, crate::trace, crate::trace_span,
-	crate::warn, tracing_impl::Instrument, tracing_impl::Span,
+pub use {
+	crate::debug, crate::debug_span, crate::error, crate::info, crate::info_span, crate::trace,
+	crate::warn, tracing_impl::Instrument, tracing_impl::Span, tracing_impl::field,
 };

@@ -26,7 +26,7 @@
 use super::signal_gate::SignalGate;
 use super::task::{Executor, Spawner};
 use super::{Server, handle_socket};
-use crate::tracing;
+use crate::tracing::{self, Instrument};
 use async_net::{AsyncToSocketAddrs, TcpListener, TcpStream};
 #[cfg(feature = "signals")]
 use futures_lite::future::FutureExt;
@@ -86,7 +86,7 @@ pub fn serve_multi<F, T: Server>(
 ) where
 	F: FnOnce() -> T + Send + Clone,
 {
-	let _span = tracing::trace_span!("thread", id = "main").entered();
+	let _span = tracing::debug_span!("thread", id = "main").entered();
 	let num_threads = resolve_thread_count(num_threads);
 	tracing::debug!(num_threads, "Starting worker threads");
 
@@ -105,14 +105,17 @@ pub fn serve_multi<F, T: Server>(
 				let executor = Executor::new();
 				let spawner = executor.spawner();
 
-				let _span = tracing::trace_span!("thread", id = _i).entered();
+				let _span = tracing::debug_span!("thread", id = _i).entered();
 				async_io::block_on(executor.run(async {
-					while let Ok((socket, addr)) = recv.recv_async().await {
+					while let Ok((socket, _addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
-						spawner.spawn(handle_socket(socket, addr, &server, spawner));
+						spawner.spawn(
+							handle_socket(socket, &server, spawner)
+								.instrument(tracing::info_span!("conn", remote = %_addr)),
+						);
 					}
 
-					tracing::debug!(id = _i, "Worker thread shutting down");
+					tracing::debug!("Worker thread shutting down");
 
 					#[cfg(feature = "signals")]
 					spawner
@@ -123,7 +126,7 @@ pub fn serve_multi<F, T: Server>(
 						.await;
 				}));
 
-				tracing::debug!(id = _i, "Worker thread shut down");
+				tracing::debug!("Worker thread shut down");
 				drop(worker_force_shutdown);
 				drop(worker_done_shutdown);
 			});
@@ -221,7 +224,7 @@ pub fn serve_multi_tls<F, T: Server>(
 	use futures_rustls::TlsAcceptor;
 	use std::sync::Arc;
 
-	let _span = tracing::trace_span!("thread", id = "main").entered();
+	let _span = tracing::debug_span!("thread", id = "main").entered();
 	let num_threads = resolve_thread_count(num_threads);
 	tracing::debug!(num_threads, "Starting worker threads");
 
@@ -242,25 +245,27 @@ pub fn serve_multi_tls<F, T: Server>(
 				let executor = Executor::new();
 				let spawner = executor.spawner();
 
-				let _span = tracing::trace_span!("thread", id = _i).entered();
+				let _span = tracing::debug_span!("thread", id = _i).entered();
 				async_io::block_on(executor.run(async {
-					while let Ok((socket, addr)) = recv.recv_async().await {
+					while let Ok((socket, _addr)) = recv.recv_async().await {
 						let _ = socket.set_nodelay(true);
 						let acceptor = acceptor.clone();
 						let server_ref = &server;
 						spawner.spawn(async move {
 							match acceptor.accept(socket).await {
 								Ok(tls_stream) => {
-									handle_socket(tls_stream, addr, server_ref, spawner).await;
+									handle_socket(tls_stream, server_ref, spawner)
+										.instrument(tracing::info_span!("conn", remote = %_addr))
+										.await;
 								}
 								Err(_err) => {
-									tracing::error!(?_err, "TLS handshake failed");
+									tracing::debug!(error = ?_err, "TLS handshake failed");
 								}
 							}
 						});
 					}
 
-					tracing::debug!(id = _i, "Worker thread shutting down");
+					tracing::debug!("Worker thread shutting down");
 
 					#[cfg(feature = "signals")]
 					spawner
@@ -271,7 +276,7 @@ pub fn serve_multi_tls<F, T: Server>(
 						.await;
 				}));
 
-				tracing::debug!(id = _i, "Worker thread shut down");
+				tracing::debug!("Worker thread shut down");
 				drop(worker_force_shutdown);
 				drop(worker_done_shutdown);
 			});
@@ -313,7 +318,10 @@ async fn accept_loop(
 		match gate.or_signal(listener.accept()).await {
 			Ok(v) => {
 				if let Err(_error) = sender.send_async(v).await {
-					tracing::error!(?_error, "Failed to send socket to thread, shutting down");
+					tracing::error!(
+						error = ?_error,
+						"Failed to send socket to thread, shutting down"
+					);
 					break;
 				}
 			}

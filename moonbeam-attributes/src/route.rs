@@ -284,11 +284,13 @@ pub(super) fn route_impl(
 				state: &'state #state_ty_path)
 			-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
 			{
+				use ::moonbeam::tracing::Instrument;
 				async move {
 					#(#extractions)*
 					let resp = #handler_call;
 					::core::convert::Into::into(resp)
 				}
+				.instrument(::moonbeam::tracing::info_span!("handler", name = stringify!(#fn_name)))
 			}
 		}
 	};
