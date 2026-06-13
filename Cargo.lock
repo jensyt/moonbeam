@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "moonbeam-attributes"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "proc-macro2",
  "quote",
