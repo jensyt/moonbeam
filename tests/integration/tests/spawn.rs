@@ -1,6 +1,7 @@
 use futures_lite::future::block_on;
 use moonbeam::{Executor, Request, Response, Server, Spawner, route, router};
 use std::cell::Cell;
+use std::pin::pin;
 
 struct TestState {
 	value: Cell<i32>,
@@ -65,11 +66,11 @@ fn test_spawn_closure() {
 		value: Cell::new(42),
 	};
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	let headers = [];
 	let req = Request::new("GET", "/closure", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_eq!(router.0.value.get(), 42);
 	assert_eq!(executor.try_tick(), true);
@@ -83,11 +84,11 @@ fn test_spawn_free() {
 		value: Cell::new(42),
 	};
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	let headers = [];
 	let req = Request::new("GET", "/free", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_eq!(router.0.value.get(), 42);
 	assert_eq!(executor.try_tick(), true);
@@ -101,11 +102,11 @@ fn test_spawn_closure2() {
 		value: Cell::new(42),
 	};
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	let headers = [];
 	let req = Request::new("GET", "/closure2", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_eq!(router.0.value.get(), 42);
 	assert_eq!(executor.try_tick(), true);
@@ -121,11 +122,11 @@ fn test_spawn_free2() {
 		value: Cell::new(42),
 	};
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	let headers = [];
 	let req = Request::new("GET", "/free2", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_eq!(router.0.value.get(), 42);
 	assert_eq!(executor.try_tick(), true);

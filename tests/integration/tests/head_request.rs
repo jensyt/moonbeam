@@ -1,5 +1,6 @@
 use futures_lite::future::block_on;
 use moonbeam::{Body, Executor, Request, Response, Server, route, router};
+use std::pin::pin;
 
 #[route]
 async fn get_handler(req: Request) -> Response {
@@ -26,10 +27,10 @@ router! {
 #[test]
 fn test_implicit_head() {
 	let router = HeadRouter::new();
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 	let headers = [];
 	let req = Request::new("HEAD", "/implicit", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 
 	assert_eq!(
 		res.status, 200,
@@ -41,10 +42,10 @@ fn test_implicit_head() {
 #[test]
 fn test_explicit_head() {
 	let router = HeadRouter::new();
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 	let headers = [];
 	let req = Request::new("HEAD", "/explicit", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "HEAD explicit");

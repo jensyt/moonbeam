@@ -21,6 +21,7 @@ use async_net::{AsyncToSocketAddrs, TcpListener};
 #[cfg(feature = "tls")]
 use rustls::ServerConfig;
 use std::io::ErrorKind;
+use std::pin::pin;
 
 /// Starts the server on the specified address using a single-threaded local executor.
 ///
@@ -59,8 +60,8 @@ where
 	T: Server,
 {
 	let server = factory();
-	let executor = Executor::new();
-	let spawner = executor.spawner();
+	let executor = pin!(Executor::new());
+	let spawner = executor.as_ref().spawner();
 	async_io::block_on(executor.run(async {
 		let listener = TcpListener::bind(addr)
 			.await
@@ -111,8 +112,8 @@ where
 	T: Server,
 {
 	let server = factory();
-	let executor = Executor::new();
-	let spawner = executor.spawner();
+	let executor = pin!(Executor::new());
+	let spawner = executor.as_ref().spawner();
 	async_io::block_on(executor.run(async {
 		let listener = TcpListener::bind(addr)
 			.await

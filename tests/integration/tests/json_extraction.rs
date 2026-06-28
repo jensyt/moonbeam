@@ -3,6 +3,7 @@ use moonbeam::http::{Body, Request};
 use moonbeam::{Executor, Server, route, router};
 use moonbeam_serde::Json;
 use serde::{Deserialize, Serialize};
+use std::pin::pin;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct User<'a> {
@@ -23,13 +24,13 @@ router!(JsonRouter {
 #[test]
 fn test_json_extraction_borrowed() {
 	let router = JsonRouter::new();
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	let body_content = r#"{"id": 42, "name": "Jens"}"#;
 	let headers = [];
 	let req = Request::new("POST", "/echo", &headers, body_content.as_bytes());
 
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 
 	assert_eq!(res.status, 200);
 	assert!(
