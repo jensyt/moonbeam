@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- BREAKING: Require pinning `Executor` to get a `Spawner`, eliminating potential bugs where Spawner points to an invalid `Executor`. See `tests/integration/tests` for examples.
+
 ## [0.7.3] - 2026-06-12
 
 ### Fixed
