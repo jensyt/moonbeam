@@ -9,6 +9,7 @@ members = [
     "examples/concurrent",
     "examples/tls",
     "examples/tracing",
+    "examples/sse",
     "tests/integration",
 ]
 default-members = ["moonbeam", "moonbeam-attributes", "moonbeam-serde", "moonbeam-forms"]

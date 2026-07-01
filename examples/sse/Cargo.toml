@@ -1,0 +1,12 @@
+[package]
+name = "examples-sse"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+moonbeam = { path = "../../moonbeam", default-features = false, features = ["macros"] }
+moonbeam-serde = { path = "../../moonbeam-serde" }
+async-io = "2.6"
+futures-lite = "2.6"
+serde = { version = "1.0", features = ["derive"] }

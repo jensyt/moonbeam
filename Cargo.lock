@@ -402,6 +402,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "examples-sse"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "futures-lite",
+ "moonbeam",
+ "moonbeam-serde",
+ "serde",
+]
+
+[[package]]
 name = "examples-tls"
 version = "0.1.0"
 dependencies = [

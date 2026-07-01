@@ -1,6 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-use moonbeam::http::{Body, FromBody, Response};
+use moonbeam::{
+	SseEvent,
+	http::{Body, FromBody, Response},
+};
 use serde::Serialize;
 use serde::de::Deserialize;
 
@@ -56,6 +59,17 @@ impl<T: Serialize> From<Json<T>> for Response {
 impl<T> From<T> for Json<T> {
 	fn from(val: T) -> Self {
 		Json(val)
+	}
+}
+
+pub trait WithJsonData {
+	fn with_json_data(self, json: impl Serialize) -> Self;
+}
+
+impl WithJsonData for SseEvent {
+	fn with_json_data(self, json: impl Serialize) -> Self {
+		let data = serde_json::to_string(&json).unwrap_or_default();
+		self.with_data(data)
 	}
 }
 

@@ -14,16 +14,22 @@
 //! The HTTP types are designed to be efficient and ergonomic, using `Cow` and slices
 //! where possible to minimize allocations.
 
+use async_stream::{AsyncStreamFn, AsyncStreamWriter};
 use cookies::Cookies;
+use futures_lite::AsyncRead;
 use httparse::{Header, Request as RawRequest};
 use params::Params;
 use path::PathIterator;
-use std::{borrow::Cow, convert::Infallible, fmt::Debug, future::Future, io::Read, ops::Index};
+use std::{
+	borrow::Cow, convert::Infallible, fmt::Debug, future::Future, io::Read, ops::Index, pin::Pin,
+};
 
+pub mod async_stream;
 pub mod cookies;
 pub mod params;
 pub mod path;
 pub mod percent_decode;
+pub mod sse;
 
 /// Returns the canonical reason phrase for a given HTTP status code.
 ///
@@ -250,6 +256,42 @@ impl Response {
 			status: 200,
 			headers,
 			body: Some(body.into()),
+		}
+	}
+
+	/// Creates a new response configured for SSE streaming using the given async function.
+	///
+	/// # Example
+	///
+	/// ```
+	/// use moonbeam::{Response, SseEvent};
+	///
+	/// let response = Response::new_from_sse_fn(async |mut writer| {
+	///     writer.write_string(
+	///         SseEvent::new()
+	///             .with_event("ping")
+	///             .with_data("test")
+	///     ).await;
+	/// });
+	/// ```
+	#[inline]
+	pub fn new_from_sse_fn<S, F>(sse_fn: S) -> Self
+	where
+		S: FnOnce(AsyncStreamWriter) -> F,
+		F: Future<Output = ()> + 'static,
+	{
+		let headers = Headers {
+			inner: vec![
+				("Content-Type".into(), "text/event-stream".into()),
+				("Cache-Control".into(), "no-cache".into()),
+				("X-Accel-Buffering".into(), "no".into()),
+				("Content-Encoding".into(), "identity".into()),
+			],
+		};
+		Self {
+			status: 200,
+			headers,
+			body: Some(Body::from_stream_fn(sse_fn)),
 		}
 	}
 
@@ -482,6 +524,13 @@ pub enum Body {
 		/// The length of the body, if known.
 		len: Option<u64>,
 	},
+	/// A streaming body from an `AsyncRead` source.
+	AsyncStream {
+		/// The underlying async stream of data.
+		data: Pin<Box<dyn AsyncRead + 'static>>,
+		/// The length of the body, if known.
+		len: Option<u64>,
+	},
 }
 
 impl Body {
@@ -491,6 +540,8 @@ impl Body {
 	pub const JSON: Option<&'static str> = Some("application/json");
 	/// Content-Type for Text.
 	pub const TEXT: Option<&'static str> = Some("text/plain; charset=utf-8");
+	/// Content-Type for SSE Event Stream.
+	pub const SSE: Option<&'static str> = Some("text/event-stream");
 	/// Default Content-Type.
 	pub const DEFAULT_CONTENT_TYPE: Option<&'static str> = None;
 
@@ -499,12 +550,33 @@ impl Body {
 		Self::Immediate(data.into())
 	}
 
+	/// Creates a streaming body from an asynchronous data source.
+	pub fn from_async_read<R>(reader: R) -> Self
+	where
+		R: AsyncRead + 'static,
+	{
+		Body::AsyncStream {
+			data: Box::pin(reader),
+			len: None,
+		}
+	}
+
+	/// Creates a streaming body from an async function.
+	pub fn from_stream_fn<S, F>(stream_fn: S) -> Self
+	where
+		S: FnOnce(AsyncStreamWriter) -> F,
+		F: Future<Output = ()> + 'static,
+	{
+		Self::from_async_read(AsyncStreamFn::new(stream_fn))
+	}
+
 	/// Returns the length of the body if known.
 	#[allow(clippy::len_without_is_empty)]
 	pub fn len(&self) -> Option<u64> {
 		match self {
 			Body::Immediate(data) => Some(data.len() as u64),
 			Body::Stream { len, .. } => *len,
+			Body::AsyncStream { len, .. } => *len,
 		}
 	}
 }
@@ -554,6 +626,7 @@ impl Debug for Body {
 		match self {
 			Self::Immediate(v) => write!(f, "Body(Immediate, len={})", v.len()),
 			Self::Stream { data: _, len } => write!(f, "Body(Stream, len={len:?})"),
+			Self::AsyncStream { data: _, len } => write!(f, "Body(AsyncStream, len={len:?})"),
 		}
 	}
 }

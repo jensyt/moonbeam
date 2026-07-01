@@ -21,14 +21,15 @@ Before building with Moonbeam, it's essential to understand its execution model:
 - **Multi-threaded support**: The `mt` feature spawns worker threads, each with its own state copy.
 - **Simple API**: Use the `#[server]` macro to turn functions into server handlers.
 - **Routing**: The `router!` macro provides a clean DSL and efficient implementation for nested groups, middleware, path parameters, and wildcards.
-- **Typed Body Extractors**: Use `FromRequest` and `FromBody` traits for zero-copy, asynchronous body parsing (e.g., JSON).
-- **Static Assets**: Built-in `assets` helper for serving files with ETags and MIME type detection.
+- **Typed body extractors**: Use `FromRequest` and `FromBody` traits for zero-copy, asynchronous body parsing (e.g., JSON).
+- **Static assets**: Built-in `assets` helper for serving files with ETags and MIME type detection.
 - **HTTP/1.1**: Persistent connections, chunked transfer encoding, and standard header parsing.
 - **Zero-cost extractions**: Efficient parsing of Cookies, Query Parameters, and Bodies.
-- **Panic Handling**: Optional `catchpanic` feature safely catches panics and returns a 500 error.
-- **Response Compression**: On-the-fly `compress` support (Gzip, Brotli, Zlib).
-- **Graceful Shutdown**: Intercepts `signals` for clean exit.
-- **TLS Support**: Secure your server with `rustls` (behind the `tls` feature).
+- **Panic handling**: Optional `catchpanic` feature safely catches panics and returns a 500 error.
+- **Response compression**: On-the-fly `compress` support (Gzip, Brotli, Zlib).
+- **Graceful shutdown**: Intercepts `signals` for clean exit.
+- **TLS support**: Secure your server with `rustls` (behind the `tls` feature).
+- **Ergonomic SSE**: Server-Sent Events (SSE) for real-time updates.
 
 ## Is it fast?
 
@@ -234,6 +235,30 @@ fn main() {
 
     println!("Running HTTPS on 127.0.0.1:4433");
     serve_tls("127.0.0.1:4433", tls_config, || HelloWorld);
+}
+```
+
+### Native Async Streaming (SSE)
+
+Moonbeam supports native `AsyncRead` response bodies, completely bypassing the background thread pool and allowing highly efficient real-time streaming, like Server-Sent Events (SSE) or proxied network streams. It includes several helpers to make this easy, like `Response::new_from_sse_fn`.
+
+```rust,no_run
+use moonbeam::{server, serve, Response, Request, Spawner, SseEvent};
+
+#[server(AsyncStreamServer)]
+async fn handler(_request: Request, _spawner: Spawner) -> Response {
+    Response::new_from_sse_fn(async |mut writer| {
+        writer.write_string(
+            SseEvent::new()
+                .with_event("ping")
+                .with_data("test")
+        )
+        .await;
+    })
+}
+
+fn main() {
+    serve("127.0.0.1:8080", || AsyncStreamServer);
 }
 ```
 

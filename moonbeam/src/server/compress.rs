@@ -6,6 +6,11 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 		return;
 	}
 
+	if matches!(resp.body, Some(Body::AsyncStream { .. })) {
+		// Do not apply synchronous compression to async streams
+		return;
+	}
+
 	let already_compressed = resp
 		.headers
 		.iter()
@@ -54,6 +59,9 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 					Some(Body::Stream { data, .. }) => {
 						Box::new(brotli::CompressorReader::new(data, 8 * 1024, 5, 20))
 					}
+					Some(Body::AsyncStream { .. }) => {
+						unreachable!("AsyncStream compression skipped")
+					}
 					None => {
 						unreachable!(
 							"Compression applied to empty body (checked at function start)"
@@ -70,6 +78,9 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 						data,
 						flate2::Compression::default(),
 					)),
+					Some(Body::AsyncStream { .. }) => {
+						unreachable!("AsyncStream compression skipped")
+					}
 					None => {
 						unreachable!(
 							"Compression applied to empty body (checked at function start)"
@@ -86,6 +97,9 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 						data,
 						flate2::Compression::default(),
 					)),
+					Some(Body::AsyncStream { .. }) => {
+						unreachable!("AsyncStream compression skipped")
+					}
 					None => {
 						unreachable!(
 							"Compression applied to empty body (checked at function start)"
