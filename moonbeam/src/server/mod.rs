@@ -26,6 +26,7 @@ use httpdate::fmt_http_date;
 use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
 #[cfg(feature = "catchpanic")]
 use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
 use std::{
 	borrow::Cow,
 	io::{Error, ErrorKind, Read, Write},
@@ -366,6 +367,10 @@ where
 			socket_write!(write_stream_body(socket, data, len, head));
 			tracing::trace!(len, "Streamed body");
 		}
+		Some(Body::AsyncStream { data, len }) => {
+			socket_write!(write_async_stream_body(socket, data, len, head));
+			tracing::trace!(len, "Async streamed body");
+		}
 	}
 
 	Ok(())
@@ -638,6 +643,49 @@ where
 
 	// _reader will drop to ensure the background task is cancelled if writing the socket fails for
 	// some reason.
+
+	Ok(())
+}
+
+async fn write_async_stream_body<S>(
+	socket: &mut S,
+	mut data: Pin<Box<dyn AsyncRead + 'static>>,
+	len: Option<u64>,
+	head: &[u8],
+) -> std::io::Result<()>
+where
+	S: AsyncWrite + Unpin,
+{
+	socket.write_all(head).await?;
+	let mut buf = vec![0; BUFSIZE];
+
+	if len.is_none() {
+		// Chunked transfer encoding
+		loop {
+			let n = data.read(&mut buf[7..BUFSIZE - 2]).await?;
+			if n == 0 {
+				socket.write_all(b"0\r\n\r\n").await?;
+				break;
+			}
+
+			let mut slice = &mut buf[0..7];
+			write!(slice, "{:0>5x}\r\n", n).unwrap();
+
+			buf[7 + n] = b'\r';
+			buf[7 + n + 1] = b'\n';
+
+			socket.write_all(&buf[0..7 + n + 2]).await?;
+		}
+	} else {
+		// Known length
+		loop {
+			let n = data.read(&mut buf).await?;
+			if n == 0 {
+				break;
+			}
+			socket.write_all(&buf[..n]).await?;
+		}
+	}
 
 	Ok(())
 }

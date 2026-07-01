@@ -59,3 +59,7 @@ required-features = ["router"]
 [[test]]
 name = "state_extraction"
 required-features = ["router"]
+
+[[test]]
+name = "async_stream"
+required-features = ["router"]
