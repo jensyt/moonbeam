@@ -113,6 +113,46 @@ where
 	) -> impl Future<Output = Response<'req>>;
 }
 
+pub struct StatelessAsyncFnServer<H>(H);
+impl<H> StatelessAsyncFnServer<H> {
+	pub fn new(h: H) -> Self {
+		Self(h)
+	}
+}
+
+impl<H> Server for StatelessAsyncFnServer<H>
+where
+	H: for<'exec, 'req> AsyncFn(Request<'req, 'req>, Spawner<'exec>) -> Response<'req>,
+{
+	fn route<'exec: 'req, 'req>(
+		&'exec self,
+		request: Request<'req, 'req>,
+		spawner: Spawner<'exec>,
+	) -> impl Future<Output = Response<'req>> {
+		self.0(request, spawner)
+	}
+}
+
+pub struct AsyncFnServer<H, S>(H, S);
+impl<H, S> AsyncFnServer<H, S> {
+	pub fn new(h: H, state: S) -> Self {
+		Self(h, state)
+	}
+}
+
+impl<H, S> Server for AsyncFnServer<H, S>
+where
+	H: for<'exec, 'req> AsyncFn(Request<'req, 'req>, Spawner<'exec>, &'exec S) -> Response<'req>,
+{
+	fn route<'exec: 'req, 'req>(
+		&'exec self,
+		request: Request<'req, 'req>,
+		spawner: Spawner<'exec>,
+	) -> impl Future<Output = Response<'req>> {
+		self.0(request, spawner, &self.1)
+	}
+}
+
 macro_rules! socket_write {
 	($e:expr) => {
 		if let Err(_error) = $e.await {

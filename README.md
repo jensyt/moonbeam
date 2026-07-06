@@ -182,6 +182,34 @@ fn main() {
 }
 ```
 
+Or, alternatively:
+
+```rust,no_run
+use std::cell::Cell;
+use moonbeam::{AsyncFnServer, Body, Request, Response, Spawner, Server};
+
+struct CounterServer {
+    count: Cell<u64>,
+}
+
+async fn route<'req, 'exec>(
+	_req: Request<'req, 'req>,
+	_spawner: Spawner<'exec>,
+	state: &'exec CounterServer,
+) -> Response<'req> {
+	let count = state.count.get();
+   	state.count.set(count + 1);
+
+   	Response::ok().with_body(format!("Request #{}", count), Body::TEXT)
+}
+
+fn main() {
+    moonbeam::serve("127.0.0.1:8080", || {
+        AsyncFnServer::new(route, CounterServer { count: Cell::new(0) })
+    });
+}
+```
+
 ### Multi-threaded "Share-Nothing" Server
 
 Use the `mt` feature flag to scale across multiple CPU cores.
