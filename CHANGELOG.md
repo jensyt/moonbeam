@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Native asynchronous response streaming (`Body::AsyncStream`), allowing handlers to stream response data asynchronously without blocking worker threads.
+- `async-compression` dependency to support Gzip, Brotli, and Deflate compression of `Body::AsyncStream`.
 - Ergonomic `Response::new_from_sse_fn` to easily stream Server-Sent Events (SSE) from an async function.
 - A high-level `SseEvent` builder type (`moonbeam::http::SseEvent`) that implements `std::fmt::Display` for spec-compliant serialization.
 - Server-Sent Events (SSE) example under `examples/sse`.
