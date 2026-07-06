@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A high-level `SseEvent` builder type (`moonbeam::http::SseEvent`) that implements `std::fmt::Display` for spec-compliant serialization.
 - Server-Sent Events (SSE) example under `examples/sse`.
 - `AsyncFnServer` and `StatelessAsyncFnServer` to make macro-less usage a little easier
+- Set MSRV to 1.88.0
 
 ### Changed
 - **BREAKING**: Require pinning `Executor` to get a `Spawner`, eliminating potential bugs where Spawner points to an invalid `Executor`. See `tests/integration/tests` for examples.
