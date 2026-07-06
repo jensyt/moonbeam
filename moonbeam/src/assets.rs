@@ -55,7 +55,7 @@ pub fn get_asset(
 	path: &str,
 	etag: Option<&[u8]>,
 	root: impl AsRef<Path>,
-) -> impl Future<Output = Response> {
+) -> impl Future<Output = Response<'static>> {
 	let root = root.as_ref().to_path_buf();
 	let path = path.trim_start_matches('/').to_string();
 	let etag = etag.map(|e| e.to_vec());

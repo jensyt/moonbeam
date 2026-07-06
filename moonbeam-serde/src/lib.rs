@@ -38,7 +38,7 @@ pub use forms::{File, Form};
 pub struct Json<T>(pub T);
 
 impl<'buf, T: Deserialize<'buf>> FromBody<'buf> for Json<T> {
-	type Error = Response;
+	type Error = Response<'static>;
 
 	fn from_body(body: &'buf [u8]) -> Result<Self, Self::Error> {
 		serde_json::from_slice(body)
@@ -47,7 +47,7 @@ impl<'buf, T: Deserialize<'buf>> FromBody<'buf> for Json<T> {
 	}
 }
 
-impl<T: Serialize> From<Json<T>> for Response {
+impl<T: Serialize> From<Json<T>> for Response<'static> {
 	fn from(json: Json<T>) -> Self {
 		match serde_json::to_vec(&json.0) {
 			Ok(body) => Response::ok().with_body(body, Body::JSON),

@@ -1,9 +1,10 @@
 use quote::quote;
 use syn::{
-	FnArg, Ident, ItemFn, PathArguments, Token, Type,
+	FnArg, Ident, ItemFn, Token, Type,
 	parse::{Parse, ParseStream},
 	parse_macro_input, parse_quote,
 	spanned::Spanned,
+	visit_mut::VisitMut,
 };
 
 /// Arguments for the `#[route]` attribute macro.
@@ -69,62 +70,56 @@ pub(super) fn route_impl(
 
 	let mut state_type: Option<Type> = args.state;
 
+	let mut request_lt: Option<syn::Lifetime> = None;
 	let mut spawner_lt: Option<syn::Lifetime> = None;
 	let mut state_lt: Option<syn::Lifetime> = None;
 
 	// First pass: Identify state type and update/extract lifetimes
 	for arg in &mut input_fn.sig.inputs {
-		if let FnArg::Typed(pat_type) = arg {
-			let ty = &mut pat_type.ty;
+		if request_lt.is_none() {
+			request_lt = super::check_arg(
+				Some(arg),
+				"Request",
+				parse_quote!('req),
+				parse_quote!(<'req, 'req>),
+			);
+		}
 
-			// Check for Request and Spawner and add/extract lifetimes if needed
-			if let Type::Path(type_path) = &mut **ty
-				&& let Some(s) = type_path.path.segments.last_mut()
-			{
-				if s.ident == "Request" && s.arguments.is_empty() {
-					s.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
-				} else if s.ident == "Spawner" {
-					let mut has_lifetime = false;
-					if let PathArguments::AngleBracketed(ab) = &s.arguments {
-						for g_arg in &ab.args {
-							if let syn::GenericArgument::Lifetime(lt) = g_arg {
-								if lt.ident != "_" {
-									spawner_lt = Some(lt.clone());
-									has_lifetime = true;
-								}
-								break;
-							}
-						}
-					}
-					if !has_lifetime {
-						s.arguments = PathArguments::AngleBracketed(parse_quote!(<'exec>));
-						spawner_lt = Some(parse_quote!('exec));
-					}
-				}
-			}
+		if spawner_lt.is_none() {
+			spawner_lt = super::check_arg(
+				Some(arg),
+				"Spawner",
+				parse_quote!('exec),
+				parse_quote!(<'exec>),
+			);
+		}
 
-			// Check for State reference
-			if let Type::Reference(type_ref) = &mut **ty {
-				if state_type.is_none() {
-					state_type = Some(*type_ref.elem.clone());
-				}
-				let mut has_lifetime = false;
-				if let Some(lt) = &type_ref.lifetime
-					&& lt.ident != "_"
-				{
-					state_lt = Some(lt.clone());
-					has_lifetime = true;
-				}
-				if !has_lifetime {
-					let lt: syn::Lifetime = parse_quote!('state);
-					type_ref.lifetime = Some(lt.clone());
-					state_lt = Some(lt);
-				}
-			}
-		} else {
-			return syn::Error::new(arg.span(), "Route handlers cannot take 'self'")
+		// Check for State reference
+		if let FnArg::Typed(pat_type) = arg
+			&& let Type::Reference(type_ref) = &mut *pat_type.ty
+		{
+			if state_type.is_none() {
+				state_type = Some(*type_ref.elem.clone());
+			} else {
+				return syn::Error::new(
+					arg.span(),
+					"Route handlers cannot take multiple state objects",
+				)
 				.to_compile_error()
 				.into();
+			}
+			let mut has_lifetime = false;
+			if let Some(lt) = &type_ref.lifetime
+				&& lt.ident != "_"
+			{
+				state_lt = Some(lt.clone());
+				has_lifetime = true;
+			}
+			if !has_lifetime {
+				let lt: syn::Lifetime = parse_quote!('state);
+				type_ref.lifetime = Some(lt.clone());
+				state_lt = Some(lt);
+			}
 		}
 	}
 
@@ -135,44 +130,33 @@ pub(super) fn route_impl(
 		}
 	}
 
-	if let Some(ref lt) = spawner_lt
-		&& !existing_lifetimes.contains(&lt.ident.to_string())
-	{
-		input_fn
-			.sig
-			.generics
-			.params
-			.push(syn::GenericParam::Lifetime(syn::LifetimeParam::new(
-				lt.clone(),
-			)));
+	if let Some(ref lt) = request_lt {
+		super::add_lifetime_generic(&mut existing_lifetimes, &mut input_fn, lt, None);
 	}
 
-	if let Some(ref lt_s) = state_lt
-		&& !existing_lifetimes.contains(&lt_s.ident.to_string())
-	{
-		let mut lt_param = syn::LifetimeParam::new(lt_s.clone());
-		if let Some(ref lt_e) = spawner_lt {
-			lt_param.bounds.push(lt_e.clone());
-		}
-		input_fn
-			.sig
-			.generics
-			.params
-			.push(syn::GenericParam::Lifetime(lt_param));
+	if let Some(ref lt) = spawner_lt {
+		super::add_lifetime_generic(
+			&mut existing_lifetimes,
+			&mut input_fn,
+			lt,
+			request_lt.as_ref(),
+		);
 	}
 
-	if let (Some(lt_s), Some(lt_e)) = (&state_lt, &spawner_lt) {
-		for param in &mut input_fn.sig.generics.params {
-			if let syn::GenericParam::Lifetime(lt_param) = param
-				&& lt_param.lifetime.ident == lt_s.ident
-			{
-				if !lt_param.bounds.iter().any(|b| b.ident == lt_e.ident) {
-					lt_param.bounds.push(lt_e.clone());
-				}
-				break;
-			}
-		}
+	if let Some(ref lt) = state_lt {
+		super::add_lifetime_generic(
+			&mut existing_lifetimes,
+			&mut input_fn,
+			lt,
+			spawner_lt.as_ref(),
+		);
 	}
+
+	let lt = request_lt
+		.unwrap_or_else(|| spawner_lt.unwrap_or_else(|| state_lt.unwrap_or(parse_quote!('static))));
+	super::check_response(&mut input_fn.sig.output, &lt);
+	// Nothing to do if check_response returns None, since routes can return types that implement
+	// Into<Response>
 
 	let (impl_generics, state_ty_path) = if let Some(st) = state_type {
 		(quote! {}, quote! { #st })
@@ -244,9 +228,15 @@ pub(super) fn route_impl(
 				});
 				call_args.push(quote!(#arg_name));
 			} else {
+				let mut ty_anon = ty.clone();
+				AnonymousLifetimeReplacer.visit_type_mut(&mut ty_anon);
+
 				// FromRequest extractor
 				extractions.push(quote! {
-					let #arg_name = match <#ty as ::moonbeam::http::FromRequest<'headers, 'buf, 'state, #state_ty_path>>::from_request(req, state).await {
+					let #arg_name =
+						match <#ty_anon as ::moonbeam::http::FromRequest<'req, 'req, 'exec, #state_ty_path>>
+							::from_request(req, state).await
+					{
 						Ok(v) => v,
 						Err(e) => return ::core::convert::Into::into(e),
 					};
@@ -276,13 +266,13 @@ pub(super) fn route_impl(
 		}
 
 		impl #impl_generics ::moonbeam::router::RouteHandler<#state_ty_path> for #fn_name {
-			fn call<'headers, 'buf, 'state: 'exec, 'exec>(
+			fn call<'req, 'exec: 'req>(
 				&self,
-				req: ::moonbeam::http::Request<'headers, 'buf>,
-				params: &[&'buf str],
+				req: ::moonbeam::http::Request<'req, 'req>,
+				params: &[&str],
 				spawner: ::moonbeam::server::task::Spawner<'exec>,
-				state: &'state #state_ty_path)
-			-> impl ::std::future::Future<Output = ::moonbeam::http::Response>
+				state: &'exec #state_ty_path)
+			-> impl ::std::future::Future<Output = ::moonbeam::http::Response<'req>>
 			{
 				::moonbeam::tracing::Instrument::instrument(
 					async move {
@@ -297,4 +287,13 @@ pub(super) fn route_impl(
 	};
 
 	output.into()
+}
+
+struct AnonymousLifetimeReplacer;
+impl VisitMut for AnonymousLifetimeReplacer {
+	fn visit_lifetime_mut(&mut self, i: &mut syn::Lifetime) {
+		if i.ident != "static" {
+			i.ident = syn::Ident::new("_", i.ident.span());
+		}
+	}
 }

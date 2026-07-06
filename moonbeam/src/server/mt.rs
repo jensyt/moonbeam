@@ -64,11 +64,11 @@ pub enum ThreadCount {
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     async fn route<'server: 'exec, 'exec>(
-///         &'server self,
-///         _req: Request<'_, '_>,
+///     async fn route<'exec: 'req, 'req>(
+///         &'exec self,
+///         _req: Request<'req, 'req>,
 ///         _spawner: Spawner<'exec>,
-///     ) -> Response {
+///     ) -> Response<'req> {
 ///         Response::ok()
 ///     }
 /// }
@@ -349,11 +349,11 @@ mod test {
 
 	struct MockServer;
 	impl Server for MockServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **BREAKING**: Require pinning `Executor` to get a `Spawner`, eliminating potential bugs where Spawner points to an invalid `Executor`. See `tests/integration/tests` for examples.
 - **BREAKING**: `Response` and `Body` are now `!Send` to allow `Body::AsyncStream` not to be `Send`
+- **BREAKING**: `Response` and `Body` now take a lifetime to allow `Body::AsyncStream` to borrow against `Request` and state
+- **BREAKING**: `Server` and `RouteHandler` trait lifetimes changed
 
 ## [0.7.3] - 2026-06-12
 

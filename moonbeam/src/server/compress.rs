@@ -189,11 +189,11 @@ mod tests {
 	}
 
 	impl Server for MockServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			_req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			_req: Request<'r, 'r>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			let body = if self.use_stream {
 				Body::Stream {
 					data: Box::new(Cursor::new(self.body.clone())),

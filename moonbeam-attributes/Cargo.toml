@@ -23,5 +23,5 @@ syn = { version = "2.0", default-features = false, features = ["full", "parsing"
 
 [features]
 default = []
-router = []
-autohead = []
+router = ["syn/visit-mut"]
+autohead = ["syn/visit-mut"]

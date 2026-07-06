@@ -11,7 +11,12 @@
 //! struct MyServer;
 //!
 //! impl Server for MyServer {
-//!     async fn route<'s: 'e, 'e>(&'s self, _req: Request<'_, '_>, spawner: Spawner<'e>) -> Response {
+//!     async fn route<'e: 'r, 'r>(
+//!         &'e self,
+//!         _req: Request<'r, 'r>,
+//!         spawner: Spawner<'e>,
+//!     ) -> Response<'r>
+//!     {
 //!         spawner.spawn(async {
 //!             // Do something interesting here after the request is processed
 //!         });

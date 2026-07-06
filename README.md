@@ -165,11 +165,11 @@ struct CounterServer {
 }
 
 impl Server for CounterServer {
-	async fn route<'server: 'exec, 'exec>(
-		&'server self,
-		_req: Request<'_, '_>,
+	async fn route<'exec: 'req, 'req>(
+		&'exec self,
+		_req: Request<'req, 'req>,
 		_spawner: Spawner<'exec>,
-	) -> Response {
+	) -> Response<'req> {
 		let count = self.count.get();
     	self.count.set(count + 1);
     

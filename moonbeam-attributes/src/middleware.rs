@@ -16,7 +16,6 @@ fn do_middleware_impl(
 ) -> Result<proc_macro::TokenStream, syn::Error> {
 	let mut input_fn: ItemFn = syn::parse(item)?;
 
-	// 1. Process arguments and extract custom lifetimes
 	let inputs = &mut input_fn.sig.inputs;
 	let inputs_span = inputs.span();
 	if inputs.len() != 4 {
@@ -26,7 +25,7 @@ fn do_middleware_impl(
 		));
 	}
 
-	// 2. Identify the state type parameter to distinguish it from the future return type
+	// Identify the state type parameter to distinguish it from the future return type
 	let mut state_type_param_ident = None;
 	let arg3_ref = &inputs[2];
 	if let FnArg::Typed(pat_type) = arg3_ref
@@ -44,7 +43,7 @@ fn do_middleware_impl(
 		}
 	}
 
-	// 3. Identify or default the future return type identifier (non-state type parameter)
+	// Identify or default the future return type identifier (non-state type parameter)
 	let mut fut_ty_ident = None;
 	for param in &input_fn.sig.generics.params {
 		if let syn::GenericParam::Type(ty) = param
@@ -89,9 +88,9 @@ fn do_middleware_impl(
 		}
 	}
 	if !has_req_lifetimes {
-		seg1.arguments = PathArguments::AngleBracketed(parse_quote!(<'headers, 'buf>));
-		req_lt_a = Some(parse_quote!('headers));
-		req_lt_b = Some(parse_quote!('buf));
+		seg1.arguments = PathArguments::AngleBracketed(parse_quote!(<'req, 'req>));
+		req_lt_a = Some(parse_quote!('req));
+		req_lt_b = Some(parse_quote!('req));
 	}
 
 	// Arg 2: Spawner
@@ -122,7 +121,11 @@ fn do_middleware_impl(
 		.ok_or_else(|| syn::Error::new(inputs_span, "Missing State argument"))?;
 	match arg3 {
 		FnArg::Typed(pat_type) => {
-			if !matches!(*pat_type.ty, Type::Reference(_)) {
+			if let Type::Reference(t) = &mut *pat_type.ty {
+				if t.lifetime.as_ref().is_none_or(|v| v.ident == "_") {
+					t.lifetime = Some(parse_quote!('exec));
+				}
+			} else {
 				return Err(syn::Error::new(
 					pat_type.ty.span(),
 					"Third argument State must be a reference",
@@ -223,8 +226,13 @@ fn do_middleware_impl(
 
 	if !bound_exists {
 		where_clause.predicates.push(
-			parse_quote!(#fut_ty_ident: ::std::future::Future<Output = ::moonbeam::Response>),
+			parse_quote!(#fut_ty_ident: ::std::future::Future<Output = ::moonbeam::Response<#la>>),
 		);
+	}
+
+	if super::check_response(&mut input_fn.sig.output, la).is_none() {
+		let span = input_fn.sig.output.span();
+		return Err(syn::Error::new(span, "Output must be: Response"));
 	}
 
 	Ok(quote! {

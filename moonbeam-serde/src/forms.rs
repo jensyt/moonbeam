@@ -114,7 +114,7 @@ pub enum SerdeFormError {
 	UnsupportedFormType,
 }
 
-impl From<SerdeFormError> for Response {
+impl From<SerdeFormError> for Response<'static> {
 	fn from(value: SerdeFormError) -> Self {
 		match value {
 			SerdeFormError::FormError(e) => e.into(),
@@ -190,7 +190,7 @@ impl<'buf, T: Deserialize<'buf>> TryFrom<Request<'_, 'buf>> for Form<T> {
 }
 
 impl<'buf, T: Deserialize<'buf>, S> FromRequest<'_, 'buf, '_, S> for Form<T> {
-	type Error = Response;
+	type Error = Response<'static>;
 
 	async fn from_request(req: Request<'_, 'buf>, _state: &S) -> Result<Self, Self::Error> {
 		Form::try_from(req).map_err(|e| e.into())

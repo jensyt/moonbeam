@@ -2,22 +2,29 @@ use async_io::Timer;
 use moonbeam::{AsyncStreamWriter, Body, Request, Response, Spawner, SseEvent, serve, server};
 use moonbeam_serde::WithJsonData;
 use serde::Serialize;
-use std::time::Duration;
+use std::{cell::Cell, time::Duration};
+
+struct State {
+	count: Cell<usize>,
+}
 
 #[derive(Serialize)]
 struct Message<'a> {
 	msg: &'a str,
 }
 
-async fn sse<'a>(writer: AsyncStreamWriter) {
+async fn sse(writer: AsyncStreamWriter, req: Request<'_, '_>, state: &State) {
 	for _ in 0..10 {
 		writer
 			.write_string(
 				SseEvent::new()
-					.with_json_data(Message { msg: "hello" })
+					.with_json_data(Message {
+						msg: &format!("hello {} from {}", state.count.get(), req.path),
+					})
 					.with_event("ping"),
 			)
 			.await;
+		state.count.update(|v| v + 1);
 		Timer::after(Duration::from_secs(1)).await;
 	}
 	writer
@@ -26,9 +33,9 @@ async fn sse<'a>(writer: AsyncStreamWriter) {
 }
 
 #[server(SseServer)]
-async fn handle_request(req: Request, _spawner: Spawner) -> Response {
+async fn handle_request(req: Request, _spawner: Spawner, state: &State) -> Response {
 	if req.path == "/events" {
-		Response::new_from_sse_fn(sse)
+		Response::new_from_sse_fn(|writer| sse(writer, req, state))
 	} else {
 		let html = r#"
 		<!DOCTYPE html>
@@ -63,5 +70,9 @@ async fn handle_request(req: Request, _spawner: Spawner) -> Response {
 
 fn main() {
 	println!("Starting SSE server on http://127.0.0.1:8080");
-	serve("127.0.0.1:8080", || SseServer)
+	serve("127.0.0.1:8080", || {
+		SseServer(State {
+			count: Cell::new(0),
+		})
+	})
 }

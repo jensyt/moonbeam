@@ -90,10 +90,10 @@ fn max_body_size() -> usize {
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     async fn route<'server: 'exec, 'exec>(
-///         &'server self,
-///         _req: Request<'_, '_>,
-///         _spawner: Spawner<'exec>) -> Response
+///     async fn route<'exec: 'req, 'req>(
+///         &'exec self,
+///         _req: Request<'req, 'req>,
+///         _spawner: Spawner<'exec>) -> Response<'req>
 ///     {
 ///         Response::ok()
 ///     }
@@ -104,11 +104,11 @@ where
 	Self: Sized,
 {
 	/// Handles an incoming HTTP request and returns a future that resolves to a response.
-	fn route<'server: 'exec, 'exec>(
-		&'server self,
-		request: Request,
+	fn route<'exec: 'req, 'req>(
+		&'exec self,
+		request: Request<'req, 'req>,
 		spawner: Spawner<'exec>,
-	) -> impl Future<Output = Response>;
+	) -> impl Future<Output = Response<'req>>;
 }
 
 macro_rules! socket_write {
@@ -380,7 +380,7 @@ async fn read_from_socket<S>(
 	socket: &mut S,
 	buf: &mut [u8],
 	total: usize,
-) -> Result<(usize, usize), Option<Response>>
+) -> Result<(usize, usize), Option<Response<'static>>>
 where
 	S: AsyncRead + Unpin,
 {
@@ -647,9 +647,9 @@ where
 	Ok(())
 }
 
-async fn write_async_stream_body<S>(
+async fn write_async_stream_body<'a, S>(
 	socket: &mut S,
-	mut data: Pin<Box<dyn AsyncRead + 'static>>,
+	mut data: Pin<Box<dyn AsyncRead + 'a>>,
 	len: Option<u64>,
 	head: &[u8],
 ) -> std::io::Result<()>
@@ -690,7 +690,7 @@ where
 	Ok(())
 }
 
-async fn write_error_response<S>(socket: &mut S, response: Response, buffer: &mut [u8])
+async fn write_error_response<S>(socket: &mut S, response: Response<'_>, buffer: &mut [u8])
 where
 	S: AsyncWrite + Unpin,
 {
@@ -837,11 +837,11 @@ mod tests {
 
 	struct MockServer;
 	impl Server for MockServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}
@@ -972,11 +972,11 @@ mod tests {
 
 	struct StreamServer;
 	impl Server for StreamServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			if req.path == "/stream" {
 				let content = "Streamed Content";
 				let body = Body::Stream {
@@ -1147,11 +1147,11 @@ mod tests {
 
 	struct EchoServer;
 	impl Server for EchoServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			// Return body length as string
 			let len = req.body.len();
 			Response::ok().with_body(format!("{}", len), Body::DEFAULT_CONTENT_TYPE)
