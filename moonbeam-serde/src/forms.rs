@@ -7,8 +7,8 @@
 //! `#[serde(borrow)]` attribute to support zero-copy borrowing. This is required because URL
 //! decoding may create a new string allocation.
 //!
-//! For multipart data, you can always use `&str` since it never allocators. Multipart also supports
-//! files through the special [`File`] type.
+//! For multipart data, you can use `&str` directly because it does not allocate when the field
+//! contains valid UTF-8. Multipart also supports files through the special [`File`] type.
 //!
 //! # Examples
 //! ```rust,no_run
@@ -21,6 +21,7 @@
 //! #[derive(Debug, Deserialize)]
 //! struct Upload<'a> {
 //!     title: &'a str,
+//!     #[serde(borrow)]
 //!     file: File<'a>,
 //! }
 //!
@@ -350,7 +351,6 @@ impl<'buf> de::Deserializer<'buf> for ValuesDeserializer<'buf> {
 	where
 		V: Visitor<'buf>,
 	{
-		eprintln!("seq");
 		visitor.visit_seq(self)
 	}
 

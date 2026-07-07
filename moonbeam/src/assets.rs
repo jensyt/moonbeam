@@ -1,10 +1,8 @@
 //! # Assets Module
 //!
-//! This module provides the `get_asset` utility for serving static files
-//! from the file system.
+//! This module provides the `get_asset` utility for serving static files from the file system.
 //!
-//! Moonbeam's asset serving is designed to be secure and efficient,
-//! with built-in:
+//! Moonbeam's asset serving is designed to be secure and efficient, with built-in:
 //! - **Path Sanitization**: Prevents directory traversal attacks.
 //! - **ETag Generation**: Uses file modification time to generate stable hashes.
 //! - **MIME Type Detection**: Comprehensive support for common file extensions.
@@ -41,7 +39,7 @@ use std::{
 /// - `500 Internal Server Error` if file access fails.
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 ///
 /// #[server(FileServer)]

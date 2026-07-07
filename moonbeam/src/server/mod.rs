@@ -77,11 +77,11 @@ fn max_body_size() -> usize {
 /// This trait is the core interface for defining request handlers in Moonbeam.
 /// Implementations are typically generated automatically by the `#[server]` or `router!` macros.
 ///
-/// A note on lifetimes: the server instance is guaranteed to outlive the executor that runs
-/// requests, which lets you spawn sub-tasks that can safely reference the server. Unfortunately,
-/// this requires adding lifetime annotations to the `route` function (`<'server: 'exec, 'exec>`)
-/// and others it calls that may want to spawn sub-tasks. The `#[server]` and `router!` macros
-/// handle these lifetimes automatically.
+/// A note on lifetimes: to allow spawned tasks to reference state and allow responses to reference
+/// state and requests, this unfortunately requires adding lifetime annotations to the `route`
+/// function (`<'exec: 'req, 'req>`). The `#[server]` and `router!` macros handle these lifetimes
+/// automatically, but if not using the macros you will need to pay attention to lifetimes on
+/// function signatures.
 ///
 /// # Example
 /// ```
@@ -104,6 +104,8 @@ where
 	Self: Sized,
 {
 	/// Handles an incoming HTTP request and returns a future that resolves to a response.
+	///
+	/// The future and response can safely borrow any of the function inputs.
 	fn route<'exec: 'req, 'req>(
 		&'exec self,
 		request: Request<'req, 'req>,
@@ -133,6 +135,7 @@ macro_rules! socket_write {
 ///
 /// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
 /// * `router` - The server implementation to route requests to.
+/// * `spawner` - The spawner to use for spawning background tasks.
 async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 	mut socket: S,
 	router: &'server R,

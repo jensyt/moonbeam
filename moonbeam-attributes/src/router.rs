@@ -271,30 +271,6 @@ impl Handler {
 	}
 }
 
-/// Implementation logic for the `router!` macro.
-///
-/// This function parses the DSL-like syntax of the `router!` macro and generates:
-/// - A struct representing the router (with optional state).
-/// - An implementation of the `Server` trait for that router.
-/// - Efficient routing logic that dispatches requests to the appropriate `RouteHandler`.
-///
-/// The routing logic supports:
-/// - Static paths (e.g., "/users")
-/// - Named parameters (e.g., "/users/:id")
-/// - Rest parameters (e.g., "/static/*path")
-/// - Method matching (GET, POST, etc.)
-///
-/// # Syntax Example
-///
-/// ```ignore
-/// router! {
-///     MyRouter<MyState> {
-///         get("/users") => get_users,
-///         post("/users/:id") => create_user,
-///         get("/static/*path") => serve_static
-///     }
-/// }
-/// ```
 pub(super) fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	let input = parse_macro_input!(item as RouterInput);
 	let visibility = input.visibility;

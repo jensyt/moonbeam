@@ -1,8 +1,8 @@
 //! Utilities for percent-decoding URL-encoded strings.
 //!
 //! This module provides two versions of percent-decoding:
-//! - [`percent_decode`] which decodes percent-encoded characters in the string
-//! - [`percent_decode_query`] which decodes percent-encoded characters and converts `+` to ` ` (space)
+//! - [`decode`] which decodes percent-encoded characters in the string
+//! - [`decode_query`] which decodes percent-encoded characters and converts `+` to ` ` (space)
 //!
 //! It also provides convenience traits ([`PercentDecode`] and [`PercentDecodeExt`]) for strings and
 //! iterators of strings, respectively.

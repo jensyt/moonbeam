@@ -1,10 +1,8 @@
 # Moonbeam Attributes
 
 This crate provides procedural macros for the `moonbeam` web server library.
-The main macro is `#[server]`, which simplifies creating server implementations
-by wrapping a function. With the `router` feature, this crate also offers the
-`router!` macro which provides a clean DSL and efficient implementation for nested
-groups, middleware, path parameters, and wildcards.
+The main macro is `#[server]`, which simplifies creating server implementations by wrapping a function.
+With the `router` feature, this crate also offers the `#[route]`, `router!`, and `#[middleware]` macros which provide a clean DSL and efficient implementation for nested groups, middleware, path parameters, and wildcards.
 
 ## Usage
 
@@ -20,10 +18,10 @@ The `#[server]` attribute macro converts a function into a struct that implement
 
 The decorated function must have one of the following signatures:
 
-*   `fn(Request, Spawner) -> impl Future<Output = Response>`
-*   `fn(Request, Spawner, &State) -> impl Future<Output = Response>` (if state is used)
+*   `async fn(Request, Spawner) -> Response`
+*   `async fn(Request, Spawner, &State) -> Response` (if state is used)
 
-The function can be `async` or return `impl Future`.
+The function can be `async` or return `impl Future<Output = Response>`.
 
 #### Examples
 

@@ -2,7 +2,7 @@
 
 A single-threaded-first async HTTP/1.1 server written in Rust.
 
-Moonbeam is designed to be simple, efficient, and free of synchronization overhead by running on a single thread. It leverages the `async-io` and `smol` ecosystem to handle concurrent connections asynchronously. By default, it uses a "share-nothing" architecture, avoiding the need for `Arc`, `Mutex`, or `Send`/`Sync` bounds on your state, though it can easily be extended to multiple threads if desired.
+Moonbeam is designed to be simple, efficient, and free of synchronization overhead by running on a single thread by default. It leverages the `async-io` and `smol` ecosystem to handle concurrent connections asynchronously. By default, it uses a "share-nothing" architecture, avoiding the need for `Arc`, `Mutex`, or `Send`/`Sync` bounds on your state, though it can easily be extended to multiple threads if desired.
 
 ## Motivation
 Modern web applications often spend most of their time waiting on I/O (databases, network requests, etc.) rather than performing heavy CPU computation. Moonbeam embraces this by running your application logic on a single thread, utilizing a local executor. This means you can use simple `RefCell` and `Cell` primitives for state management, drastically reducing the cognitive overhead and boilerplate often associated with multi-threaded Rust web frameworks. 
@@ -240,7 +240,7 @@ fn main() {
 
 ### Native Async Streaming (SSE)
 
-Moonbeam supports native `AsyncRead` response bodies, completely bypassing the background thread pool and allowing highly efficient real-time streaming, like Server-Sent Events (SSE) or proxied network streams. It includes several helpers to make this easy, like `Response::new_from_sse_fn`.
+Moonbeam supports native `AsyncRead` response bodies, completely bypassing the background thread pool and allowing highly efficient real-time streaming, like Server-Sent Events (SSE). It includes several helpers to make this easy, like `Response::new_from_sse_fn`.
 
 ```rust,no_run
 use moonbeam::{server, serve, Response, Request, Spawner, SseEvent};

@@ -8,10 +8,10 @@
 //!
 //! ## Core Macros
 //!
-//! - `#[server]`: Turns a function into a full `Server` implementation.
-//! - `router!`: Defines a routing tree with nesting and middleware.
-//! - `#[route]`: Defines a handler for use within a `router!`.
-//! - `#[middleware]`: Defines a middleware function for use within a `router!`.
+//! - [`#[server]`](server): Turns a function into a full `Server` implementation.
+//! - [`router!`](router): Defines a routing tree with nesting and middleware.
+//! - [`#[route]`](route): Defines a handler for use within a `router`.
+//! - [`#[middleware]`](middleware): Defines a middleware function for use within a `router`.
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -47,7 +47,8 @@ impl Parse for ServerArgs {
 
 /// Attribute macro to convert a function into a `Server` implementation.
 ///
-/// This macro handles the boilerplate of implementing the `moonbeam::Server` trait.
+/// This macro handles the boilerplate of implementing the
+/// [`moonbeam::Server`](https://docs.rs/moonbeam/latest/moonbeam/server/trait.Server.html) trait.
 /// It generates a struct with the specified name that can be passed to `moonbeam::serve`.
 ///
 /// # Arguments
@@ -61,6 +62,8 @@ impl Parse for ServerArgs {
 /// 1. **Stateless**: `async fn(Request, Spawner) -> Response`
 /// 2. **Stateful**: `async fn(Request, Spawner, &State) -> Response`
 ///
+/// Decoraed functions can be async, sync, or return `impl Future<Output = Response`.
+///
 /// # Example: Stateless
 /// ```rust,ignore
 /// use moonbeam::{Request, Response, Spawner, server};
@@ -70,8 +73,9 @@ impl Parse for ServerArgs {
 ///     Response::ok()
 /// }
 ///
-/// // Usage:
-/// // moonbeam::serve("127.0.0.1:8080", || MyServer);
+/// fn main() {
+///     moonbeam::serve("127.0.0.1:8080", || MyServer);
+/// }
 /// ```
 ///
 /// # Example: Stateful
@@ -87,9 +91,10 @@ impl Parse for ServerArgs {
 ///     Response::ok()
 /// }
 ///
-/// // Usage:
-/// // let state = AppState { count: Cell::new(0) };
-/// // moonbeam::serve("127.0.0.1:8080", move || MyServer(state));
+/// fn main() {
+///     let state = AppState { count: Cell::new(0) };
+///     moonbeam::serve("127.0.0.1:8080", move || MyServer(state));
+/// }
 /// ```
 #[proc_macro_attribute]
 pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -416,22 +421,24 @@ fn is_impl_future(ty: &Type) -> bool {
 
 /// Defines a route handler for use with the `router!` macro.
 ///
-/// This macro transforms an async function into a type that implements `RouteHandler`.
-/// It allows for powerful dependency injection, automatically extracting parameters
-/// based on the function signature.
+/// This macro transforms an async function into a type that implements `RouteHandler`. It allows
+/// for powerful dependency injection, automatically extracting parameters based on the function
+/// signature.
 ///
 /// # Supported Parameters
 ///
 /// - `Request`: The incoming HTTP request.
+/// - `Spawner`: The spawner for asynchronous tasks.
 /// - `&State`: A reference to the application state (must match the state type in `router!`).
-/// - `PathParams<T>`: Extracted path parameters (e.g., `PathParams<&str>` or `PathParams<(&str, &str)>`).
-/// - **Extractors**: Any type that implements `FromRequest`. This allows for flexible,
-///   typed body extraction (e.g., `Json<T>`).
+/// - `PathParams<T>`: Extracted path parameters (e.g., `PathParams<&str>` or
+///   `PathParams<(&str, &str)>`).
+/// - **Extractors**: Any type that implements `FromRequest`. This allows for flexible, typed body
+///   extraction (e.g., `Json<T>`).
 ///
 /// # Return Types
 ///
-/// The decorated function can return any type that implements `Into<Response>`.
-/// Common return types include:
+/// The decorated function can return any type that implements `Into<Response>`. Common return
+/// types include:
 /// - `Response`
 /// - `Result<T, E>` (where both `T` and `E` implement `Into<Response>`)
 /// - `()` (returns `204 No Content`)
@@ -454,10 +461,31 @@ fn is_impl_future(ty: &Type) -> bool {
 /// ```
 ///
 /// # Example with Explicit State
+///
+/// Sometimes, you have a handler that depends on the state type indirectly (e.g. via an extractor)
+/// but you don't take the state as an input. In those cases, you can specify the state type on the
+/// `route` attribute to avoid type inference errors.
+///
 /// ```rust,ignore
+/// use moonbeam::{Request, Response, route};
+/// use std::convert::Infallible;
+///
+/// struct AppState {
+///     name: String,
+/// }
+///
+/// struct Name<'a>(&'a str);
+/// impl<'s> FromRequest<'_, '_, 's, AppState> for Name<'s> {
+///     type Error = Infallible;
+///
+///     async fn from_request(_req: Request<'_, '_>, state: &'s State) -> Result<Self, Self::Error> {
+///         Ok(Self(&state.name))
+///     }
+/// }
+///
 /// #[route(state = AppState)]
-/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
-///     // ...
+/// async fn echo_user(Name(user): Name<'_>) -> Response {
+///     Response::ok().with_body(format!("Hello {user}"), Body::TEXT)
 /// }
 /// ```
 #[cfg(feature = "router")]
@@ -469,8 +497,8 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Defines a router and its routing tree.
 ///
-/// The `router!` macro provides a clean, nested DSL for configuring how requests
-/// should be dispatched to handlers.
+/// The `router!` macro provides a clean, nested DSL for configuring how requests should be
+/// dispatched to handlers.
 ///
 /// # Syntax
 ///
@@ -519,16 +547,17 @@ pub fn router(item: TokenStream) -> TokenStream {
 
 /// Defines a middleware function for use in a `router!`.
 ///
-/// Middleware functions wrap the execution of downstream handlers, allowing you
-/// to perform pre-processing (like authentication or logging) and post-processing
-/// (like adding headers or timing).
+/// Middleware functions wrap the execution of downstream handlers, allowing you to perform
+/// pre-processing (like authentication or logging) and post-processing (like adding headers or
+/// timing).
 ///
 /// # Signature
 ///
 /// Middleware functions must accept:
 /// 1. `req: Request`
-/// 2. `state: &State`
-/// 3. `next: Next` (a special type representing the rest of the handler chain)
+/// 2. `spawner: Spawner`
+/// 3. `state: &State`
+/// 4. `next: Next` (a special type representing the rest of the handler chain)
 ///
 /// And return a `Response`.
 ///

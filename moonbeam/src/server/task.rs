@@ -1,8 +1,8 @@
 //! Task management and spawning.
 //!
-//! Use the [`Spawner`] instance provided on [`Server::serve`] callbacks to spawn tasks. Since
-//! Moonbeam follows a share nothing approach to threading, these tasks will be queued to run on the
-//! same thread that spawned them.
+//! Use the [`Spawner`] instance provided on [`Server::route`](super::Server::route) callbacks to
+//! spawn tasks. Since Moonbeam follows a share nothing approach to threading, these tasks will be
+//! queued to run on the same thread that spawned them.
 //!
 //! # Examples
 //! ```no_run

@@ -1,8 +1,8 @@
 //! Utilities to turn an async function into [`AsyncRead`].
 //!
-//! Moonbeam supports async streamed bodies via [`Body::AsyncStream`]. To improve ergonomics, this
-//! module provides utilities that let an async function act like a generator, yielding results to
-//! the underlying socket using [`AsyncStreamWriter`].
+//! Moonbeam supports async streamed bodies via [`Body::AsyncStream`](super::Body::AsyncStream). To
+//! improve ergonomics, this module provides utilities that let an async function act like a
+//! generator, yielding results to the underlying socket using [`AsyncStreamWriter`].
 //!
 //! # Example
 //!
@@ -102,7 +102,8 @@ where
 ///
 /// This writer lets an async function 'yield' results to write to the underlying socket. You cannot
 /// create this writer directly, it is provided by the framework when using helper functions like
-/// [`Body::from_stream_fn`] and [`Response::new_from_sse_fn`].
+/// [`Body::from_stream_fn`](super::Body::from_stream_fn) and
+/// [`Response::new_from_sse_fn`](super::Response::new_from_sse_fn).
 ///
 /// # Example
 ///

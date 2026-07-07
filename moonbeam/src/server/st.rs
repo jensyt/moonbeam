@@ -29,8 +29,8 @@ use std::pin::pin;
 /// connections concurrently on a single thread. Because it uses a `LocalExecutor`, you can safely
 /// use non-Send/Sync types like `Cell` and `RefCell` in your server state.
 ///
-/// For consistency with [`serve_multi`], this function takes a state factory that is called once
-/// to create the server state.
+/// For consistency with [`serve_multi`](super::mt::serve_multi), this function takes a state
+/// factory that is called once to create the server state.
 ///
 /// # Warning
 /// CPU-heavy operations or synchronous blocking I/O inside your handlers will block the entire

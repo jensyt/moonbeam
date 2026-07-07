@@ -1,7 +1,7 @@
 //! # Multi-Threaded Server (Isolates)
 //!
-//! This module provides the multi-threaded server implementation for Moonbeam,
-//! enabled via the `mt` feature.
+//! This module provides the multi-threaded server implementation for Moonbeam, enabled via the `mt`
+//! feature.
 //!
 //! ## Share-Nothing Multi-Threading
 //!

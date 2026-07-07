@@ -7,7 +7,6 @@ use syn::{
 	visit_mut::VisitMut,
 };
 
-/// Arguments for the `#[route]` attribute macro.
 struct RouteArgs {
 	state: Option<Type>,
 }
@@ -32,35 +31,6 @@ impl Parse for RouteArgs {
 	}
 }
 
-/// Implementation logic for the `#[route]` attribute macro.
-///
-/// This function parses the decorated function and generates a struct that implements `RouteHandler`.
-/// It handles:
-/// - Parsing function arguments to determine what needs to be injected (Request, PathParams, State).
-/// - Generating the `RouteHandler::call` implementation.
-/// - Wrapping the user's function call with the extracted arguments.
-///
-/// # Example
-///
-/// ```ignore
-/// #[route]
-/// async fn get_user(req: Request, PathParams(id): PathParams<&str>) -> Response {
-///     // ...
-/// }
-/// ```
-///
-/// Explicitly specifying state type:
-/// ```ignore
-/// #[route(state = AppState)]
-/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
-///     // ...
-/// }
-/// ```
-///
-/// # Arguments
-///
-/// * `attr` - The attribute arguments.
-/// * `item` - The decorated function as a `TokenStream`.
 pub(super) fn route_impl(
 	attr: proc_macro::TokenStream,
 	item: proc_macro::TokenStream,
