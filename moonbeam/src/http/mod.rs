@@ -551,13 +551,13 @@ impl<'a> Body<'a> {
 	}
 
 	/// Creates a streaming body from an asynchronous data source.
-	pub fn from_async_read<R>(reader: R) -> Self
+	pub fn from_async_read<R>(reader: R, len: Option<u64>) -> Self
 	where
 		R: AsyncRead + 'a,
 	{
 		Body::AsyncStream {
 			data: Box::pin(reader),
-			len: None,
+			len,
 		}
 	}
 
@@ -567,7 +567,7 @@ impl<'a> Body<'a> {
 		S: FnOnce(AsyncStreamWriter) -> F,
 		F: Future<Output = ()> + 'a,
 	{
-		Self::from_async_read(AsyncStreamFn::new(stream_fn))
+		Self::from_async_read(AsyncStreamFn::new(stream_fn), None)
 	}
 
 	/// Returns the length of the body if known.

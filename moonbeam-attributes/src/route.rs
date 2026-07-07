@@ -154,9 +154,7 @@ pub(super) fn route_impl(
 
 	let lt = request_lt
 		.unwrap_or_else(|| spawner_lt.unwrap_or_else(|| state_lt.unwrap_or(parse_quote!('static))));
-	super::check_response(&mut input_fn.sig.output, &lt);
-	// Nothing to do if check_response returns None, since routes can return types that implement
-	// Into<Response>
+	ResponseLifetimeReplacer(lt).visit_return_type_mut(&mut input_fn.sig.output);
 
 	let (impl_generics, state_ty_path) = if let Some(st) = state_type {
 		(quote! {}, quote! { #st })
@@ -295,5 +293,32 @@ impl VisitMut for AnonymousLifetimeReplacer {
 		if i.ident != "static" {
 			i.ident = syn::Ident::new("_", i.ident.span());
 		}
+	}
+}
+
+struct ResponseLifetimeReplacer(syn::Lifetime);
+impl VisitMut for ResponseLifetimeReplacer {
+	fn visit_path_mut(&mut self, path: &mut syn::Path) {
+		if let Some(segment) = path.segments.last_mut()
+			&& segment.ident == "Response"
+		{
+			let mut has_lifetime = false;
+			if let syn::PathArguments::AngleBracketed(ab) = &segment.arguments {
+				for g_arg in &ab.args {
+					if let syn::GenericArgument::Lifetime(lt) = g_arg {
+						if lt.ident != "_" {
+							has_lifetime = true;
+						}
+						break;
+					}
+				}
+			}
+			if !has_lifetime {
+				let lt = &self.0;
+				segment.arguments = syn::PathArguments::AngleBracketed(parse_quote!(<#lt>));
+			}
+		}
+
+		syn::visit_mut::visit_path_mut(self, path);
 	}
 }

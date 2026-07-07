@@ -204,7 +204,7 @@ mod tests {
 						let _ = writer.write_all(&body_bytes).await;
 					});
 				});
-				Body::from_async_read(reader)
+				Body::from_async_read(reader, None)
 			} else if self.use_stream {
 				Body::Stream {
 					data: Box::new(Cursor::new(self.body.clone())),

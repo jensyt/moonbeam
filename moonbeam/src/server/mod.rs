@@ -1093,6 +1093,167 @@ mod tests {
 		});
 	}
 
+	struct AsyncStreamServer;
+	impl Server for AsyncStreamServer {
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
+			_spawner: Spawner<'e>,
+		) -> Response<'r> {
+			if req.path == "/async-stream" {
+				// Known length: use from_async_read with a known-length AsyncRead
+				let content = b"async body".to_vec();
+				let len = content.len() as u64;
+				let body = Body::from_async_read(futures_lite::io::Cursor::new(content), Some(len));
+				Response::ok().with_body(body, Body::DEFAULT_CONTENT_TYPE)
+			} else if req.path == "/async-chunked" {
+				// No length → chunked transfer encoding
+				let body = Body::from_stream_fn(async |writer| {
+					writer.write(b"chunked ").await;
+					writer.write(b"async").await;
+				});
+				Response::ok().with_body(body, Body::DEFAULT_CONTENT_TYPE)
+			} else {
+				Response::not_found()
+			}
+		}
+	}
+
+	#[test]
+	fn test_handle_socket_async_stream_body_known_length() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = AsyncStreamServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /async-stream HTTP/1.1\r\nConnection: close\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap()
+					.contains("async body")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Content-Length: 10"));
+			assert!(response.ends_with("async body"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_async_stream_body_chunked() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = AsyncStreamServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /async-chunked HTTP/1.1\r\nConnection: close\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap_or_default()
+					.ends_with("0\r\n\r\n")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Transfer-Encoding: chunked"));
+			// "chunked async" = 13 bytes = 0x0d
+			assert!(response.ends_with("0000d\r\nchunked async\r\n0\r\n\r\n"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_head_with_async_stream_body() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = AsyncStreamServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"HEAD /async-stream HTTP/1.1\r\nConnection: close\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				// HEAD response headers end with \r\n\r\n and no body follows
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap_or_default()
+					.contains("\r\n\r\n")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Content-Length: 10"));
+			// HEAD must not include a body
+			assert!(!response.contains("async body"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
 	#[test]
 	fn test_write_response_sanitization() {
 		let response = Response::ok()

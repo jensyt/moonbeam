@@ -285,6 +285,83 @@ impl<const N: usize> Buffer<N> {
 #[cfg(test)]
 mod test {
 	use super::*;
+	use futures_lite::{AsyncReadExt, future::block_on};
+	use std::pin::pin;
+
+	#[test]
+	fn test_asyncstream() {
+		let mut stream = pin!(AsyncStreamFn::new(async |writer| {
+			writer.write(b"Test ").await;
+			writer.write(b"data").await;
+		}));
+		let mut buf = Vec::new();
+		let result = block_on(stream.read_to_end(&mut buf));
+
+		assert!(result.is_ok());
+		assert_eq!(result.unwrap(), 9);
+		assert_eq!(buf, b"Test data");
+	}
+
+	#[test]
+	fn test_asyncstream_big_write() {
+		let chunk_a = [0xAAu8; BUFFER_SIZE + 64];
+		let chunk_b = [0xBBu8; BUFFER_SIZE + 128];
+		let mut stream = pin!(AsyncStreamFn::new(async |writer| {
+			writer.write(&chunk_a).await;
+			writer.write(&chunk_b).await;
+		}));
+		let mut buf = Vec::new();
+		let result = block_on(stream.read_to_end(&mut buf));
+
+		assert!(result.is_ok());
+		assert_eq!(result.unwrap(), chunk_a.len() + chunk_b.len());
+		assert!(buf[..chunk_a.len()].iter().all(|&b| b == 0xAA));
+		assert!(buf[chunk_a.len()..].iter().all(|&b| b == 0xBB));
+	}
+
+	#[test]
+	fn test_asyncstream_empty() {
+		let mut stream = pin!(AsyncStreamFn::new(async |_writer: AsyncStreamWriter| {}));
+		let mut buf = Vec::new();
+		let result = block_on(stream.read_to_end(&mut buf));
+
+		assert!(result.is_ok());
+		assert_eq!(result.unwrap(), 0);
+		assert!(buf.is_empty());
+	}
+
+	#[test]
+	fn test_asyncstream_write_string() {
+		let mut stream = pin!(AsyncStreamFn::new(async |writer: AsyncStreamWriter| {
+			writer.write_string(42u32).await;
+			writer.write_string(" hello").await;
+		}));
+		let mut buf = Vec::new();
+		block_on(stream.read_to_end(&mut buf)).unwrap();
+		assert_eq!(buf, b"42 hello");
+	}
+
+	#[test]
+	fn test_asyncstream_small_read_buffer() {
+		let data = b"abcde";
+		let mut stream = pin!(AsyncStreamFn::new(async |writer: AsyncStreamWriter| {
+			writer.write(&data).await;
+		}));
+
+		let mut collected = Vec::new();
+		block_on(async {
+			let mut one_byte = [0u8; 1];
+			loop {
+				let n = stream.as_mut().read(&mut one_byte).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				collected.push(one_byte[0]);
+			}
+		});
+
+		assert_eq!(collected, data);
+	}
 
 	#[test]
 	fn test_buffer_copy_to_empty() {
@@ -411,6 +488,52 @@ mod test {
 		assert_eq!(&target, b"ABCDEFGHIJKLMNOPQRST");
 		assert_eq!(n, 20);
 		assert_eq!(&target, data);
+		assert_eq!(buf.len(), 0);
+	}
+
+	#[test]
+	fn test_buffer_interleaved_cycles() {
+		let mut buf = Buffer::<8>::new();
+
+		// Each iteration writes 5 bytes then reads 5 bytes.
+		// After the first iteration head/tail will have advanced, causing
+		// subsequent writes to wrap around.
+		for i in 0..8u8 {
+			let src = [i; 5];
+			let n = buf.copy_from(&src);
+			assert_eq!(n, 5);
+			assert_eq!(buf.len(), 5);
+
+			let mut dst = [0u8; 5];
+			let m = buf.copy_to(&mut dst);
+			assert_eq!(m, 5);
+			assert_eq!(dst, src);
+			assert_eq!(buf.len(), 0);
+			assert!(buf.is_empty);
+		}
+	}
+
+	#[test]
+	fn test_buffer_fill_exactly_full() {
+		const CAP: usize = 8;
+		let mut buf = Buffer::<CAP>::new();
+
+		let src = [0xCCu8; CAP];
+		let n = buf.copy_from(&src);
+		assert_eq!(n, CAP);
+		// head == tail and !is_empty → full
+		assert!(!buf.is_empty);
+		assert_eq!(buf.head, buf.tail);
+		assert_eq!(buf.len(), CAP);
+
+		// Trying to write more should return 0
+		assert_eq!(buf.copy_from(b"extra"), 0);
+
+		// Should be able to drain it fully
+		let mut dst = [0u8; CAP];
+		let m = buf.copy_to(&mut dst);
+		assert_eq!(m, CAP);
+		assert!(dst.iter().all(|&b| b == 0xCC));
 		assert_eq!(buf.len(), 0);
 	}
 }

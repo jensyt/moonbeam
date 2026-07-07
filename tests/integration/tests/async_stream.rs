@@ -13,7 +13,7 @@ async fn asyncread_handler() -> Response {
 		});
 	});
 
-	Response::ok().with_body(Body::from_async_read(reader), Body::TEXT)
+	Response::ok().with_body(Body::from_async_read(reader, None), Body::TEXT)
 }
 
 #[route]
