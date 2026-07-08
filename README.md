@@ -63,8 +63,8 @@ Moonbeam also offers relatively fast compilation times and a small disk footprin
 
 | Framework | Clean Build Time | Install Size (Avg) |
 | :--- | :--- | :--- |
-| **Moonbeam** | **~4.6s** | **~926 KB** |
-| Axum (Tokio) | ~8.6s | ~1.6 MB |
+| **Moonbeam** | **~3.2s** | **~870 KB** |
+| Axum (Tokio) | ~7.6s | ~1.5 MB |
 | Rouille | ~8.9s | ~933 KB |
 | Node.js | 0s | ~78 MB |
 
