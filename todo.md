@@ -1,6 +1,5 @@
 # Todo
 - Macros have different levels of support for including / reording parameters
-- BUG: `catchpanic` feature doesn't catch panics in `Body::Stream` and `Body::AsyncStream`
 - Can't easily implement other extractor traits (e.g. FromState) because they create conflicting impls with FromBody
 
 # Done
@@ -40,3 +39,4 @@
 - Compression support for `Body::AsyncStream`
 - Insufficient testing for SSE implementation
 - moonbeam-serde README missing documentation on Forms functionality
+- BUG: `catchpanic` feature doesn't catch panics in `Body::Stream` and `Body::AsyncStream`
