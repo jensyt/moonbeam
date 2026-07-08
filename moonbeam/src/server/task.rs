@@ -21,7 +21,7 @@
 //!
 //! serve("127.0.0.1:8080", || MyServer);
 //! ```
-use std::{cell::UnsafeCell, time::Duration};
+use std::{cell::UnsafeCell, marker::PhantomPinned, pin::Pin, time::Duration};
 
 #[cfg(feature = "signals")]
 use crate::server::task_tracker::TaskTracker;
@@ -93,6 +93,7 @@ pub struct Executor<'exec> {
 	#[cfg(feature = "signals")]
 	tracker: TaskTracker,
 	alive: UnsafeCell<bool>,
+	_pin: PhantomPinned,
 }
 
 impl<'exec> Executor<'exec> {
@@ -102,9 +103,9 @@ impl<'exec> Executor<'exec> {
 	}
 
 	/// Returns a [`Spawner`] for this executor.
-	pub fn spawner(&self) -> Spawner<'exec> {
+	pub fn spawner(self: Pin<&Self>) -> Spawner<'exec> {
 		Spawner {
-			ex: self,
+			ex: self.get_ref(),
 			alive: self.alive.get(),
 		}
 	}
@@ -131,6 +132,7 @@ impl<'exec> Default for Executor<'exec> {
 			#[cfg(feature = "signals")]
 			tracker: TaskTracker::new(),
 			alive: UnsafeCell::new(true),
+			_pin: PhantomPinned,
 		}
 	}
 }

@@ -1,5 +1,6 @@
 use futures_lite::future::block_on;
 use moonbeam::{Body, Executor, Request, Response, Server, route, router, router::PathParams};
+use std::pin::pin;
 
 // --- State Definition ---
 
@@ -58,12 +59,12 @@ router! {
 fn test_basic_routing() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	// Test GET /
 	let headers = [];
 	let req = Request::new("GET", "/", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "index");
 }
@@ -72,12 +73,12 @@ fn test_basic_routing() {
 fn test_path_params() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	// Test GET /users/123
 	let headers = [];
 	let req = Request::new("GET", "/users/123", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "user: 123");
 }
@@ -86,12 +87,12 @@ fn test_path_params() {
 fn test_multiple_path_params() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	// Test GET /users/123/posts/456
 	let headers = [];
 	let req = Request::new("GET", "/users/123/posts/456", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "user: 123, post: 456");
 }
@@ -100,12 +101,12 @@ fn test_multiple_path_params() {
 fn test_state_access() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	// Test GET /state
 	let headers = [];
 	let req = Request::new("GET", "/state", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "state: 42");
 }
@@ -114,18 +115,18 @@ fn test_state_access() {
 fn test_method_matching() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	// Test POST /items
 	let headers = [];
 	let req = Request::new("POST", "/items", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 201);
 	assert_body(res.body, "created");
 
 	// Test GET /items (should be 405 Method Not Allowed)
 	let req = Request::new("GET", "/items", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 405);
 	assert_eq!(
 		res.headers
@@ -141,12 +142,12 @@ fn test_method_matching() {
 fn test_not_found() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	// Test non-existent route
 	let headers = [];
 	let req = Request::new("GET", "/not-found", &headers, &[]);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 404);
 }
 

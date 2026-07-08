@@ -33,6 +33,7 @@ use futures_lite::future::FutureExt;
 #[cfg(feature = "tls")]
 use rustls::ServerConfig;
 use std::io::ErrorKind;
+use std::pin::pin;
 #[cfg(feature = "signals")]
 use std::time::Duration;
 use std::{net::SocketAddr, num::NonZeroUsize, thread};
@@ -102,8 +103,8 @@ pub fn serve_multi<F, T: Server>(
 			let recv = recv.clone();
 			scope.spawn(move || {
 				let server = server();
-				let executor = Executor::new();
-				let spawner = executor.spawner();
+				let executor = pin!(Executor::new());
+				let spawner = executor.as_ref().spawner();
 
 				let _span = tracing::debug_span!("thread", id = _i).entered();
 				async_io::block_on(executor.run(async {
@@ -134,8 +135,8 @@ pub fn serve_multi<F, T: Server>(
 		drop(worker_force_shutdown);
 		drop(worker_done_shutdown);
 
-		let executor = Executor::new();
-		let spawner = executor.spawner();
+		let executor = pin!(Executor::new());
+		let spawner = executor.as_ref().spawner();
 		#[cfg(feature = "signals")]
 		spawner.spawn(async move {
 			let _ = all_workers_shutdown.recv_async().await;
@@ -242,8 +243,8 @@ pub fn serve_multi_tls<F, T: Server>(
 			let acceptor = acceptor.clone();
 			scope.spawn(move || {
 				let server = server();
-				let executor = Executor::new();
-				let spawner = executor.spawner();
+				let executor = pin!(Executor::new());
+				let spawner = executor.as_ref().spawner();
 
 				let _span = tracing::debug_span!("thread", id = _i).entered();
 				async_io::block_on(executor.run(async {
@@ -284,8 +285,8 @@ pub fn serve_multi_tls<F, T: Server>(
 		drop(worker_force_shutdown);
 		drop(worker_done_shutdown);
 
-		let executor = Executor::new();
-		let spawner = executor.spawner();
+		let executor = pin!(Executor::new());
+		let spawner = executor.as_ref().spawner();
 		#[cfg(feature = "signals")]
 		spawner.spawn(async move {
 			let _ = all_workers_shutdown.recv_async().await;

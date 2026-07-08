@@ -132,7 +132,7 @@ mod tests {
 	use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 	use piper::{Reader, Writer};
 	use std::io::Read;
-	use std::pin::Pin;
+	use std::pin::{Pin, pin};
 	use std::task::{Context, Poll};
 
 	struct MockStream {
@@ -197,8 +197,8 @@ mod tests {
 		let (reader, mut client_tx) = piper::pipe(65536);
 		let (mut client_rx, writer) = piper::pipe(65536);
 		let socket = MockStream { reader, writer };
-		let executor = Executor::new();
-		let handle_future = handle_socket(socket, &server, executor.spawner());
+		let executor = pin!(Executor::new());
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
 
 		let test_future = async move {
 			let mut headers = "GET / HTTP/1.1\r\n".to_string();

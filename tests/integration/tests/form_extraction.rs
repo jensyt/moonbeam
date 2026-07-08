@@ -3,6 +3,7 @@ use moonbeam::{Body, Executor, Header, Request, Response, Server, route, router}
 use moonbeam_serde::{File, Form};
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::pin::pin;
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct User<'a> {
@@ -49,7 +50,7 @@ router!(MyRouter {
 #[test]
 fn test_integration_form_urlencoded() {
 	let router = MyRouter::new();
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 	let body = b"id=42&name=Jens&active=true";
 	let headers = [
 		Header {
@@ -62,7 +63,7 @@ fn test_integration_form_urlencoded() {
 		},
 	];
 	let req = Request::new("POST", "/submit", &headers, body);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "42:Jens:true");
 }
@@ -70,7 +71,7 @@ fn test_integration_form_urlencoded() {
 #[test]
 fn test_integration_form_multipart() {
 	let router = MyRouter::new();
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 	let body = b"--boundary\r\n\
 				Content-Disposition: form-data; name=\"id\"\r\n\
 				\r\n\
@@ -97,7 +98,7 @@ fn test_integration_form_multipart() {
 		},
 	];
 	let req = Request::new("POST", "/submit", &headers, body);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "42:Jens:true");
 }
@@ -105,7 +106,7 @@ fn test_integration_form_multipart() {
 #[test]
 fn test_integration_form_file_upload() {
 	let router = MyRouter::new();
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 	let body = b"--boundary\r\n\
 				Content-Disposition: form-data; name=\"title\"\r\n\
 				\r\n\
@@ -129,7 +130,7 @@ fn test_integration_form_file_upload() {
 		},
 	];
 	let req = Request::new("POST", "/upload", &headers, body);
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 200);
 	assert_body(res.body, "My File:test.txt:11");
 }

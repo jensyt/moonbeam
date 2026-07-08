@@ -1,8 +1,8 @@
-use std::convert::Infallible;
-
 use futures_lite::future::block_on;
 use moonbeam::http::{Body, FromRequest, Request};
 use moonbeam::{Executor, Response, Server, route, router};
+use std::convert::Infallible;
+use std::pin::pin;
 
 struct State {
 	name: String,
@@ -32,12 +32,12 @@ fn test_state_extraction() {
 		name: "Jens".to_string(),
 	};
 	let router = StateRouter::new(state);
-	let executor = Executor::new();
+	let executor = pin!(Executor::new());
 
 	let headers = [];
 	let req = Request::new("POST", "/echo", &headers, &[]);
 
-	let res = block_on(router.route(req, executor.spawner()));
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
 
 	assert_eq!(res.status, 200);
 	assert!(
