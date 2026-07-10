@@ -23,7 +23,7 @@ pub use crate::server::mt::serve_multi_tls;
 #[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
 pub use crate::server::mt::{ThreadCount, serve_multi};
 pub use crate::server::task::{Executor, Spawner};
-pub use crate::server::{Server, st::serve};
+pub use crate::server::{AsyncFnServer, Server, StatelessAsyncFnServer, st::serve};
 #[cfg(feature = "tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use crate::server::{st::serve_tls, tls::TlsConfig};

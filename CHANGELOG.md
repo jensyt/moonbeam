@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ergonomic `Response::new_from_sse_fn` to easily stream Server-Sent Events (SSE) from an async function.
 - A high-level `SseEvent` builder type (`moonbeam::http::SseEvent`) that implements `std::fmt::Display` for spec-compliant serialization.
 - Server-Sent Events (SSE) example under `examples/sse`.
+- `AsyncFnServer` and `StatelessAsyncFnServer` to make macro-less usage a little easier
 
 ### Changed
 - **BREAKING**: Require pinning `Executor` to get a `Spawner`, eliminating potential bugs where Spawner points to an invalid `Executor`. See `tests/integration/tests` for examples.
