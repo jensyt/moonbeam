@@ -1,6 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-use moonbeam::http::{Body, FromBody, Response};
+use moonbeam::{
+	SseEvent,
+	http::{Body, FromBody, Response},
+};
 use serde::Serialize;
 use serde::de::Deserialize;
 
@@ -35,7 +38,7 @@ pub use forms::{File, Form};
 pub struct Json<T>(pub T);
 
 impl<'buf, T: Deserialize<'buf>> FromBody<'buf> for Json<T> {
-	type Error = Response;
+	type Error = Response<'static>;
 
 	fn from_body(body: &'buf [u8]) -> Result<Self, Self::Error> {
 		serde_json::from_slice(body)
@@ -44,7 +47,7 @@ impl<'buf, T: Deserialize<'buf>> FromBody<'buf> for Json<T> {
 	}
 }
 
-impl<T: Serialize> From<Json<T>> for Response {
+impl<T: Serialize> From<Json<T>> for Response<'static> {
 	fn from(json: Json<T>) -> Self {
 		match serde_json::to_vec(&json.0) {
 			Ok(body) => Response::ok().with_body(body, Body::JSON),
@@ -56,6 +59,17 @@ impl<T: Serialize> From<Json<T>> for Response {
 impl<T> From<T> for Json<T> {
 	fn from(val: T) -> Self {
 		Json(val)
+	}
+}
+
+pub trait WithJsonData {
+	fn with_json_data(self, json: impl Serialize) -> Self;
+}
+
+impl WithJsonData for SseEvent {
+	fn with_json_data(self, json: impl Serialize) -> Self {
+		let data = serde_json::to_string(&json).unwrap_or_default();
+		self.with_data(data)
 	}
 }
 

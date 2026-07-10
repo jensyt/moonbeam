@@ -29,8 +29,8 @@ use std::pin::pin;
 /// connections concurrently on a single thread. Because it uses a `LocalExecutor`, you can safely
 /// use non-Send/Sync types like `Cell` and `RefCell` in your server state.
 ///
-/// For consistency with [`serve_multi`], this function takes a state factory that is called once
-/// to create the server state.
+/// For consistency with [`serve_multi`](super::mt::serve_multi), this function takes a state
+/// factory that is called once to create the server state.
 ///
 /// # Warning
 /// CPU-heavy operations or synchronous blocking I/O inside your handlers will block the entire
@@ -43,11 +43,11 @@ use std::pin::pin;
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     async fn route<'server: 'exec, 'exec>(
-///         &'server self,
-///         _req: Request<'_, '_>,
+///     async fn route<'exec: 'req, 'req>(
+///         &'exec self,
+///         _req: Request<'req, 'req>,
 ///         _spawner: Spawner<'exec>,
-///     ) -> Response {
+///     ) -> Response<'req> {
 ///         Response::ok()
 ///     }
 /// }
@@ -175,11 +175,11 @@ mod test {
 
 	struct MockServer;
 	impl Server for MockServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}

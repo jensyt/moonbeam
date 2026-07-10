@@ -41,11 +41,11 @@ pub trait RouteHandler<State> {
 	/// * `params` - A slice of path parameter values extracted from the URL.
 	/// * `spawner` - A spawner for asynchronous task execution.
 	/// * `state` - A reference to the application state.
-	fn call<'buf, 'state: 'exec, 'exec>(
+	fn call<'req, 'exec: 'req>(
 		&self,
-		req: Request<'_, 'buf>,
-		params: &[&'buf str],
+		req: Request<'req, 'req>,
+		params: &[&str],
 		spawner: Spawner<'exec>,
-		state: &'state State,
-	) -> impl Future<Output = Response>;
+		state: &'exec State,
+	) -> impl Future<Output = Response<'req>>;
 }

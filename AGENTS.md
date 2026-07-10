@@ -8,7 +8,7 @@
 - **Networking**: `async-net`.
 - **Parsing**: `httparse`.
 - **Utilities**: `blocking` (for synchronous I/O), `flume` (async-ready channels).
-- **Compression**: `flate2` (gzip), `brotli`.
+- **Compression**: `flate2` (gzip), `brotli`, `async-compression`.
 - **Testing**: `piper` (for mock async streams).
 - **Log**: `tracing`.
 - **TLS**: `rustls`, `futures-rustls`, `rustls-pemfile` (optional, under `tls` feature).
@@ -25,6 +25,7 @@
     - `src/server/st.rs`: Single-threaded runtime implementation (and `serve_tls` if `tls` feature is active).
     - `src/server/mt.rs`: Multi-threaded runtime (requires `mt` feature, and `serve_multi_tls` if `tls` feature is active).
     - `src/server/tls.rs`: Helper module to load TLS configurations from PEM files (requires `tls` feature).
+    - `src/server/compress.rs`: Compression middleware.
     - `src/router/`: Routing logic and `PathParams` extraction.
     - `src/http/`: `Request`, `Response`, `Body`, `Cookies`, `Params` (query strings), and `PathIterator`.
     - `src/assets.rs`: Static file serving with ETag (SHA-based) and MIME detection.
@@ -79,7 +80,7 @@ async fn my_middleware(req: Request, spawner: Spawner, state: &State, next: Next
 
 ## Development Guidelines
 - **Interior Mutability**: Use `std::rc::Rc` and `std::cell::RefCell` for state. Avoid `std::sync` unless explicitly required for cross-thread channels (`flume`).
-- **Memory Management**: Servers and their state are no longer required to be `'static` after version 0.6. `moonbeam::serve` and `moonbeam::serve_multi` handle the lifetime management of the local executor.
+- **Memory Management**: `moonbeam::serve` and `moonbeam::serve_multi` handle the lifetime management of the local executor.
 - **Error Handling**: Prefer returning `Response::internal_server_error()` or similar over panicking. The `catchpanic` feature (if enabled) will catch panics in handlers and return a 500 response.
 
 ## Testing Strategy

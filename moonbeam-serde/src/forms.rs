@@ -7,8 +7,8 @@
 //! `#[serde(borrow)]` attribute to support zero-copy borrowing. This is required because URL
 //! decoding may create a new string allocation.
 //!
-//! For multipart data, you can always use `&str` since it never allocators. Multipart also supports
-//! files through the special [`File`] type.
+//! For multipart data, you can use `&str` directly because it does not allocate when the field
+//! contains valid UTF-8. Multipart also supports files through the special [`File`] type.
 //!
 //! # Examples
 //! ```rust,no_run
@@ -21,6 +21,7 @@
 //! #[derive(Debug, Deserialize)]
 //! struct Upload<'a> {
 //!     title: &'a str,
+//!     #[serde(borrow)]
 //!     file: File<'a>,
 //! }
 //!
@@ -114,7 +115,7 @@ pub enum SerdeFormError {
 	UnsupportedFormType,
 }
 
-impl From<SerdeFormError> for Response {
+impl From<SerdeFormError> for Response<'static> {
 	fn from(value: SerdeFormError) -> Self {
 		match value {
 			SerdeFormError::FormError(e) => e.into(),
@@ -190,7 +191,7 @@ impl<'buf, T: Deserialize<'buf>> TryFrom<Request<'_, 'buf>> for Form<T> {
 }
 
 impl<'buf, T: Deserialize<'buf>, S> FromRequest<'_, 'buf, '_, S> for Form<T> {
-	type Error = Response;
+	type Error = Response<'static>;
 
 	async fn from_request(req: Request<'_, 'buf>, _state: &S) -> Result<Self, Self::Error> {
 		Form::try_from(req).map_err(|e| e.into())
@@ -350,7 +351,6 @@ impl<'buf> de::Deserializer<'buf> for ValuesDeserializer<'buf> {
 	where
 		V: Visitor<'buf>,
 	{
-		eprintln!("seq");
 		visitor.visit_seq(self)
 	}
 

@@ -26,6 +26,7 @@ use httpdate::fmt_http_date;
 use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
 #[cfg(feature = "catchpanic")]
 use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
 use std::{
 	borrow::Cow,
 	io::{Error, ErrorKind, Read, Write},
@@ -76,11 +77,11 @@ fn max_body_size() -> usize {
 /// This trait is the core interface for defining request handlers in Moonbeam.
 /// Implementations are typically generated automatically by the `#[server]` or `router!` macros.
 ///
-/// A note on lifetimes: the server instance is guaranteed to outlive the executor that runs
-/// requests, which lets you spawn sub-tasks that can safely reference the server. Unfortunately,
-/// this requires adding lifetime annotations to the `route` function (`<'server: 'exec, 'exec>`)
-/// and others it calls that may want to spawn sub-tasks. The `#[server]` and `router!` macros
-/// handle these lifetimes automatically.
+/// A note on lifetimes: to allow spawned tasks to reference state and allow responses to reference
+/// state and requests, this unfortunately requires adding lifetime annotations to the `route`
+/// function (`<'exec: 'req, 'req>`). The `#[server]` and `router!` macros handle these lifetimes
+/// automatically, but if not using the macros you will need to pay attention to lifetimes on
+/// function signatures.
 ///
 /// # Example
 /// ```
@@ -89,10 +90,10 @@ fn max_body_size() -> usize {
 /// struct MyServer;
 ///
 /// impl Server for MyServer {
-///     async fn route<'server: 'exec, 'exec>(
-///         &'server self,
-///         _req: Request<'_, '_>,
-///         _spawner: Spawner<'exec>) -> Response
+///     async fn route<'exec: 'req, 'req>(
+///         &'exec self,
+///         _req: Request<'req, 'req>,
+///         _spawner: Spawner<'exec>) -> Response<'req>
 ///     {
 ///         Response::ok()
 ///     }
@@ -103,11 +104,13 @@ where
 	Self: Sized,
 {
 	/// Handles an incoming HTTP request and returns a future that resolves to a response.
-	fn route<'server: 'exec, 'exec>(
-		&'server self,
-		request: Request,
+	///
+	/// The future and response can safely borrow any of the function inputs.
+	fn route<'exec: 'req, 'req>(
+		&'exec self,
+		request: Request<'req, 'req>,
 		spawner: Spawner<'exec>,
-	) -> impl Future<Output = Response>;
+	) -> impl Future<Output = Response<'req>>;
 }
 
 macro_rules! socket_write {
@@ -132,6 +135,7 @@ macro_rules! socket_write {
 ///
 /// * `socket` - The connection socket (must implement `AsyncRead` and `AsyncWrite`).
 /// * `router` - The server implementation to route requests to.
+/// * `spawner` - The spawner to use for spawning background tasks.
 async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 	mut socket: S,
 	router: &'server R,
@@ -366,6 +370,10 @@ where
 			socket_write!(write_stream_body(socket, data, len, head));
 			tracing::trace!(len, "Streamed body");
 		}
+		Some(Body::AsyncStream { data, len }) => {
+			socket_write!(write_async_stream_body(socket, data, len, head));
+			tracing::trace!(len, "Async streamed body");
+		}
 	}
 
 	Ok(())
@@ -375,7 +383,7 @@ async fn read_from_socket<S>(
 	socket: &mut S,
 	buf: &mut [u8],
 	total: usize,
-) -> Result<(usize, usize), Option<Response>>
+) -> Result<(usize, usize), Option<Response<'static>>>
 where
 	S: AsyncRead + Unpin,
 {
@@ -642,7 +650,50 @@ where
 	Ok(())
 }
 
-async fn write_error_response<S>(socket: &mut S, response: Response, buffer: &mut [u8])
+async fn write_async_stream_body<'a, S>(
+	socket: &mut S,
+	mut data: Pin<Box<dyn AsyncRead + 'a>>,
+	len: Option<u64>,
+	head: &[u8],
+) -> std::io::Result<()>
+where
+	S: AsyncWrite + Unpin,
+{
+	socket.write_all(head).await?;
+	let mut buf = vec![0; BUFSIZE];
+
+	if len.is_none() {
+		// Chunked transfer encoding
+		loop {
+			let n = data.read(&mut buf[7..BUFSIZE - 2]).await?;
+			if n == 0 {
+				socket.write_all(b"0\r\n\r\n").await?;
+				break;
+			}
+
+			let mut slice = &mut buf[0..7];
+			write!(slice, "{:0>5x}\r\n", n).unwrap();
+
+			buf[7 + n] = b'\r';
+			buf[7 + n + 1] = b'\n';
+
+			socket.write_all(&buf[0..7 + n + 2]).await?;
+		}
+	} else {
+		// Known length
+		loop {
+			let n = data.read(&mut buf).await?;
+			if n == 0 {
+				break;
+			}
+			socket.write_all(&buf[..n]).await?;
+		}
+	}
+
+	Ok(())
+}
+
+async fn write_error_response<S>(socket: &mut S, response: Response<'_>, buffer: &mut [u8])
 where
 	S: AsyncWrite + Unpin,
 {
@@ -789,11 +840,11 @@ mod tests {
 
 	struct MockServer;
 	impl Server for MockServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			if req.path == "/error" {
 				panic!("forced panic");
 			}
@@ -924,11 +975,11 @@ mod tests {
 
 	struct StreamServer;
 	impl Server for StreamServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			if req.path == "/stream" {
 				let content = "Streamed Content";
 				let body = Body::Stream {
@@ -1045,6 +1096,167 @@ mod tests {
 		});
 	}
 
+	struct AsyncStreamServer;
+	impl Server for AsyncStreamServer {
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
+			_spawner: Spawner<'e>,
+		) -> Response<'r> {
+			if req.path == "/async-stream" {
+				// Known length: use from_async_read with a known-length AsyncRead
+				let content = b"async body".to_vec();
+				let len = content.len() as u64;
+				let body = Body::from_async_read(futures_lite::io::Cursor::new(content), Some(len));
+				Response::ok().with_body(body, Body::DEFAULT_CONTENT_TYPE)
+			} else if req.path == "/async-chunked" {
+				// No length → chunked transfer encoding
+				let body = Body::from_stream_fn(async |writer| {
+					writer.write(b"chunked ").await;
+					writer.write(b"async").await;
+				});
+				Response::ok().with_body(body, Body::DEFAULT_CONTENT_TYPE)
+			} else {
+				Response::not_found()
+			}
+		}
+	}
+
+	#[test]
+	fn test_handle_socket_async_stream_body_known_length() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = AsyncStreamServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /async-stream HTTP/1.1\r\nConnection: close\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap()
+					.contains("async body")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Content-Length: 10"));
+			assert!(response.ends_with("async body"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_async_stream_body_chunked() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = AsyncStreamServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /async-chunked HTTP/1.1\r\nConnection: close\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap_or_default()
+					.ends_with("0\r\n\r\n")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Transfer-Encoding: chunked"));
+			// "chunked async" = 13 bytes = 0x0d
+			assert!(response.ends_with("0000d\r\nchunked async\r\n0\r\n\r\n"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_head_with_async_stream_body() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = AsyncStreamServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"HEAD /async-stream HTTP/1.1\r\nConnection: close\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let mut total_read = 0;
+			loop {
+				let n = client_rx.read(&mut buf[total_read..]).await.unwrap();
+				if n == 0 {
+					break;
+				}
+				total_read += n;
+				// HEAD response headers end with \r\n\r\n and no body follows
+				if std::str::from_utf8(&buf[..total_read])
+					.unwrap_or_default()
+					.contains("\r\n\r\n")
+				{
+					break;
+				}
+			}
+			let response = std::str::from_utf8(&buf[..total_read]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(response.contains("Content-Length: 10"));
+			// HEAD must not include a body
+			assert!(!response.contains("async body"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
 	#[test]
 	fn test_write_response_sanitization() {
 		let response = Response::ok()
@@ -1099,11 +1311,11 @@ mod tests {
 
 	struct EchoServer;
 	impl Server for EchoServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			req: Request<'r, '_>,
 			_spawner: Spawner<'e>,
-		) -> Response {
+		) -> Response<'r> {
 			// Return body length as string
 			let len = req.body.len();
 			Response::ok().with_body(format!("{}", len), Body::DEFAULT_CONTENT_TYPE)

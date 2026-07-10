@@ -67,6 +67,7 @@ EXAMPLES=(
     "examples-concurrent"
     "examples-tls"
     "examples-tracing"
+    "examples-sse"
 )
 
 for example in "${EXAMPLES[@]}"; do

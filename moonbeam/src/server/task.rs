@@ -1,8 +1,8 @@
 //! Task management and spawning.
 //!
-//! Use the [`Spawner`] instance provided on [`Server::serve`] callbacks to spawn tasks. Since
-//! Moonbeam follows a share nothing approach to threading, these tasks will be queued to run on the
-//! same thread that spawned them.
+//! Use the [`Spawner`] instance provided on [`Server::route`](super::Server::route) callbacks to
+//! spawn tasks. Since Moonbeam follows a share nothing approach to threading, these tasks will be
+//! queued to run on the same thread that spawned them.
 //!
 //! # Examples
 //! ```no_run
@@ -11,7 +11,12 @@
 //! struct MyServer;
 //!
 //! impl Server for MyServer {
-//!     async fn route<'s: 'e, 'e>(&'s self, _req: Request<'_, '_>, spawner: Spawner<'e>) -> Response {
+//!     async fn route<'e: 'r, 'r>(
+//!         &'e self,
+//!         _req: Request<'r, 'r>,
+//!         spawner: Spawner<'e>,
+//!     ) -> Response<'r>
+//!     {
 //!         spawner.spawn(async {
 //!             // Do something interesting here after the request is processed
 //!         });

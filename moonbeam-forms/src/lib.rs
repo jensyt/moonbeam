@@ -148,7 +148,7 @@ pub enum FormError {
 	MissingMutlipartBoundary,
 }
 
-impl From<FormError> for Response {
+impl From<FormError> for Response<'static> {
 	fn from(err: FormError) -> Self {
 		match err {
 			FormError::InvalidUtf8 => {

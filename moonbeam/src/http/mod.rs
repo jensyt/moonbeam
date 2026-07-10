@@ -14,16 +14,22 @@
 //! The HTTP types are designed to be efficient and ergonomic, using `Cow` and slices
 //! where possible to minimize allocations.
 
+use async_stream::{AsyncStreamFn, AsyncStreamWriter};
 use cookies::Cookies;
+use futures_lite::AsyncRead;
 use httparse::{Header, Request as RawRequest};
 use params::Params;
 use path::PathIterator;
-use std::{borrow::Cow, convert::Infallible, fmt::Debug, future::Future, io::Read, ops::Index};
+use std::{
+	borrow::Cow, convert::Infallible, fmt::Debug, future::Future, io::Read, ops::Index, pin::Pin,
+};
 
+pub mod async_stream;
 pub mod cookies;
 pub mod params;
 pub mod path;
 pub mod percent_decode;
+pub mod sse;
 
 /// Returns the canonical reason phrase for a given HTTP status code.
 ///
@@ -214,16 +220,16 @@ impl Index<usize> for Headers {
 /// assert_eq!(resp.status, 200);
 /// ```
 #[derive(Debug)]
-pub struct Response {
+pub struct Response<'a> {
 	/// The HTTP status code (e.g., 200, 404).
 	pub status: u16,
 	/// The response headers.
 	pub headers: Headers,
 	/// The response body.
-	pub body: Option<Body>,
+	pub body: Option<Body<'a>>,
 }
 
-impl Response {
+impl<'a> Response<'a> {
 	/// Creates a new response with the given status code.
 	#[inline]
 	pub fn new_with_code(status: u16) -> Self {
@@ -236,7 +242,7 @@ impl Response {
 
 	/// Creates a new response with a body and optional content type.
 	pub fn new_with_body(
-		body: impl Into<Body>,
+		body: impl Into<Body<'a>>,
 		content_type: Option<impl Into<Cow<'static, str>>>,
 	) -> Self {
 		let headers = if let Some(content_type) = content_type {
@@ -250,6 +256,42 @@ impl Response {
 			status: 200,
 			headers,
 			body: Some(body.into()),
+		}
+	}
+
+	/// Creates a new response configured for SSE streaming using the given async function.
+	///
+	/// # Example
+	///
+	/// ```
+	/// use moonbeam::{Response, SseEvent};
+	///
+	/// let response = Response::new_from_sse_fn(async |mut writer| {
+	///     writer.write_string(
+	///         SseEvent::new()
+	///             .with_event("ping")
+	///             .with_data("test")
+	///     ).await;
+	/// });
+	/// ```
+	#[inline]
+	pub fn new_from_sse_fn<S, F>(sse_fn: S) -> Self
+	where
+		S: FnOnce(AsyncStreamWriter) -> F,
+		F: Future<Output = ()> + 'a,
+	{
+		let headers = Headers {
+			inner: vec![
+				("Content-Type".into(), "text/event-stream".into()),
+				("Cache-Control".into(), "no-cache".into()),
+				("X-Accel-Buffering".into(), "no".into()),
+				("Content-Encoding".into(), "identity".into()),
+			],
+		};
+		Self {
+			status: 200,
+			headers,
+			body: Some(Body::from_stream_fn(sse_fn)),
 		}
 	}
 
@@ -343,7 +385,7 @@ impl Response {
 	#[inline]
 	pub fn with_body(
 		mut self,
-		body: impl Into<Body>,
+		body: impl Into<Body<'a>>,
 		content_type: Option<impl Into<Cow<'static, str>>>,
 	) -> Self {
 		match content_type {
@@ -404,44 +446,44 @@ impl Response {
 	}
 }
 
-impl From<()> for Response {
-	fn from(_: ()) -> Response {
+impl From<()> for Response<'_> {
+	fn from(_: ()) -> Response<'static> {
 		Response::empty()
 	}
 }
 
-impl From<Body> for Response {
-	fn from(body: Body) -> Response {
+impl<'a> From<Body<'a>> for Response<'a> {
+	fn from(body: Body<'a>) -> Response<'a> {
 		Response::new_with_body(body, Body::DEFAULT_CONTENT_TYPE)
 	}
 }
 
-impl From<(Body, &'static str)> for Response {
-	fn from((body, content_type): (Body, &'static str)) -> Response {
+impl<'a> From<(Body<'a>, &'static str)> for Response<'a> {
+	fn from((body, content_type): (Body<'a>, &'static str)) -> Response<'a> {
 		Response::new_with_body(body, Some(content_type))
 	}
 }
 
-impl From<(Body, Option<&'static str>)> for Response {
-	fn from((body, content_type): (Body, Option<&'static str>)) -> Response {
+impl<'a> From<(Body<'a>, Option<&'static str>)> for Response<'a> {
+	fn from((body, content_type): (Body<'a>, Option<&'static str>)) -> Response<'a> {
 		Response::new_with_body(body, content_type)
 	}
 }
 
-impl From<(Body, String)> for Response {
-	fn from((body, content_type): (Body, String)) -> Response {
+impl<'a> From<(Body<'a>, String)> for Response<'a> {
+	fn from((body, content_type): (Body<'a>, String)) -> Response<'a> {
 		Response::new_with_body(body, Some(content_type))
 	}
 }
 
-impl From<(Body, Option<String>)> for Response {
-	fn from((body, content_type): (Body, Option<String>)) -> Response {
+impl<'a> From<(Body<'a>, Option<String>)> for Response<'a> {
+	fn from((body, content_type): (Body<'a>, Option<String>)) -> Response<'a> {
 		Response::new_with_body(body, content_type)
 	}
 }
 
-impl<T: Into<Response>> From<Option<T>> for Response {
-	fn from(val: Option<T>) -> Response {
+impl<'a, T: Into<Response<'a>>> From<Option<T>> for Response<'a> {
+	fn from(val: Option<T>) -> Response<'a> {
 		match val {
 			Some(val) => val.into(),
 			None => Response::not_found(),
@@ -449,8 +491,8 @@ impl<T: Into<Response>> From<Option<T>> for Response {
 	}
 }
 
-impl<T: Into<Response>, E: Into<Response>> From<Result<T, E>> for Response {
-	fn from(val: Result<T, E>) -> Response {
+impl<'a, T: Into<Response<'a>>, E: Into<Response<'a>>> From<Result<T, E>> for Response<'a> {
+	fn from(val: Result<T, E>) -> Response<'a> {
 		match val {
 			Ok(val) => val.into(),
 			Err(err) => err.into(),
@@ -458,8 +500,8 @@ impl<T: Into<Response>, E: Into<Response>> From<Result<T, E>> for Response {
 	}
 }
 
-impl From<Infallible> for Response {
-	fn from(_: Infallible) -> Response {
+impl From<Infallible> for Response<'_> {
+	fn from(_: Infallible) -> Response<'static> {
 		unreachable!("Infallible cannot be converted to Response")
 	}
 }
@@ -472,7 +514,7 @@ impl From<Infallible> for Response {
 ///
 /// let body = Body::from("Hello");
 /// ```
-pub enum Body {
+pub enum Body<'a> {
 	/// In-memory body data.
 	Immediate(Vec<u8>),
 	/// A streaming body from a `Read` source.
@@ -482,15 +524,24 @@ pub enum Body {
 		/// The length of the body, if known.
 		len: Option<u64>,
 	},
+	/// A streaming body from an `AsyncRead` source.
+	AsyncStream {
+		/// The underlying async stream of data.
+		data: Pin<Box<dyn AsyncRead + 'a>>,
+		/// The length of the body, if known.
+		len: Option<u64>,
+	},
 }
 
-impl Body {
+impl<'a> Body<'a> {
 	/// Content-Type for HTML.
 	pub const HTML: Option<&'static str> = Some("text/html; charset=utf-8");
 	/// Content-Type for JSON.
 	pub const JSON: Option<&'static str> = Some("application/json");
 	/// Content-Type for Text.
 	pub const TEXT: Option<&'static str> = Some("text/plain; charset=utf-8");
+	/// Content-Type for SSE Event Stream.
+	pub const SSE: Option<&'static str> = Some("text/event-stream");
 	/// Default Content-Type.
 	pub const DEFAULT_CONTENT_TYPE: Option<&'static str> = None;
 
@@ -499,47 +550,68 @@ impl Body {
 		Self::Immediate(data.into())
 	}
 
+	/// Creates a streaming body from an asynchronous data source.
+	pub fn from_async_read<R>(reader: R, len: Option<u64>) -> Self
+	where
+		R: AsyncRead + 'a,
+	{
+		Body::AsyncStream {
+			data: Box::pin(reader),
+			len,
+		}
+	}
+
+	/// Creates a streaming body from an async function.
+	pub fn from_stream_fn<S, F>(stream_fn: S) -> Self
+	where
+		S: FnOnce(AsyncStreamWriter) -> F,
+		F: Future<Output = ()> + 'a,
+	{
+		Self::from_async_read(AsyncStreamFn::new(stream_fn), None)
+	}
+
 	/// Returns the length of the body if known.
 	#[allow(clippy::len_without_is_empty)]
 	pub fn len(&self) -> Option<u64> {
 		match self {
 			Body::Immediate(data) => Some(data.len() as u64),
 			Body::Stream { len, .. } => *len,
+			Body::AsyncStream { len, .. } => *len,
 		}
 	}
 }
 
-impl From<Vec<u8>> for Body {
+impl From<Vec<u8>> for Body<'_> {
 	fn from(data: Vec<u8>) -> Self {
 		Body::Immediate(data)
 	}
 }
 
-impl From<String> for Body {
+impl From<String> for Body<'_> {
 	fn from(data: String) -> Self {
 		Body::Immediate(data.into_bytes())
 	}
 }
 
-impl From<&str> for Body {
+impl From<&str> for Body<'_> {
 	fn from(data: &str) -> Self {
 		Body::Immediate(data.as_bytes().to_vec())
 	}
 }
 
-impl From<&[u8]> for Body {
+impl From<&[u8]> for Body<'_> {
 	fn from(data: &[u8]) -> Self {
 		Body::Immediate(data.to_vec())
 	}
 }
 
-impl From<Box<[u8]>> for Body {
+impl From<Box<[u8]>> for Body<'_> {
 	fn from(data: Box<[u8]>) -> Self {
 		Body::Immediate(data.into())
 	}
 }
 
-impl From<std::fs::File> for Body {
+impl From<std::fs::File> for Body<'_> {
 	fn from(file: std::fs::File) -> Self {
 		let len = file.metadata().map(|meta| meta.len()).ok();
 		Body::Stream {
@@ -549,11 +621,12 @@ impl From<std::fs::File> for Body {
 	}
 }
 
-impl Debug for Body {
+impl Debug for Body<'_> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Immediate(v) => write!(f, "Body(Immediate, len={})", v.len()),
 			Self::Stream { data: _, len } => write!(f, "Body(Stream, len={len:?})"),
+			Self::AsyncStream { data: _, len } => write!(f, "Body(AsyncStream, len={len:?})"),
 		}
 	}
 }
@@ -561,7 +634,7 @@ impl Debug for Body {
 /// A trait for extracting data from an HTTP request.
 pub trait FromRequest<'headers, 'buf, 'state, State>: Sized {
 	/// The error type returned if extraction fails.
-	type Error: Into<Response>;
+	type Error: Into<Response<'static>>;
 
 	/// Extracts data from the request.
 	fn from_request(
@@ -573,7 +646,7 @@ pub trait FromRequest<'headers, 'buf, 'state, State>: Sized {
 /// A trait for extractors that only need the raw request body.
 pub trait FromBody<'buf>: Sized {
 	/// The error type returned if extraction fails.
-	type Error: Into<Response>;
+	type Error: Into<Response<'static>>;
 
 	/// Extracts data from the raw body bytes.
 	fn from_body(body: &'buf [u8]) -> Result<Self, Self::Error>;

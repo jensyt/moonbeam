@@ -7,7 +7,9 @@ This crate provides a `Json<T>` wrapper that allows for easy, typed JSON extract
 ## Features
 
 - **Typed JSON Extraction**: Automatically parse request bodies into any type implementing `serde::Deserialize`.
-- **Zero-Copy Deserialization**: Supports borrowing data (like `&str` or `&[u8]`) directly from the request buffer to minimize allocations.
+- **Typed Form & Multipart Extraction**: Extract URL-encoded or multipart form data into structured types.
+- **Zero-Copy Deserialization**: Supports borrowing data (like `&str`, `&[u8]`, or `Cow<str>`) directly from the request buffer to minimize allocations for both JSON and Form extractors.
+- **File Uploads**: Native support for multipart file uploads with the `File` type.
 - **Easy Responses**: Implementations for `Into<Response>` allow you to return `Json(my_struct)` directly from your handlers.
 - **Trait-Based**: Built on top of Moonbeam's `FromRequest` and `FromBody` traits.
 
@@ -62,9 +64,65 @@ async fn get_status() -> Json<Status> {
 }
 ```
 
+### Example: Form Extraction (URL-Encoded)
+
+```rust
+use moonbeam::{Response, Body, route};
+use moonbeam_serde::Form;
+use serde::Deserialize;
+use std::borrow::Cow;
+
+#[derive(Deserialize)]
+struct Profile<'a> {
+    id: u32,
+    #[serde(borrow)]
+    name: Cow<'a, str>, // Supports zero-copy or percent-decoded values
+    active: bool,
+}
+
+#[route]
+async fn handle_profile(Form(profile): Form<Profile<'_>>) -> impl Into<Response> {
+    (
+        format!("Profile: {} (ID: {})", profile.name, profile.id).into(),
+        Body::TEXT
+    )
+}
+```
+
+### Example: Multipart Form & File Uploads
+
+```rust
+use moonbeam::{Response, Body, route};
+use moonbeam_serde::{Form, File};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Upload<'a> {
+    title: &'a str,
+    #[serde(borrow)]
+    file: File<'a>,
+}
+
+#[route]
+async fn handle_upload(Form(upload): Form<Upload<'_>>) -> impl Into<Response> {
+    (
+        format!(
+            "Uploaded file {} (content type: {:?}, size: {} bytes) for title {}",
+            upload.file.name.as_deref().unwrap_or(""),
+            upload.file.content_type.as_deref(),
+            upload.file.data.len(),
+            upload.title
+        ).into(),
+        Body::TEXT
+    )
+}
+```
+
 ## Error Handling
 
 If the request body contains invalid JSON or does not match the expected structure, the `Json<T>` extractor will automatically return a `400 Bad Request` response.
+
+Similarly, if the request does not contain a valid form content type or if deserialization fails, the `Form<T>` extractor will automatically return a `400 Bad Request` response.
 
 ## License
 

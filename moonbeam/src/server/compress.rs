@@ -1,5 +1,7 @@
 use crate::http::{Body, Request, Response};
+use futures_lite::AsyncRead;
 use std::io::{Cursor, Read};
+use std::pin::Pin;
 
 pub fn apply_compression(req: &Request, resp: &mut Response) {
 	if resp.body.is_none() && resp.status != 304 {
@@ -43,61 +45,74 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 			resp.headers
 				.retain(|n, _| !n.eq_ignore_ascii_case("content-length"));
 
-			let compressed_stream: Box<dyn Read + Send + 'static> = if use_brotli {
-				match resp.body.take() {
-					Some(Body::Immediate(data)) => Box::new(brotli::CompressorReader::new(
-						Cursor::new(data),
-						4 * 1024,
-						5,
-						20,
-					)),
-					Some(Body::Stream { data, .. }) => {
-						Box::new(brotli::CompressorReader::new(data, 8 * 1024, 5, 20))
-					}
-					None => {
-						unreachable!(
-							"Compression applied to empty body (checked at function start)"
-						)
-					}
-				}
-			} else if use_gzip {
-				match resp.body.take() {
-					Some(Body::Immediate(data)) => Box::new(flate2::bufread::GzEncoder::new(
-						Cursor::new(data),
-						flate2::Compression::default(),
-					)),
-					Some(Body::Stream { data, .. }) => Box::new(flate2::read::GzEncoder::new(
-						data,
-						flate2::Compression::default(),
-					)),
-					None => {
-						unreachable!(
-							"Compression applied to empty body (checked at function start)"
-						)
-					}
-				}
-			} else {
-				match resp.body.take() {
-					Some(Body::Immediate(data)) => Box::new(flate2::bufread::ZlibEncoder::new(
-						Cursor::new(data),
-						flate2::Compression::default(),
-					)),
-					Some(Body::Stream { data, .. }) => Box::new(flate2::read::ZlibEncoder::new(
-						data,
-						flate2::Compression::default(),
-					)),
-					None => {
-						unreachable!(
-							"Compression applied to empty body (checked at function start)"
-						)
-					}
-				}
-			};
+			if matches!(resp.body, Some(Body::AsyncStream { .. })) {
+				let data = match resp.body.take() {
+					Some(Body::AsyncStream { data, .. }) => data,
+					_ => unreachable!("Body is checked to be AsyncStream"),
+				};
 
-			resp.body = Some(Body::Stream {
-				data: compressed_stream,
-				len: None,
-			});
+				let buf_reader = futures_lite::io::BufReader::new(data);
+
+				use async_compression::{
+					Level,
+					futures::bufread::{BrotliEncoder, GzipEncoder, ZlibEncoder},
+				};
+				let compressed_stream: Pin<Box<dyn AsyncRead>> = if use_brotli {
+					Box::pin(BrotliEncoder::with_quality(buf_reader, Level::Precise(5)))
+				} else if use_gzip {
+					Box::pin(GzipEncoder::new(buf_reader))
+				} else {
+					Box::pin(ZlibEncoder::new(buf_reader))
+				};
+
+				resp.body = Some(Body::AsyncStream {
+					data: compressed_stream,
+					len: None,
+				});
+			} else {
+				let compressed_stream: Box<dyn Read + Send> = if use_brotli {
+					match resp.body.take() {
+						Some(Body::Immediate(data)) => Box::new(brotli::CompressorReader::new(
+							Cursor::new(data),
+							4 * 1024,
+							5,
+							20,
+						)),
+						Some(Body::Stream { data, .. }) => {
+							Box::new(brotli::CompressorReader::new(data, 8 * 1024, 5, 20))
+						}
+						_ => unreachable!("Body exists and is not AsyncStream"),
+					}
+				} else if use_gzip {
+					match resp.body.take() {
+						Some(Body::Immediate(data)) => Box::new(flate2::bufread::GzEncoder::new(
+							Cursor::new(data),
+							flate2::Compression::default(),
+						)),
+						Some(Body::Stream { data, .. }) => Box::new(flate2::read::GzEncoder::new(
+							data,
+							flate2::Compression::default(),
+						)),
+						_ => unreachable!("Body exists and is not AsyncStream"),
+					}
+				} else {
+					match resp.body.take() {
+						Some(Body::Immediate(data)) => Box::new(flate2::bufread::ZlibEncoder::new(
+							Cursor::new(data),
+							flate2::Compression::default(),
+						)),
+						Some(Body::Stream { data, .. }) => Box::new(
+							flate2::read::ZlibEncoder::new(data, flate2::Compression::default()),
+						),
+						_ => unreachable!("Body exists and is not AsyncStream"),
+					}
+				};
+
+				resp.body = Some(Body::Stream {
+					data: compressed_stream,
+					len: None,
+				});
+			}
 
 			let encoding = if use_brotli {
 				"br"
@@ -172,15 +187,25 @@ mod tests {
 		body: Vec<u8>,
 		content_type: String,
 		use_stream: bool,
+		use_async_stream: bool,
 	}
 
 	impl Server for MockServer {
-		async fn route<'s: 'e, 'e>(
-			&'s self,
-			_req: Request<'_, '_>,
+		async fn route<'e: 'r, 'r>(
+			&'e self,
+			_req: Request<'r, 'r>,
 			_spawner: Spawner<'e>,
-		) -> Response {
-			let body = if self.use_stream {
+		) -> Response<'r> {
+			let body = if self.use_async_stream {
+				let (reader, mut writer) = piper::pipe(self.body.len() + 1);
+				let body_bytes = self.body.clone();
+				std::thread::spawn(move || {
+					futures_lite::future::block_on(async move {
+						let _ = writer.write_all(&body_bytes).await;
+					});
+				});
+				Body::from_async_read(reader, None)
+			} else if self.use_stream {
 				Body::Stream {
 					data: Box::new(Cursor::new(self.body.clone())),
 					len: Some(self.body.len() as u64),
@@ -292,6 +317,7 @@ mod tests {
 			body: body.clone(),
 			content_type: "text/plain".to_string(),
 			use_stream: false,
+			use_async_stream: false,
 		};
 
 		let (head, resp_body) = futures_lite::future::block_on(run_test(server, Some("gzip")));
@@ -312,6 +338,7 @@ mod tests {
 			body: body.clone(),
 			content_type: "text/plain".to_string(),
 			use_stream: false,
+			use_async_stream: false,
 		};
 
 		let (head, resp_body) = futures_lite::future::block_on(run_test(server, Some("br")));
@@ -331,6 +358,7 @@ mod tests {
 			body: body.clone(),
 			content_type: "text/plain".to_string(),
 			use_stream: false,
+			use_async_stream: false,
 		};
 
 		let (head, _) = futures_lite::future::block_on(run_test(server, Some("gzip, br")));
@@ -344,6 +372,7 @@ mod tests {
 			body: body.clone(),
 			content_type: "text/plain".to_string(),
 			use_stream: false,
+			use_async_stream: false,
 		};
 
 		let (head, resp_body) = futures_lite::future::block_on(run_test(server, Some("deflate")));
@@ -363,9 +392,70 @@ mod tests {
 			body: body.clone(),
 			content_type: "text/plain".to_string(),
 			use_stream: false,
+			use_async_stream: false,
 		};
 
 		let (head, _) = futures_lite::future::block_on(run_test(server, Some("deflate, gzip")));
 		assert!(head.contains("Content-Encoding: gzip"));
+	}
+
+	#[test]
+	fn test_compress_async_stream_gzip() {
+		let body = b"hello world from async stream gzip".to_vec();
+		let server = MockServer {
+			body: body.clone(),
+			content_type: "text/plain".to_string(),
+			use_stream: false,
+			use_async_stream: true,
+		};
+
+		let (head, resp_body) = futures_lite::future::block_on(run_test(server, Some("gzip")));
+
+		assert!(head.contains("Content-Encoding: gzip"));
+		assert!(head.contains("Transfer-Encoding: chunked"));
+
+		let chunk_decoded = decode_chunked(&resp_body);
+		let decoded = decode_gzip(&chunk_decoded);
+		assert_eq!(decoded, body);
+	}
+
+	#[test]
+	fn test_compress_async_stream_brotli() {
+		let body = b"hello world from async stream brotli".to_vec();
+		let server = MockServer {
+			body: body.clone(),
+			content_type: "text/plain".to_string(),
+			use_stream: false,
+			use_async_stream: true,
+		};
+
+		let (head, resp_body) = futures_lite::future::block_on(run_test(server, Some("br")));
+
+		assert!(head.contains("Content-Encoding: br"));
+		assert!(head.contains("Transfer-Encoding: chunked"));
+
+		let chunk_decoded = decode_chunked(&resp_body);
+		let decoded = decode_brotli(&chunk_decoded);
+		assert_eq!(decoded, body);
+	}
+
+	#[test]
+	fn test_compress_async_stream_deflate() {
+		let body = b"hello world from async stream deflate".to_vec();
+		let server = MockServer {
+			body: body.clone(),
+			content_type: "text/plain".to_string(),
+			use_stream: false,
+			use_async_stream: true,
+		};
+
+		let (head, resp_body) = futures_lite::future::block_on(run_test(server, Some("deflate")));
+
+		assert!(head.contains("Content-Encoding: deflate"));
+		assert!(head.contains("Transfer-Encoding: chunked"));
+
+		let chunk_decoded = decode_chunked(&resp_body);
+		let decoded = decode_zlib(&chunk_decoded);
+		assert_eq!(decoded, body);
 	}
 }

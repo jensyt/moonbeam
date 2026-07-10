@@ -26,6 +26,7 @@ blocking = "1.6"
 moonbeam-attributes = {path = "../moonbeam-attributes", version = "0.4", optional = true}
 flate2 = {version = "1.1", optional = true}
 brotli = {version = "8", optional = true, features = ["std"]}
+async-compression = { version = "0.4", features = ["futures-io", "gzip", "zlib", "brotli"], optional = true }
 flume = {version = "0.12", default-features = false, features = ["async"]}
 rustls = { version = "0.23", optional = true }
 futures-rustls = { version = "0.26", optional = true }
@@ -38,7 +39,7 @@ tracing = ["dep:tracing"]
 assets = []
 macros = ["dep:moonbeam-attributes"]
 catchpanic = []
-compress = ["dep:flate2", "dep:brotli"]
+compress = ["dep:flate2", "dep:brotli", "dep:async-compression"]
 router = ["macros", "moonbeam-attributes/router", "moonbeam-attributes/autohead"]
 mt = []
 disable-simd = []

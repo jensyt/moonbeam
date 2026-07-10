@@ -7,8 +7,8 @@ use std::path::Path;
 
 /// Configuration for TLS encryption.
 ///
-/// Create one via [`TlsConfig::from_pem`] to load from files, or
-/// [`TlsConfig::from_raw`] to construct programmatically.
+/// Create one via [`TlsConfig::from_pem`] to load from files, or [`TlsConfig::from_raw`] to
+/// construct programmatically.
 pub struct TlsConfig {
 	certs: Vec<CertificateDer<'static>>,
 	key: PrivateKeyDer<'static>,
@@ -43,8 +43,8 @@ impl TlsConfig {
 
 	/// Construct a `TlsConfig` from raw DER-encoded certificate(s) and private key.
 	///
-	/// The first certificate in `certs` must be the server certificate; any subsequent
-	/// entries are intermediate CA certificates.
+	/// The first certificate in `certs` must be the server certificate; any subsequent entries are
+	/// intermediate CA certificates.
 	pub fn from_raw(certs: Vec<Vec<u8>>, key: Vec<u8>) -> Self {
 		TlsConfig {
 			certs: certs.into_iter().map(CertificateDer::from).collect(),

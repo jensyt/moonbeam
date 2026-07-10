@@ -13,6 +13,8 @@ pub mod server;
 #[doc(hidden)]
 pub mod tracing;
 
+pub use crate::http::async_stream::{AsyncStreamWriteFuture, AsyncStreamWriter};
+pub use crate::http::sse::SseEvent;
 pub use crate::http::{Body, Request, Response};
 #[cfg(all(feature = "tls", feature = "mt"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "tls", feature = "mt"))))]

@@ -8,13 +8,14 @@
 //!
 //! ## Core Macros
 //!
-//! - `#[server]`: Turns a function into a full `Server` implementation.
-//! - `router!`: Defines a routing tree with nesting and middleware.
-//! - `#[route]`: Defines a handler for use within a `router!`.
-//! - `#[middleware]`: Defines a middleware function for use within a `router!`.
+//! - [`#[server]`](server): Turns a function into a full `Server` implementation.
+//! - [`router!`](router): Defines a routing tree with nesting and middleware.
+//! - [`#[route]`](route): Defines a handler for use within a `router`.
+//! - [`#[middleware]`](middleware): Defines a middleware function for use within a `router`.
 
 use proc_macro::TokenStream;
 use quote::quote;
+use std::collections::HashSet;
 use syn::{
 	FnArg, Ident, ItemFn, PathArguments, ReturnType, Type, TypeImplTrait, TypeReference,
 	parse::{Parse, ParseStream},
@@ -46,7 +47,8 @@ impl Parse for ServerArgs {
 
 /// Attribute macro to convert a function into a `Server` implementation.
 ///
-/// This macro handles the boilerplate of implementing the `moonbeam::Server` trait.
+/// This macro handles the boilerplate of implementing the
+/// [`moonbeam::Server`](https://docs.rs/moonbeam/latest/moonbeam/server/trait.Server.html) trait.
 /// It generates a struct with the specified name that can be passed to `moonbeam::serve`.
 ///
 /// # Arguments
@@ -57,8 +59,10 @@ impl Parse for ServerArgs {
 ///
 /// The decorated function can accept one of two forms:
 ///
-/// 1. **Stateless**: `fn(Request, Spawner) -> Response`
-/// 2. **Stateful**: `fn(Request, Spawner, &State) -> Response` (requires passing state to the struct)
+/// 1. **Stateless**: `async fn(Request, Spawner) -> Response`
+/// 2. **Stateful**: `async fn(Request, Spawner, &State) -> Response`
+///
+/// Decoraed functions can be async, sync, or return `impl Future<Output = Response`.
 ///
 /// # Example: Stateless
 /// ```rust,ignore
@@ -69,8 +73,9 @@ impl Parse for ServerArgs {
 ///     Response::ok()
 /// }
 ///
-/// // Usage:
-/// // moonbeam::serve("127.0.0.1:8080", || MyServer);
+/// fn main() {
+///     moonbeam::serve("127.0.0.1:8080", || MyServer);
+/// }
 /// ```
 ///
 /// # Example: Stateful
@@ -86,9 +91,10 @@ impl Parse for ServerArgs {
 ///     Response::ok()
 /// }
 ///
-/// // Usage:
-/// // let state = AppState { count: Cell::new(0) };
-/// // moonbeam::serve("127.0.0.1:8080", move || MyServer(state));
+/// fn main() {
+///     let state = AppState { count: Cell::new(0) };
+///     moonbeam::serve("127.0.0.1:8080", move || MyServer(state));
+/// }
 /// ```
 #[proc_macro_attribute]
 pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -105,19 +111,31 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 			ReturnType::Default => false,
 		};
 
-	if check_request(sig.inputs.first_mut()).is_none() {
-		let span = sig
-			.inputs
-			.first()
-			.map(|f| f.span())
-			.unwrap_or_else(|| sig.inputs.span());
-		return syn::Error::new(span, "First parameter must be Request")
-			.to_compile_error()
-			.into();
-	}
+	let request_lt = match check_arg(
+		sig.inputs.first_mut(),
+		"Request",
+		parse_quote!('req),
+		parse_quote!(<'req, 'req>),
+	) {
+		Some(lt) => lt,
+		None => {
+			let span = sig
+				.inputs
+				.first()
+				.map(|f| f.span())
+				.unwrap_or_else(|| sig.inputs.span());
+			return syn::Error::new(span, "First parameter must be Request")
+				.to_compile_error()
+				.into();
+		}
+	};
 
-	let has_state = sig.inputs.len() > 2;
-	let spawner_lt = match check_spawner(sig.inputs.iter_mut().nth(1), has_state) {
+	let spawner_lt = match check_arg(
+		sig.inputs.iter_mut().nth(1),
+		"Spawner",
+		parse_quote!('exec),
+		parse_quote!(<'exec>),
+	) {
 		Some(lt) => lt,
 		None => {
 			let span = sig
@@ -132,71 +150,52 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 		}
 	};
 
-	let third_param = if has_state {
-		match check_state(sig.inputs.iter_mut().nth(2)) {
-			Some(lt) => {
-				// Inject lifetimes dynamically into generics
-				let mut existing_lifetimes = std::collections::HashSet::new();
-				for param in &input_fn.sig.generics.params {
-					if let syn::GenericParam::Lifetime(g_lt) = param {
-						existing_lifetimes.insert(g_lt.lifetime.ident.to_string());
-					}
-				}
+	let state_lt = check_state(sig.inputs.iter_mut().nth(2));
 
-				if let Some(ref lt_e) = spawner_lt
-					&& !existing_lifetimes.contains(&lt_e.ident.to_string())
-				{
-					input_fn
-						.sig
-						.generics
-						.params
-						.push(syn::GenericParam::Lifetime(syn::LifetimeParam::new(
-							lt_e.clone(),
-						)));
-				}
+	if state_lt.is_none() && sig.inputs.len() > 2 {
+		let span = sig
+			.inputs
+			.iter()
+			.nth(2)
+			.map(|f| f.span())
+			.unwrap_or_else(|| sig.inputs.span());
+		return syn::Error::new(span, "Third parameter must be: state: &State")
+			.to_compile_error()
+			.into();
+	}
 
-				if !existing_lifetimes.contains(&lt.ident.to_string()) {
-					let mut lt_param = syn::LifetimeParam::new(lt.clone());
-					if let Some(ref lt_e) = spawner_lt {
-						lt_param.bounds.push(lt_e.clone());
-					}
-					input_fn
-						.sig
-						.generics
-						.params
-						.push(syn::GenericParam::Lifetime(lt_param));
-				}
+	if check_response(&mut sig.output, &request_lt).is_none() {
+		let span = sig.output.span();
+		return syn::Error::new(span, "Output must be: Response")
+			.to_compile_error()
+			.into();
+	}
 
-				if let Some(ref lt_e) = spawner_lt {
-					for param in &mut input_fn.sig.generics.params {
-						if let syn::GenericParam::Lifetime(lt_param) = param
-							&& lt_param.lifetime.ident == lt.ident
-						{
-							if !lt_param.bounds.iter().any(|b| b.ident == lt_e.ident) {
-								lt_param.bounds.push(lt_e.clone());
-							}
-							break;
-						}
-					}
-				}
-
-				Some(get_state(input_fn.sig.inputs.iter().nth(2)))
-			}
-			None => {
-				let span = sig
-					.inputs
-					.iter()
-					.nth(2)
-					.map(|f| f.span())
-					.unwrap_or_else(|| sig.inputs.span());
-				return syn::Error::new(span, "Third parameter must be: state: &State")
-					.to_compile_error()
-					.into();
-			}
+	// Inject lifetimes dynamically into generics
+	let mut existing_lifetimes = HashSet::new();
+	for param in &input_fn.sig.generics.params {
+		if let syn::GenericParam::Lifetime(g_lt) = param {
+			existing_lifetimes.insert(g_lt.lifetime.ident.to_string());
 		}
-	} else {
-		None
-	};
+	}
+
+	add_lifetime_generic(&mut existing_lifetimes, &mut input_fn, &request_lt, None);
+	add_lifetime_generic(
+		&mut existing_lifetimes,
+		&mut input_fn,
+		&spawner_lt,
+		Some(&request_lt),
+	);
+	if let Some(state_lt) = state_lt {
+		add_lifetime_generic(
+			&mut existing_lifetimes,
+			&mut input_fn,
+			&state_lt,
+			Some(&spawner_lt),
+		);
+	}
+
+	let third_param = get_state(input_fn.sig.inputs.iter().nth(2));
 
 	let fn_name = &input_fn.sig.ident;
 
@@ -215,13 +214,13 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 	};
 
 	let fn_impl = if is_async {
-		if has_state {
+		if third_param.is_some() {
 			quote! { #fn_name(request, spawner, &self.0) }
 		} else {
 			quote! { #fn_name(request, spawner) }
 		}
 	} else {
-		if has_state {
+		if third_param.is_some() {
 			quote! { async move { #fn_name(request, spawner, &self.0) } }
 		} else {
 			quote! { async move { #fn_name(request, spawner) } }
@@ -236,11 +235,11 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 		impl ::moonbeam::Server for #wrapper_name {
 			#[inline(always)]
-			fn route<'state: 'exec, 'exec>(
-				&'state self,
-				request: ::moonbeam::http::Request<'_, '_>,
+			fn route<'exec: 'req, 'req>(
+				&'exec self,
+				request: ::moonbeam::http::Request<'req, 'req>,
 				spawner: ::moonbeam::server::task::Spawner<'exec>)
-				-> impl ::core::future::Future<Output = ::moonbeam::http::Response>
+				-> impl ::core::future::Future<Output = ::moonbeam::http::Response<'req>>
 			{
 				#fn_impl
 			}
@@ -250,48 +249,35 @@ pub fn server(attr: TokenStream, item: TokenStream) -> TokenStream {
 	output.into()
 }
 
-fn check_request(arg: Option<&mut FnArg>) -> Option<()> {
+fn check_arg(
+	arg: Option<&mut FnArg>,
+	name: &str,
+	l1: syn::Lifetime,
+	l2: syn::AngleBracketedGenericArguments,
+) -> Option<syn::Lifetime> {
 	if let FnArg::Typed(pat_type) = arg?
 		&& let Type::Path(type_path) = &mut *pat_type.ty
 		&& let segment = type_path.path.segments.last_mut()?
-		&& segment.ident == "Request"
+		&& segment.ident == name
 	{
-		if segment.arguments.is_empty() {
-			// Inject default lifetime parameters if needed
-			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'_, '_>));
-		}
-		Some(())
-	} else {
-		None
-	}
-}
-
-fn check_spawner(arg: Option<&mut FnArg>, has_state: bool) -> Option<Option<syn::Lifetime>> {
-	if let FnArg::Typed(pat_type) = arg?
-		&& let Type::Path(type_path) = &mut *pat_type.ty
-		&& let segment = type_path.path.segments.last_mut()?
-		&& segment.ident == "Spawner"
-	{
-		let mut spawner_lt = None;
+		let mut arg_lt = None;
 		let mut has_lifetime = false;
 		if let PathArguments::AngleBracketed(ab) = &segment.arguments {
 			for g_arg in &ab.args {
 				if let syn::GenericArgument::Lifetime(lt) = g_arg {
 					if lt.ident != "_" {
-						spawner_lt = Some(lt.clone());
+						arg_lt = Some(lt.clone());
 						has_lifetime = true;
 					}
 					break;
 				}
 			}
 		}
-		if !has_lifetime && has_state {
-			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'exec>));
-			spawner_lt = Some(parse_quote!('exec));
-		} else if !has_lifetime {
-			segment.arguments = PathArguments::AngleBracketed(parse_quote!(<'_>));
+		if !has_lifetime {
+			segment.arguments = PathArguments::AngleBracketed(l2);
+			arg_lt = Some(l1);
 		}
-		Some(spawner_lt)
+		arg_lt
 	} else {
 		None
 	}
@@ -314,19 +300,103 @@ fn check_state(arg: Option<&mut FnArg>) -> Option<syn::Lifetime> {
 			type_ref.lifetime = Some(lt.clone());
 			state_lt = Some(lt);
 		}
-		Some(state_lt.unwrap_or_else(|| parse_quote!('state)))
+		state_lt
 	} else {
 		None
 	}
 }
 
-fn get_state(arg: Option<&FnArg>) -> &TypeReference {
+fn get_state(arg: Option<&FnArg>) -> Option<&TypeReference> {
 	if let Some(FnArg::Typed(pat_type)) = arg
 		&& let Type::Reference(type_ref) = &*pat_type.ty
 	{
-		type_ref
+		Some(type_ref)
 	} else {
-		unreachable!("call to check_state first should ensure this never happens")
+		None
+	}
+}
+
+fn check_response(arg: &mut ReturnType, lt: &syn::Lifetime) -> Option<()> {
+	fn check_response_internal(t: &mut Type, lt: &syn::Lifetime) -> Option<()> {
+		if let Type::Path(type_path) = t
+			&& let segment = type_path.path.segments.last_mut()?
+			&& segment.ident == "Response"
+		{
+			let mut has_lifetime = false;
+			if let PathArguments::AngleBracketed(ab) = &segment.arguments {
+				for g_arg in &ab.args {
+					if let syn::GenericArgument::Lifetime(lt) = g_arg {
+						if lt.ident != "_" {
+							has_lifetime = true;
+						}
+						break;
+					}
+				}
+			}
+			if !has_lifetime {
+				segment.arguments = PathArguments::AngleBracketed(parse_quote!(<#lt>));
+			}
+			Some(())
+		} else {
+			None
+		}
+	}
+
+	if let ReturnType::Type(_, pat_type) = arg {
+		if check_response_internal(pat_type, lt).is_some() {
+			Some(())
+		} else if let Type::ImplTrait(t) = &mut **pat_type {
+			for bound in t.bounds.iter_mut() {
+				if let syn::TypeParamBound::Trait(t) = bound
+					&& let Some(last) = t.path.segments.last_mut()
+					&& last.ident == "Future"
+					&& let PathArguments::AngleBracketed(ab) = &mut last.arguments
+				{
+					for g_arg in &mut ab.args {
+						if let syn::GenericArgument::AssocType(at) = g_arg
+							&& at.ident == "Output"
+						{
+							return check_response_internal(&mut at.ty, lt);
+						}
+					}
+				}
+			}
+			None
+		} else {
+			None
+		}
+	} else {
+		None
+	}
+}
+
+fn add_lifetime_generic(
+	existing_lifetimes: &mut HashSet<String>,
+	input_fn: &mut ItemFn,
+	lt: &syn::Lifetime,
+	bound: Option<&syn::Lifetime>,
+) {
+	if !existing_lifetimes.contains(&lt.ident.to_string()) {
+		let mut lt_param = syn::LifetimeParam::new(lt.clone());
+		if let Some(bound) = bound {
+			lt_param.bounds.push(bound.clone());
+		}
+		input_fn
+			.sig
+			.generics
+			.params
+			.push(syn::GenericParam::Lifetime(lt_param));
+	} else if let Some(bound) = bound {
+		for param in &mut input_fn.sig.generics.params {
+			if let syn::GenericParam::Lifetime(lt_param) = param
+				&& lt_param.lifetime.ident == lt.ident
+			{
+				if !lt_param.bounds.iter().any(|b| b.ident == bound.ident) {
+					lt_param.bounds.push(bound.clone());
+				}
+				break;
+			}
+		}
 	}
 }
 
@@ -351,22 +421,24 @@ fn is_impl_future(ty: &Type) -> bool {
 
 /// Defines a route handler for use with the `router!` macro.
 ///
-/// This macro transforms an async function into a type that implements `RouteHandler`.
-/// It allows for powerful dependency injection, automatically extracting parameters
-/// based on the function signature.
+/// This macro transforms an async function into a type that implements `RouteHandler`. It allows
+/// for powerful dependency injection, automatically extracting parameters based on the function
+/// signature.
 ///
 /// # Supported Parameters
 ///
 /// - `Request`: The incoming HTTP request.
+/// - `Spawner`: The spawner for asynchronous tasks.
 /// - `&State`: A reference to the application state (must match the state type in `router!`).
-/// - `PathParams<T>`: Extracted path parameters (e.g., `PathParams<&str>` or `PathParams<(&str, &str)>`).
-/// - **Extractors**: Any type that implements `FromRequest`. This allows for flexible,
-///   typed body extraction (e.g., `Json<T>`).
+/// - `PathParams<T>`: Extracted path parameters (e.g., `PathParams<&str>` or
+///   `PathParams<(&str, &str)>`).
+/// - **Extractors**: Any type that implements `FromRequest`. This allows for flexible, typed body
+///   extraction (e.g., `Json<T>`).
 ///
 /// # Return Types
 ///
-/// The decorated function can return any type that implements `Into<Response>`.
-/// Common return types include:
+/// The decorated function can return any type that implements `Into<Response>`. Common return
+/// types include:
 /// - `Response`
 /// - `Result<T, E>` (where both `T` and `E` implement `Into<Response>`)
 /// - `()` (returns `204 No Content`)
@@ -389,10 +461,31 @@ fn is_impl_future(ty: &Type) -> bool {
 /// ```
 ///
 /// # Example with Explicit State
+///
+/// Sometimes, you have a handler that depends on the state type indirectly (e.g. via an extractor)
+/// but you don't take the state as an input. In those cases, you can specify the state type on the
+/// `route` attribute to avoid type inference errors.
+///
 /// ```rust,ignore
+/// use moonbeam::{Request, Response, route};
+/// use std::convert::Infallible;
+///
+/// struct AppState {
+///     name: String,
+/// }
+///
+/// struct Name<'a>(&'a str);
+/// impl<'s> FromRequest<'_, '_, 's, AppState> for Name<'s> {
+///     type Error = Infallible;
+///
+///     async fn from_request(_req: Request<'_, '_>, state: &'s State) -> Result<Self, Self::Error> {
+///         Ok(Self(&state.name))
+///     }
+/// }
+///
 /// #[route(state = AppState)]
-/// async fn get_user(PathParams(id): PathParams<&str>) -> Response {
-///     // ...
+/// async fn echo_user(Name(user): Name<'_>) -> Response {
+///     Response::ok().with_body(format!("Hello {user}"), Body::TEXT)
 /// }
 /// ```
 #[cfg(feature = "router")]
@@ -404,8 +497,8 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Defines a router and its routing tree.
 ///
-/// The `router!` macro provides a clean, nested DSL for configuring how requests
-/// should be dispatched to handlers.
+/// The `router!` macro provides a clean, nested DSL for configuring how requests should be
+/// dispatched to handlers.
 ///
 /// # Syntax
 ///
@@ -454,16 +547,17 @@ pub fn router(item: TokenStream) -> TokenStream {
 
 /// Defines a middleware function for use in a `router!`.
 ///
-/// Middleware functions wrap the execution of downstream handlers, allowing you
-/// to perform pre-processing (like authentication or logging) and post-processing
-/// (like adding headers or timing).
+/// Middleware functions wrap the execution of downstream handlers, allowing you to perform
+/// pre-processing (like authentication or logging) and post-processing (like adding headers or
+/// timing).
 ///
 /// # Signature
 ///
 /// Middleware functions must accept:
 /// 1. `req: Request`
-/// 2. `state: &State`
-/// 3. `next: Next` (a special type representing the rest of the handler chain)
+/// 2. `spawner: Spawner`
+/// 3. `state: &State`
+/// 4. `next: Next` (a special type representing the rest of the handler chain)
 ///
 /// And return a `Response`.
 ///

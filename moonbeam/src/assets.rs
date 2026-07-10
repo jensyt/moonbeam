@@ -1,10 +1,8 @@
 //! # Assets Module
 //!
-//! This module provides the `get_asset` utility for serving static files
-//! from the file system.
+//! This module provides the `get_asset` utility for serving static files from the file system.
 //!
-//! Moonbeam's asset serving is designed to be secure and efficient,
-//! with built-in:
+//! Moonbeam's asset serving is designed to be secure and efficient, with built-in:
 //! - **Path Sanitization**: Prevents directory traversal attacks.
 //! - **ETag Generation**: Uses file modification time to generate stable hashes.
 //! - **MIME Type Detection**: Comprehensive support for common file extensions.
@@ -41,7 +39,7 @@ use std::{
 /// - `500 Internal Server Error` if file access fails.
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// use moonbeam::{Request, Response, Spawner, server, assets::get_asset};
 ///
 /// #[server(FileServer)]
@@ -55,63 +53,110 @@ pub fn get_asset(
 	path: &str,
 	etag: Option<&[u8]>,
 	root: impl AsRef<Path>,
-) -> impl Future<Output = Response> {
+) -> impl Future<Output = Response<'static>> {
 	let root = root.as_ref().to_path_buf();
 	let path = path.trim_start_matches('/').to_string();
 	let etag = etag.map(|e| e.to_vec());
 
-	blocking::unblock(move || {
-		let root = match root.canonicalize() {
-			Ok(p) => p,
-			Err(_) => return Response::internal_server_error(),
-		};
+	async move {
+		let r = blocking::unblock(move || {
+			let root = match root.canonicalize() {
+				Ok(p) => p,
+				Err(_) => return GetAssetResult::InternalServerError,
+			};
 
-		let path = match root.join(&path).canonicalize() {
-			Ok(p) => p,
-			Err(_) => return Response::not_found(),
-		};
+			let path = match root.join(&path).canonicalize() {
+				Ok(p) => p,
+				Err(_) => return GetAssetResult::NotFound,
+			};
 
-		if !path.starts_with(&root) || !path.is_file() {
-			return Response::not_found();
-		}
-
-		let metadata = match path.metadata() {
-			Ok(m) => m,
-			Err(_) => return Response::internal_server_error(),
-		};
-
-		let tag = make_etag(&metadata);
-		let ext = get_mime_type(&path);
-
-		if let Some(req_etag) = etag
-			&& let Some(t) = &tag
-			&& req_etag == t.as_bytes()
-		{
-			return Response::not_modified(ext).with_header("ETag", tag.unwrap());
-		}
-
-		// Small file optimization: read immediately if < 16KB
-		if metadata.len() < 16 * 1024
-			&& let Ok(data) = std::fs::read(&path)
-		{
-			let mut resp = Response::new_with_body(data, ext);
-			if let Some(tag) = tag {
-				resp = resp.with_header("ETag", tag);
+			if !path.starts_with(&root) || !path.is_file() {
+				return GetAssetResult::NotFound;
 			}
-			return resp;
-		}
 
-		let file = match File::open(path) {
-			Ok(f) => f,
-			Err(_) => return Response::internal_server_error(),
-		};
+			let metadata = match path.metadata() {
+				Ok(m) => m,
+				Err(_) => return GetAssetResult::InternalServerError,
+			};
 
-		let mut response = Response::new_with_body(file, ext);
-		if let Some(tag) = tag {
-			response = response.with_header("ETag", tag);
+			let tag = make_etag(&metadata);
+			let ext = get_mime_type(&path);
+
+			if let Some(req_etag) = etag
+				&& let Some(ref t) = tag
+				&& req_etag == t.as_bytes()
+			{
+				return GetAssetResult::NotModified {
+					mime_type: ext,
+					etag: tag.unwrap(),
+				};
+			}
+
+			// Small file optimization: read immediately if < 16KB
+			if metadata.len() < 16 * 1024
+				&& let Ok(data) = std::fs::read(&path)
+			{
+				return GetAssetResult::Ok {
+					mime_type: ext,
+					etag: tag,
+					data: GetAssetBodyType::Immediate(data),
+				};
+			}
+
+			let file = match File::open(path) {
+				Ok(f) => f,
+				Err(_) => return GetAssetResult::InternalServerError,
+			};
+			GetAssetResult::Ok {
+				mime_type: ext,
+				etag: tag,
+				data: GetAssetBodyType::Stream(file),
+			}
+		})
+		.await;
+
+		match r {
+			GetAssetResult::NotFound => Response::not_found(),
+			GetAssetResult::InternalServerError => Response::internal_server_error(),
+			GetAssetResult::NotModified { mime_type, etag } => {
+				Response::not_modified(mime_type).with_header("ETag", etag)
+			}
+			GetAssetResult::Ok {
+				mime_type,
+				etag,
+				data,
+			} => {
+				let mut resp = match data {
+					GetAssetBodyType::Immediate(data) => Response::new_with_body(data, mime_type),
+					GetAssetBodyType::Stream(data) => Response::new_with_body(data, mime_type),
+				};
+				if let Some(tag) = etag {
+					resp = resp.with_header("ETag", tag);
+				}
+				resp
+			}
 		}
-		response
-	})
+	}
+}
+
+enum GetAssetBodyType {
+	Immediate(Vec<u8>),
+	Stream(File),
+}
+
+// Response is !Send, so we use this enum to pass the result back from the worker thread
+enum GetAssetResult {
+	NotFound,
+	InternalServerError,
+	NotModified {
+		mime_type: Option<&'static str>,
+		etag: String,
+	},
+	Ok {
+		mime_type: Option<&'static str>,
+		etag: Option<String>,
+		data: GetAssetBodyType,
+	},
 }
 
 fn make_etag(metadata: &std::fs::Metadata) -> Option<String> {

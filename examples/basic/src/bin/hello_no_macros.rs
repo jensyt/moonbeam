@@ -5,11 +5,11 @@ use moonbeam::{Body, Request, Response, Server, Spawner};
 // initialization.
 struct HelloNoMacros(&'static str);
 impl Server for HelloNoMacros {
-	async fn route<'server: 'exec, 'exec>(
-		&'server self,
-		_request: Request<'_, '_>,
+	async fn route<'exec: 'req, 'req>(
+		&'exec self,
+		_request: Request<'req, 'req>,
 		_spawner: Spawner<'exec>,
-	) -> Response {
+	) -> Response<'req> {
 		Response::ok().with_body(format!("Hello {}", self.0), Body::TEXT)
 	}
 }
