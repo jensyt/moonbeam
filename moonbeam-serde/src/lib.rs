@@ -62,7 +62,9 @@ impl<T> From<T> for Json<T> {
 	}
 }
 
+/// A trait for adding JSON data to a response or event.
 pub trait WithJsonData {
+	/// Serializes the provided value to JSON and associates it as data.
 	fn with_json_data(self, json: impl Serialize) -> Self;
 }
 
