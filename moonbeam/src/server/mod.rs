@@ -705,7 +705,16 @@ where
 				}
 
 				let data_start = start + 7;
+				#[cfg(not(feature = "catchpanic"))]
 				let n = data.read(&mut buf.data[data_start..BUFSIZE - 2])?;
+				#[cfg(feature = "catchpanic")]
+				let n = std::panic::catch_unwind(AssertUnwindSafe(|| {
+					data.read(&mut buf.data[data_start..BUFSIZE - 2])
+				}))
+				.map_err(|_error| {
+					tracing::error!(error = ?_error, "Panic while streaming response");
+					std::io::Error::other("Panic while streaming response")
+				})??;
 
 				if n == 0 {
 					let term = b"0\r\n\r\n";
@@ -734,11 +743,20 @@ where
 		blocking::unblock(move || -> std::io::Result<()> {
 			let mut data = data;
 			while let Ok(mut buf) = recv_empty.recv() {
-				let n = if buf.len > 0 {
-					data.read(&mut buf.data[buf.len..])?
+				let slice = if buf.len > 0 {
+					&mut buf.data[buf.len..]
 				} else {
-					data.read(&mut buf.data)?
+					&mut buf.data
 				};
+				#[cfg(not(feature = "catchpanic"))]
+				let n = data.read(slice)?;
+				#[cfg(feature = "catchpanic")]
+				let n = std::panic::catch_unwind(AssertUnwindSafe(|| data.read(slice))).map_err(
+					|_error| {
+						tracing::error!(error = ?_error, "Panic while streaming response");
+						std::io::Error::other("Panic while streaming response")
+					},
+				)??;
 
 				if n == 0 {
 					break;
@@ -761,10 +779,8 @@ where
 		let _ = send_empty.send_async(buf).await;
 	}
 
-	// _reader will drop to ensure the background task is cancelled if writing the socket fails for
-	// some reason.
-
-	Ok(())
+	// If reader failed, propogate that error
+	_reader.await
 }
 
 async fn write_async_stream_body<'a, S>(
@@ -782,7 +798,16 @@ where
 	if len.is_none() {
 		// Chunked transfer encoding
 		loop {
+			#[cfg(not(feature = "catchpanic"))]
 			let n = data.read(&mut buf[7..BUFSIZE - 2]).await?;
+			#[cfg(feature = "catchpanic")]
+			let n = AssertUnwindSafe(data.read(&mut buf[7..BUFSIZE - 2]))
+				.catch_unwind()
+				.await
+				.map_err(|_error| {
+					tracing::error!(error = ?_error, "Panic while streaming response");
+					std::io::Error::other("Panic while streaming response")
+				})??;
 			if n == 0 {
 				socket.write_all(b"0\r\n\r\n").await?;
 				break;
@@ -799,7 +824,16 @@ where
 	} else {
 		// Known length
 		loop {
+			#[cfg(not(feature = "catchpanic"))]
 			let n = data.read(&mut buf).await?;
+			#[cfg(feature = "catchpanic")]
+			let n = AssertUnwindSafe(data.read(&mut buf))
+				.catch_unwind()
+				.await
+				.map_err(|_error| {
+					tracing::error!(error = ?_error, "Panic while streaming response");
+					std::io::Error::other("Panic while streaming response")
+				})??;
 			if n == 0 {
 				break;
 			}
@@ -964,8 +998,11 @@ mod tests {
 		) -> Response<'r> {
 			if req.path == "/error" {
 				panic!("forced panic");
+			} else if req.path == "/error/stream" {
+				Response::new_from_sse_fn(async |_| panic!("forced panic"))
+			} else {
+				Response::ok().with_body(format!("Hello {}", req.path), Body::DEFAULT_CONTENT_TYPE)
 			}
-			Response::ok().with_body(format!("Hello {}", req.path), Body::DEFAULT_CONTENT_TYPE)
 		}
 	}
 
@@ -1083,6 +1120,36 @@ mod tests {
 			let response = std::str::from_utf8(&buf[..n]).unwrap();
 
 			assert!(response.contains("500 Internal Server Error"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	#[cfg(feature = "catchpanic")]
+	fn test_handle_socket_stream_panic() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+		let server = MockServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+
+		let test_future = async move {
+			client_tx
+				.write_all(b"GET /error/stream HTTP/1.1\r\n\r\n")
+				.await
+				.unwrap();
+
+			let mut buf = [0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 200 OK"));
+			assert!(!response.contains("Hello"));
 		};
 
 		futures_lite::future::block_on(async {
