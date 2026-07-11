@@ -76,7 +76,7 @@ Add `moonbeam` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moonbeam = "0.7"
+moonbeam = "0.8"
 ```
 
 ## Feature Flags
