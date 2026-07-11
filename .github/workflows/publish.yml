@@ -20,6 +20,12 @@ jobs:
         with:
             components: rustfmt, clippy
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-msrv
+        run: cargo binstall --no-confirm cargo-msrv
+
       - name: Run comprehensive tests
         run: |
           chmod +x check_all.sh
