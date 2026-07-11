@@ -126,5 +126,25 @@ run_logged "moonbeam-attributes (router)" \
 run_logged "moonbeam-attributes (autohead)" \
     cargo clippy -p moonbeam-attributes --no-default-features --features autohead -- -D warnings
 
+# 8. Check for missing documentation
+print_header "Missing Documentation Check"
+run_logged "missing documentation check" \
+    cargo clippy -p moonbeam -p moonbeam-attributes -p moonbeam-serde -p moonbeam-forms --all-features -- -D missing_docs
+
+# 9. Validate MSRV
+print_header "MSRV Validation"
+if ! command -v cargo-msrv &> /dev/null; then
+    echo -e "${RED}Error: cargo-msrv is not installed.${NC}"
+    echo "Please install it by running: cargo install cargo-msrv"
+    exit 1
+fi
+
+MSRV=$(grep -E '^\s*rust-version\s*=' Cargo.toml | head -n 1 | cut -d'"' -f2)
+if [ -z "$MSRV" ]; then
+    MSRV="1.88.0"
+fi
+run_logged "msrv validation ($MSRV)" \
+    cargo msrv verify --rust-version "$MSRV" -- cargo check --workspace --all-features
+
 echo
 echo -e "${GREEN}All tests passed.${NC}"

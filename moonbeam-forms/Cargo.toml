@@ -8,6 +8,7 @@ keywords.workspace = true
 categories.workspace = true
 repository.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 moonbeam = { path = "../moonbeam", version = "0.7", default-features = false }
