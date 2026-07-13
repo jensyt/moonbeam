@@ -28,11 +28,11 @@ use httpdate::fmt_http_date;
 use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
 #[cfg(feature = "catchpanic")]
 use std::panic::AssertUnwindSafe;
-use std::pin::Pin;
 use std::{
 	borrow::Cow,
 	io::{Error, ErrorKind, Read, Write},
 	mem::MaybeUninit,
+	pin::Pin,
 	sync::OnceLock,
 	time::{Duration, Instant, SystemTime},
 };
@@ -44,6 +44,7 @@ static REQUEST_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::Ato
 
 #[cfg(feature = "compress")]
 mod compress;
+mod helpers;
 #[cfg(feature = "mt")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
 pub mod mt;
@@ -57,6 +58,8 @@ mod task_tracker;
 #[cfg(feature = "tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub mod tls;
+
+pub use helpers::{AsyncFnServer, LifetimeDummy, StatelessAsyncFnServer};
 
 /// Returns the maximum allowed size for an HTTP request body in bytes.
 ///
@@ -101,10 +104,7 @@ fn max_body_size() -> usize {
 ///     }
 /// }
 /// ```
-pub trait Server
-where
-	Self: Sized,
-{
+pub trait Server {
 	/// Handles an incoming HTTP request and returns a future that resolves to a response.
 	///
 	/// The future and response can safely borrow any of the function inputs.
@@ -113,121 +113,6 @@ where
 		request: Request<'req, 'req>,
 		spawner: Spawner<'exec>,
 	) -> impl Future<Output = Response<'req>>;
-}
-
-/// Helper struct to construct stateless servers from an async function.
-///
-/// To implement [`Server`], `H` must have the following signature:
-/// ```ignore
-/// async fn(Request, Spawner) -> Response
-/// ```
-///
-/// # Examples
-///
-/// If you don't need the response to reference any inputs:
-/// ```
-/// use moonbeam::{Request, Response, Spawner};
-/// async fn handle(_request: Request<'_, '_>, _spawner: Spawner<'_>) -> Response<'static> {
-///     Response::ok()
-/// }
-/// ```
-///
-/// If you do need the response to reference inputs, then you need to add lifetimes. This is only
-/// required if you use Body::AsyncStream.
-/// ```
-/// use moonbeam::{Request, Response, Spawner};
-/// async fn handle<'req>(request: Request<'req, 'req>, _spawner: Spawner<'_>) -> Response<'req> {
-///     // Note the `move` here: while we can use the request in the response, we need to move it
-///     // into the closure so it outlives this function.
-///     Response::new_from_sse_fn(async move |writer| {
-///         writer.write(&request.path);
-///     })
-/// }
-/// ```
-pub struct StatelessAsyncFnServer<H>(H);
-impl<H> StatelessAsyncFnServer<H> {
-	/// Construct a new [`StatelessAsyncFnServer`] from the given async function.
-	pub fn new(h: H) -> Self {
-		Self(h)
-	}
-}
-
-impl<H> Server for StatelessAsyncFnServer<H>
-where
-	H: for<'exec, 'req> AsyncFn(Request<'req, 'req>, Spawner<'exec>) -> Response<'req>,
-{
-	fn route<'exec: 'req, 'req>(
-		&'exec self,
-		request: Request<'req, 'req>,
-		spawner: Spawner<'exec>,
-	) -> impl Future<Output = Response<'req>> {
-		self.0(request, spawner)
-	}
-}
-
-/// Helper struct to construct stateful servers from an async function.
-///
-/// To implement [`Server`], `H` must have the following signature:
-/// ```ignore
-/// async fn(Request, Spawner, &State) -> Response
-/// ```
-///
-/// # Examples
-///
-/// If you don't need the response to reference any inputs:
-/// ```
-/// use moonbeam::{Body, Request, Response, Spawner};
-/// struct State(&'static str);
-///
-/// async fn handle(
-///     _request: Request<'_, '_>,
-///     _spawner: Spawner<'_>,
-///     state: &State
-/// ) -> Response<'static> {
-///     // Note that this copies the body, so Response does not reference state.
-///     Response::ok().with_body(state.0, Body::TEXT)
-/// }
-/// ```
-///
-/// If you do need the response to reference inputs, then you need to add lifetimes. This is only
-/// required if you use Body::AsyncStream.
-/// ```
-/// use moonbeam::{Request, Response, Spawner};
-/// struct State(&'static str);
-///
-/// // Note the lifetime bound ('state: 'req), this ensure that Response<'req> can reference both
-/// // the request and state.
-/// async fn handle<'req, 'state: 'req>(
-///     request: Request<'req, 'req>,
-///     _spawner: Spawner<'_>,
-///     state: &'state State
-/// ) -> Response<'req> {
-///     // Note the `move` here: while we can use the request in the response, we need to move it
-///     // into the closure so it outlives this function.
-///     Response::new_from_sse_fn(async move |writer| {
-///         writer.write_string(format!("{} - {}", request.path, state.0));
-///     })
-/// }
-/// ```
-pub struct AsyncFnServer<H, S>(H, S);
-impl<H, S> AsyncFnServer<H, S> {
-	/// Construct a new [`AsyncFnServer`] from the given async function and initial state.
-	pub fn new(h: H, state: S) -> Self {
-		Self(h, state)
-	}
-}
-
-impl<H, S> Server for AsyncFnServer<H, S>
-where
-	H: for<'exec, 'req> AsyncFn(Request<'req, 'req>, Spawner<'exec>, &'exec S) -> Response<'req>,
-{
-	fn route<'exec: 'req, 'req>(
-		&'exec self,
-		request: Request<'req, 'req>,
-		spawner: Spawner<'exec>,
-	) -> impl Future<Output = Response<'req>> {
-		self.0(request, spawner, &self.1)
-	}
 }
 
 macro_rules! socket_write {
