@@ -186,16 +186,18 @@ Or, alternatively:
 
 ```rust,no_run
 use std::cell::Cell;
-use moonbeam::{AsyncFnServer, Body, Request, Response, Spawner, Server};
+use moonbeam::{Body, Request, Response, Spawner, Server};
+use moonbeam::server::{AsyncFnServer, LifetimeDummy};
 
 struct CounterServer {
     count: Cell<u64>,
 }
 
-async fn route<'req, 'exec>(
+async fn route<'exec, 'req>(
 	_req: Request<'req, 'req>,
 	_spawner: Spawner<'exec>,
 	state: &'exec CounterServer,
+	_: LifetimeDummy<'exec, 'req>,
 ) -> Response<'req> {
 	let count = state.count.get();
    	state.count.set(count + 1);

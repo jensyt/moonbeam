@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: `AsyncFnServer` and `StatelessAsyncFnServer` now require an additional parameter (`LifetimeDummy`) to enforce `'exec: 'req`.
+- **BREAKING**: `AsyncFnServer` and `StatelessAsyncFnServer` are no longer exported at the top level, but exported from `moonbeam::server` instead.
+- `Server` trait no longer requires `Self: Sized`.
+
 ## [0.8.0] - 2026-07-10
 
 ### Added
