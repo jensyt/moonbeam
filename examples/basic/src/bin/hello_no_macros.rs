@@ -20,7 +20,7 @@ async fn no_state<'exec, 'req>(
 	_spawner: Spawner<'exec>,
 	_: LifetimeDummy<'exec, 'req>,
 ) -> Response<'req> {
-	Response::ok().with_body(format!("Hello no state"), Body::TEXT)
+	Response::ok().with_body("Hello no state".to_string(), Body::TEXT)
 }
 
 async fn with_state<'exec, 'req>(
