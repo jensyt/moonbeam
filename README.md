@@ -21,7 +21,7 @@ Before building with Moonbeam, it's essential to understand its execution model:
 - **Multi-threaded support**: The `mt` feature spawns worker threads, each with its own state copy.
 - **Simple API**: Use the `#[server]` macro to turn functions into server handlers.
 - **Routing**: The `router!` macro provides a clean DSL and efficient implementation for nested groups, middleware, path parameters, and wildcards.
-- **Typed body extractors**: Use `FromRequest` and `FromBody` traits for zero-copy, asynchronous body parsing (e.g., JSON).
+- **Typed extractors**: Use `FromRequest`, `FromBody`, and `FromState` traits (with optional `#[from_request]` macro) for zero-copy, asynchronous request parsing and state extraction.
 - **Static assets**: Built-in `assets` helper for serving files with ETags and MIME type detection.
 - **HTTP/1.1**: Persistent connections, chunked transfer encoding, and standard header parsing.
 - **Zero-cost extractions**: Efficient parsing of Cookies, Query Parameters, and Bodies.

@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `FromState` trait, allowing synchronous state extraction from the application state reference.
+- `#[from_request]` attribute macro to automatically implement `FromRequest` for types implementing `FromBody` or `FromState` on their `impl` blocks.
+
 ### Changed
+- **BREAKING**: Removed the generic blanket implementation `impl FromRequest for T where T: FromBody`. Custom types implementing `FromBody` must now either implement `FromRequest` directly or use the `#[from_request]` macro on their `impl FromBody` block.
 - **BREAKING**: `AsyncFnServer` and `StatelessAsyncFnServer` now require an additional parameter (`LifetimeDummy`) to enforce `'exec: 'req`.
 - **BREAKING**: `AsyncFnServer` and `StatelessAsyncFnServer` are no longer exported at the top level, but exported from `moonbeam::server` instead.
 - `Server` trait no longer requires `Self: Sized`.
