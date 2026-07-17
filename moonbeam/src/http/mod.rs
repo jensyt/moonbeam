@@ -72,7 +72,7 @@ pub fn canonical_reason(code: u16) -> &'static str {
 /// assert_eq!(req.method, "GET");
 /// assert_eq!(req.path, "/");
 /// ```
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request<'headers, 'buf> {
 	/// The HTTP method (e.g., "GET", "POST").
 	pub method: &'buf str,
@@ -152,7 +152,7 @@ impl<'headers, 'buf> Request<'headers, 'buf> {
 }
 
 /// Represents the collection of HTTP headers.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Headers {
 	inner: Vec<(Cow<'static, str>, Cow<'static, str>)>,
 }

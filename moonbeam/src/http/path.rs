@@ -19,12 +19,13 @@
 //! ```
 
 use super::percent_decode::PercentDecode;
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp::Ordering};
 
 /// A zero-copy iterator over percent-decoded URL path segments.
 ///
 /// This iterator yields each segment of the path, including the leading `/`.
 /// For example, `/path/to/somewhere` yields `/path`, `/to`, and `/somewhere`.
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct PathIterator<'buf> {
 	remainder: &'buf str,
 }
@@ -59,6 +60,26 @@ impl<'buf> Iterator for PathIterator<'buf> {
 	}
 }
 
+impl PartialEq for PathIterator<'_> {
+	fn eq(&self, other: &Self) -> bool {
+		// Compare by pointer rather than by value
+		self.remainder.as_ptr() == other.remainder.as_ptr()
+	}
+}
+
+impl PartialOrd for PathIterator<'_> {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		let this = self.remainder.as_bytes().as_ptr_range();
+		let other = other.remainder.as_bytes().as_ptr_range();
+
+		if this.contains(&other.start) && other.end == this.end {
+			this.start.partial_cmp(&other.start)
+		} else {
+			None
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -84,5 +105,38 @@ mod tests {
 			let actual: Vec<_> = PathIterator::new(input).collect();
 			assert_eq!(actual, expected, "Failed on input: {}", input);
 		}
+	}
+
+	#[test]
+	fn test_eq() {
+		let left = "test".to_string();
+		let right = left.clone();
+		let left = PathIterator::new(left.as_str());
+		let right = PathIterator::new(right.as_str());
+
+		assert_eq!(left, left.clone());
+		assert_ne!(left, right);
+	}
+
+	#[test]
+	fn test_partial_ord() {
+		let left = "test/path/to/nowhere".to_string();
+		let right = left.clone();
+		let left = PathIterator::new(left.as_str());
+		let right = PathIterator::new(right.as_str());
+
+		let mut clone = left.clone();
+		assert!(left <= clone);
+		assert!(left >= clone);
+		// Note the use of PartialOrd trait - Iterator has a partial_cmp function that compares the
+		// values of the two iterators, which in this case will match even though the iterators
+		// themselves are not equal
+		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
+		assert_eq!(left >= right, false);
+		assert_eq!(left <= right, false);
+
+		clone.next();
+		assert!(left < clone);
+		assert!(!(left >= clone));
 	}
 }

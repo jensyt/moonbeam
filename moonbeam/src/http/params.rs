@@ -20,7 +20,7 @@
 //! ```
 
 use super::percent_decode::PercentDecode;
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp::Ordering};
 
 /// Helper struct for parsing query parameters from a URL.
 ///
@@ -32,6 +32,7 @@ use std::borrow::Cow;
 /// let params = Params::new("key=value");
 /// assert_eq!(params.find("key").next(), Some(Cow::Borrowed("value")));
 /// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Params<'buf> {
 	params: &'buf str,
 }
@@ -80,6 +81,7 @@ impl<'buf> Params<'buf> {
 }
 
 /// Iterator over all query parameters as key-value pairs.
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct AllParamIter<'buf> {
 	remaining: &'buf str,
 }
@@ -114,7 +116,28 @@ impl<'buf> AllParamIter<'buf> {
 	}
 }
 
+impl PartialEq for AllParamIter<'_> {
+	fn eq(&self, other: &Self) -> bool {
+		// Compare by pointer rather than by value
+		self.remaining.as_ptr() == other.remaining.as_ptr()
+	}
+}
+
+impl PartialOrd for AllParamIter<'_> {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		let this = self.remaining.as_bytes().as_ptr_range();
+		let other = other.remaining.as_bytes().as_ptr_range();
+
+		if this.contains(&other.start) && other.end == this.end {
+			this.start.partial_cmp(&other.start)
+		} else {
+			None
+		}
+	}
+}
+
 /// Iterator over values for a specific query parameter.
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct ParamIter<'buf, 'param> {
 	remaining: &'buf str,
 	filter: &'param str,
@@ -160,6 +183,29 @@ impl<'buf, 'param> ParamIter<'buf, 'param> {
 	/// Returns the parameter name being filtered for.
 	pub fn name(&self) -> &'param str {
 		self.filter
+	}
+}
+
+impl PartialEq for ParamIter<'_, '_> {
+	fn eq(&self, other: &Self) -> bool {
+		self.remaining.as_ptr() == other.remaining.as_ptr() && self.filter == other.filter
+	}
+}
+
+impl PartialOrd for ParamIter<'_, '_> {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		if self.filter != other.filter {
+			return None;
+		}
+
+		let this = self.remaining.as_bytes().as_ptr_range();
+		let other = other.remaining.as_bytes().as_ptr_range();
+
+		if this.contains(&other.start) && other.end == this.end {
+			this.start.partial_cmp(&other.start)
+		} else {
+			None
+		}
 	}
 }
 
@@ -209,5 +255,77 @@ mod tests {
 
 		let mut p_b = params.find("b");
 		assert_eq!(p_b.next(), None);
+	}
+
+	#[test]
+	fn test_allparamiter_eq() {
+		let left = "foo=bar&baz=qux&foo=baz".to_string();
+		let right = left.clone();
+		let left = AllParamIter::new(left.as_str());
+		let right = AllParamIter::new(right.as_str());
+
+		assert_eq!(left, left.clone());
+		assert_ne!(left, right);
+	}
+
+	#[test]
+	fn test_allparamiter_partial_ord() {
+		let left = "foo=bar&baz=qux&foo=baz".to_string();
+		let right = left.clone();
+		let left = AllParamIter::new(left.as_str());
+		let right = AllParamIter::new(right.as_str());
+
+		let mut clone = left.clone();
+		assert!(left <= clone);
+		assert!(left >= clone);
+		// Note the use of PartialOrd trait - Iterator has a partial_cmp function that compares the
+		// values of the two iterators, which in this case will match even though the iterators
+		// themselves are not equal
+		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
+		assert_eq!(left >= right, false);
+		assert_eq!(left <= right, false);
+
+		clone.next();
+		assert!(left < clone);
+		assert!(!(left >= clone));
+	}
+
+	#[test]
+	fn test_paramiter_eq() {
+		let left = "foo=bar&baz=qux&foo=baz".to_string();
+		let right = left.clone();
+		let left = ParamIter::new(left.as_str(), "foo");
+		let right = ParamIter::new(right.as_str(), "foo");
+
+		assert_eq!(left, left.clone());
+		assert_ne!(left, right);
+	}
+
+	#[test]
+	fn test_paramiter_partial_ord() {
+		let left = "foo=bar&baz=qux&foo=baz".to_string();
+		let right = left.clone();
+		let left = ParamIter::new(left.as_str(), "foo");
+		let right = ParamIter::new(right.as_str(), "foo");
+
+		let mut clone = left.clone();
+		assert!(left <= clone);
+		assert!(left >= clone);
+		// Note the use of PartialOrd trait - Iterator has a partial_cmp function that compares the
+		// values of the two iterators, which in this case will match even though the iterators
+		// themselves are not equal
+		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
+		assert_eq!(left >= right, false);
+		assert_eq!(left <= right, false);
+
+		let mut right = left.clone();
+		right.filter = "baz";
+		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
+		assert_eq!(left >= right, false);
+		assert_eq!(left <= right, false);
+
+		clone.next();
+		assert!(left < clone);
+		assert!(!(left >= clone));
 	}
 }
