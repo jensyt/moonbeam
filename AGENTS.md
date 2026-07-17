@@ -62,7 +62,7 @@ Handlers are async functions. The `#[route]` macro allows them to automatically 
 - **Extractors**: Any type implementing `FromRequest`. This allows for flexible, typed body extraction (e.g., `Json<T>`, `Form<T>`).
 
 #### Custom Extractors
-Implement `FromRequest` or `FromBody` in `moonbeam/src/http/mod.rs` to create custom extractors. `FromBody` provides a blanket implementation of `FromRequest` for types that only need the raw body bytes.
+Implement `FromRequest` to create custom extractors. Alternatively, you can implement the simpler `FromBody` or `FromState` helper traits for your type and decorate their `impl` blocks with `#[from_request]` to automatically generate the `FromRequest` implementation.
 
 - **`moonbeam-serde`**: Provides `Json<T>` and `Form<T>` for automatic JSON and Form Data parsing. Form data is decoded using lossy UTF-8 conversion.
 

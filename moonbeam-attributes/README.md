@@ -2,7 +2,7 @@
 
 This crate provides procedural macros for the `moonbeam` web server library.
 The main macro is `#[server]`, which simplifies creating server implementations by wrapping a function.
-With the `router` feature, this crate also offers the `#[route]`, `router!`, and `#[middleware]` macros which provide a clean DSL and efficient implementation for nested groups, middleware, path parameters, and wildcards.
+With the `router` feature, this crate also offers the `#[route]`, `router!`, and `#[middleware]` macros which provide a clean DSL and efficient implementation for nested groups, middleware, path parameters, and wildcards. It also enables the `#[from_request]` macro, which simplifies custom request extractors using `FromBody` or `FromState`.
 
 ## Usage
 
@@ -153,3 +153,62 @@ router!(MyRouter<AppState> {
     _ => not_found_handler
 });
 ```
+
+### `#[from_request]`
+
+The `#[from_request]` attribute macro simplifies the implementation of custom extractors. Instead of implementing the full `FromRequest` trait directly, you can implement the simpler `FromBody` or `FromState` traits and decorate the implementation block with `#[from_request]`. The macro automatically generates the corresponding `FromRequest` implementation.
+
+#### Implementing `FromBody`
+
+Use `FromBody` when you want to extract a value from the raw request body.
+
+```rust
+use moonbeam::{Response, from_request};
+use moonbeam::http::FromBody;
+
+struct Name<'a>(&'a str);
+
+#[from_request]
+impl<'b> FromBody<'b> for Name<'b> {
+    type Error = Response<'static>;
+
+    fn from_body(body: &'b [u8]) -> Result<Self, Self::Error> {
+        str::from_utf8(body)
+            .map(Name)
+            .map_err(|_| Response::bad_request())
+    }
+}
+```
+
+#### Implementing `FromState`
+
+Use `FromState` when you want to extract/reference a specific part of the application state.
+
+```rust
+use moonbeam::{Response, from_request};
+use moonbeam::http::FromState;
+use std::convert::Infallible;
+
+struct Database {
+    // ...
+}
+
+struct AppState {
+    db: Database,
+}
+
+// A custom extractor that references the Database within AppState
+struct DbConn<'a>(&'a Database);
+
+#[from_request]
+impl<'s> FromState<'s, AppState> for DbConn<'s> {
+    type Error = Infallible;
+
+    fn from_state(state: &'s AppState) -> Result<Self, Self::Error> {
+        Ok(Self(&state.db))
+    }
+}
+```
+
+> [!NOTE]
+> If you use an extractor implemented via `FromState` (which is bound to a specific state type), you must specify the state type explicitly on the route handler using `#[route(state = AppState)]`.

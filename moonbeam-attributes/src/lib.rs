@@ -9,6 +9,8 @@
 //! ## Core Macros
 //!
 //! - [`#[server]`](server): Turns a function into a full `Server` implementation.
+//! - [`#[from_request]`](from_request): Simplifies implementing `FromRequest` using `FromBody` or
+//!   `FromState`.
 //! - [`router!`](router): Defines a routing tree with nesting and middleware.
 //! - [`#[route]`](route): Defines a handler for use within a `router`.
 //! - [`#[middleware]`](middleware): Defines a middleware function for use within a `router`.
@@ -23,6 +25,9 @@ use syn::{
 	spanned::Spanned,
 };
 
+#[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
+mod from_request;
 #[cfg(feature = "router")]
 #[cfg_attr(docsrs, doc(cfg(feature = "router")))]
 mod middleware;
@@ -578,4 +583,33 @@ pub fn router(item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {
 	middleware::middleware_impl(attr, item)
+}
+
+/// Attribute macro to implement `FromRequest` using `FromBody` or `FromState`.
+///
+/// Apply this macro directly to an `impl FromBody` or `impl FromState` block.
+///
+/// # Example
+/// ```rust,ignore
+/// use moonbeam::http::FromBody;
+/// use moonbeam::{Response, from_request};
+///
+/// struct Name<'a>(&'a str);
+///
+/// #[from_request]
+/// impl<'b> FromBody<'b> for Name<'b> {
+///     type Error = Response<'static>;
+///
+///     fn from_body(body: &'b [u8]) -> Result<Self, Self::Error> {
+///         str::from_utf8(body)
+///             .map(Name)
+///             .map_err(|_| Response::bad_request())
+///     }
+/// }
+/// ```
+#[cfg(feature = "router")]
+#[cfg_attr(docsrs, doc(cfg(feature = "router")))]
+#[proc_macro_attribute]
+pub fn from_request(attr: TokenStream, item: TokenStream) -> TokenStream {
+	from_request::from_request_impl(attr, item)
 }

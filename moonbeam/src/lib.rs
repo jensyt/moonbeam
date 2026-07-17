@@ -29,10 +29,10 @@ pub use crate::server::{Server, st::serve};
 pub use crate::server::{st::serve_tls, tls::TlsConfig};
 pub use httparse::Header;
 
-/// Attribute macro to simplify creating server implementations.
+/// Procedural macros to simplify server creation and request extraction.
 #[cfg(feature = "macros")]
 #[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
 pub use moonbeam_attributes::server;
 #[cfg(feature = "router")]
 #[cfg_attr(docsrs, doc(cfg(feature = "router")))]
-pub use moonbeam_attributes::{middleware, route, router};
+pub use moonbeam_attributes::{from_request, middleware, route, router};

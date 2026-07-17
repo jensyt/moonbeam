@@ -1,9 +1,7 @@
 #![doc = include_str!("../README.md")]
 
-use moonbeam::{
-	SseEvent,
-	http::{Body, FromBody, Response},
-};
+use moonbeam::http::{FromBody, FromRequest};
+use moonbeam::{Body, Request, Response, SseEvent};
 use serde::Serialize;
 use serde::de::Deserialize;
 
@@ -44,6 +42,14 @@ impl<'buf, T: Deserialize<'buf>> FromBody<'buf> for Json<T> {
 		serde_json::from_slice(body)
 			.map(Json)
 			.map_err(|_| Response::bad_request())
+	}
+}
+
+impl<'buf, T: Deserialize<'buf>, State> FromRequest<'_, 'buf, '_, State> for Json<T> {
+	type Error = Response<'static>;
+
+	async fn from_request(req: Request<'_, 'buf>, _state: &State) -> Result<Self, Self::Error> {
+		Self::from_body(req.body)
 	}
 }
 

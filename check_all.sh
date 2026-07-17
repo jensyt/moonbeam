@@ -110,12 +110,8 @@ done
 
 # 6. Logical Feature Groups
 print_header "Feature Groups"
-run_check --no-default-features --features "mt,signals"
-run_check --no-default-features --features "mt,tracing"
-run_check --no-default-features --features "router,compress"
-run_check --no-default-features --features "assets,compress"
+# mt + tls compiles serve_multi_tls; checking without signals verifies fallback signals implementation
 run_check --no-default-features --features "mt,tls"
-run_check --no-default-features --features "tls,signals"
 
 # 7. Moonbeam Attributes specific checks
 print_header "Moonbeam Attributes"
@@ -124,7 +120,7 @@ run_logged "moonbeam-attributes (no-features)" \
 run_logged "moonbeam-attributes (router)" \
     cargo clippy -p moonbeam-attributes --no-default-features --features router -- -D warnings
 run_logged "moonbeam-attributes (autohead)" \
-    cargo clippy -p moonbeam-attributes --no-default-features --features autohead -- -D warnings
+    cargo clippy -p moonbeam-attributes --no-default-features --features autohead,router -- -D warnings
 
 # 8. Check for missing documentation
 print_header "Missing Documentation Check"

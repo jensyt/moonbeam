@@ -652,14 +652,13 @@ pub trait FromBody<'buf>: Sized {
 	fn from_body(body: &'buf [u8]) -> Result<Self, Self::Error>;
 }
 
-impl<'buf, State, T> FromRequest<'_, 'buf, '_, State> for T
-where
-	T: FromBody<'buf>,
-{
-	type Error = T::Error;
-	async fn from_request(req: Request<'_, 'buf>, _state: &State) -> Result<Self, Self::Error> {
-		T::from_body(req.body)
-	}
+/// A trait for extractors that only need the application state.
+pub trait FromState<'state, State>: Sized {
+	/// The error type returned if extraction fails.
+	type Error: Into<Response<'static>>;
+
+	/// Extracts data from the application state.
+	fn from_state(state: &'state State) -> Result<Self, Self::Error>;
 }
 
 #[cfg(test)]
