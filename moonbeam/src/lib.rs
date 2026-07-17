@@ -32,7 +32,7 @@ pub use httparse::Header;
 /// Procedural macros to simplify server creation and request extraction.
 #[cfg(feature = "macros")]
 #[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
-pub use moonbeam_attributes::{from_request, server};
+pub use moonbeam_attributes::server;
 #[cfg(feature = "router")]
 #[cfg_attr(docsrs, doc(cfg(feature = "router")))]
-pub use moonbeam_attributes::{middleware, route, router};
+pub use moonbeam_attributes::{from_request, middleware, route, router};

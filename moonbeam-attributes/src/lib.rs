@@ -598,13 +598,13 @@ pub fn middleware(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// #[from_request]
 /// impl<'b> FromBody<'b> for Name<'b> {
-/// 	type Error = Response<'static>;
+///     type Error = Response<'static>;
 ///
-/// 	fn from_body(body: &'b [u8]) -> Result<Self, Self::Error> {
-/// 		str::from_utf8(body)
-/// 			.map(Name)
-/// 			.map_err(|_| Response::bad_request())
-/// 	}
+///     fn from_body(body: &'b [u8]) -> Result<Self, Self::Error> {
+///         str::from_utf8(body)
+///             .map(Name)
+///             .map_err(|_| Response::bad_request())
+///     }
 /// }
 /// ```
 #[cfg(feature = "router")]
