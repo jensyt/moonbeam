@@ -30,6 +30,7 @@
 /// assert_eq!(cookies.find("user"), Some(b"alice" as &[u8]));
 /// assert_eq!(cookies.find("session"), Some(b"123" as &[u8]));
 /// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Cookies<'buf> {
 	cookies: &'buf [u8],
 }

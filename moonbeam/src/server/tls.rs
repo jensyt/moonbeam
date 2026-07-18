@@ -9,6 +9,7 @@ use std::path::Path;
 ///
 /// Create one via [`TlsConfig::from_pem`] to load from files, or [`TlsConfig::from_raw`] to
 /// construct programmatically.
+#[derive(PartialEq, Eq)]
 pub struct TlsConfig {
 	certs: Vec<CertificateDer<'static>>,
 	key: PrivateKeyDer<'static>,

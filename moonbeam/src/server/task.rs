@@ -37,7 +37,7 @@ use async_executor::LocalExecutor;
 ///
 /// Spawners can be cheaply cloned and passed around. Tasks spawned via a `Spawner` are owned by the
 /// parent `Executor` and will be dropped when the executor is dropped.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Spawner<'exec> {
 	ex: *const Executor<'exec>,
 	alive: *mut bool,

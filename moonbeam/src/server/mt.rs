@@ -38,7 +38,7 @@ use std::pin::pin;
 use std::time::Duration;
 use std::{net::SocketAddr, num::NonZeroUsize, thread};
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(docsrs, doc(cfg(feature = "mt")))]
 /// Specifies the number of worker threads to spawn for the multi-threaded server.
 pub enum ThreadCount {
