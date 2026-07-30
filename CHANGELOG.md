@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-30
+
 ### Added
 - `FromState` trait, allowing synchronous state extraction from the application state reference.
 - `#[from_request]` attribute macro to automatically implement `FromRequest` for types implementing `FromBody` or `FromState` on their `impl` blocks.

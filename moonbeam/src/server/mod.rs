@@ -773,7 +773,7 @@ mod tests {
 		assert!(response_str.contains("X-Custom: test"));
 
 		// Should contain default headers
-		assert!(response_str.contains("Server: moonbeam/0.8"));
+		assert!(response_str.contains("Server: moonbeam/0.9"));
 		assert!(response_str.contains("Content-Type: application/octet-stream"));
 		assert!(response_str.contains("Content-Length: 9"));
 		assert!(response_str.contains("Date:"));
