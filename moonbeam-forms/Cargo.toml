@@ -11,8 +11,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-moonbeam = { path = "../moonbeam", version = "0.8", default-features = false }
+moonbeam = { path = "../moonbeam", version = "0.9", default-features = false }
 httparse = "1.10"
 
 [dev-dependencies]
-moonbeam = { path = "../moonbeam", version = "0.8", features = ["router"] }
+moonbeam = { path = "../moonbeam", version = "0.9", features = ["router"] }
