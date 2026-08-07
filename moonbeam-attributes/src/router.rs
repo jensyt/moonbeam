@@ -33,8 +33,8 @@ enum Handler {
 }
 
 struct RouteGroup {
-	prefix: LitStr,
-	_fat_arrow: Token![=>],
+	prefix: Option<LitStr>,
+	_fat_arrow: Option<Token![=>]>,
 	items: Vec<RouterItem>,
 }
 
@@ -94,9 +94,15 @@ impl Parse for Handler {
 	}
 }
 
+impl RouteGroup {
+	fn prefix_value(&self) -> String {
+		self.prefix.as_ref().map(|p| p.value()).unwrap_or_default()
+	}
+}
+
 impl Parse for RouterItem {
 	fn parse(input: ParseStream) -> syn::Result<Self> {
-		if input.peek(LitStr) {
+		if input.peek(LitStr) || input.peek(syn::token::Brace) {
 			Ok(RouterItem::Group(input.parse()?))
 		} else if input.peek(Token![_]) {
 			Ok(RouterItem::CatchAll(CatchAllEntry {
@@ -123,9 +129,14 @@ impl Parse for RouterItem {
 	}
 }
 
-impl RouteGroup {
-	fn parse_with_prefix(input: ParseStream, prefix: LitStr) -> syn::Result<Self> {
-		let fat_arrow: Token![=>] = input.parse()?;
+impl Parse for RouteGroup {
+	fn parse(input: ParseStream) -> syn::Result<Self> {
+		let (prefix, fat_arrow): (Option<LitStr>, Option<Token![=>]>) =
+			if input.peek(syn::token::Brace) {
+				(None, None)
+			} else {
+				(Some(input.parse()?), Some(input.parse()?))
+			};
 
 		let content;
 		syn::braced!(content in input);
@@ -140,13 +151,6 @@ impl RouteGroup {
 			_fat_arrow: fat_arrow,
 			items,
 		})
-	}
-}
-
-impl Parse for RouteGroup {
-	fn parse(input: ParseStream) -> syn::Result<Self> {
-		let prefix: LitStr = input.parse()?;
-		Self::parse_with_prefix(input, prefix)
 	}
 }
 
@@ -204,9 +208,9 @@ fn flatten_items(
 	current_prefix: &str,
 	current_middleware: &[Path],
 	flat_routes: &mut Vec<FinalRoute>,
+	is_root: bool,
 ) {
 	let mut local_middleware = current_middleware.to_vec();
-	let mut has_catchall = false;
 
 	for item in items {
 		match item {
@@ -227,7 +231,6 @@ fn flatten_items(
 				});
 			}
 			RouterItem::CatchAll(c) => {
-				has_catchall = true;
 				let route_middleware = local_middleware.clone();
 				// CatchAll applies to the current prefix
 				// We represent the path as the prefix itself
@@ -242,14 +245,18 @@ fn flatten_items(
 				});
 			}
 			RouterItem::Group(g) => {
-				let new_prefix = format!("{}{}", current_prefix, g.prefix.value());
-				flatten_items(&g.items, &new_prefix, &local_middleware, flat_routes);
+				let new_prefix = format!("{}{}", current_prefix, g.prefix_value());
+				flatten_items(&g.items, &new_prefix, &local_middleware, flat_routes, false);
 			}
 		}
 	}
 
 	// Insert default catchall at root level if needed
-	if !has_catchall && current_prefix.is_empty() {
+	if is_root
+		&& !flat_routes
+			.iter()
+			.any(|r| r.is_fallback && r.path.is_empty())
+	{
 		let route_middleware = local_middleware.clone();
 		let full_path = current_prefix.to_string();
 		flat_routes.push(FinalRoute {
@@ -277,7 +284,7 @@ pub(super) fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStr
 	let router_name = input.name;
 
 	let mut flat_routes = Vec::new();
-	flatten_items(&input.items, "", &[], &mut flat_routes);
+	flatten_items(&input.items, "", &[], &mut flat_routes, true);
 
 	let route_logic = generate_route_logic(&flat_routes, input.state_type.is_some());
 
