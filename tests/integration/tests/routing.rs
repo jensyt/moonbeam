@@ -41,6 +41,16 @@ async fn create_item(_req: Request) -> Response {
 	Response::new_with_code(201).with_body("created", Body::DEFAULT_CONTENT_TYPE)
 }
 
+#[route]
+async fn grouped_handler(_req: Request) -> Response {
+	Response::ok().with_body("grouped", Body::DEFAULT_CONTENT_TYPE)
+}
+
+#[route]
+async fn custom_catchall(_req: Request) -> Response {
+	Response::ok().with_body("custom catchall", Body::DEFAULT_CONTENT_TYPE)
+}
+
 // --- Router Definition ---
 
 router! {
@@ -50,6 +60,24 @@ router! {
 		get("/users/:user_id/posts/:post_id") => get_post,
 		get("/state") => with_state,
 		post("/items") => create_item
+	}
+}
+
+router! {
+	PrefixlessGroupRouter {
+		get("/") => index,
+		{
+			get("/grouped") => grouped_handler
+		}
+	}
+}
+
+router! {
+	NestedCatchallRouter {
+		get("/") => index,
+		{
+			_ => custom_catchall
+		}
 	}
 }
 
@@ -149,6 +177,30 @@ fn test_not_found() {
 	let req = Request::new("GET", "/not-found", &headers, &[]);
 	let res = block_on(router.route(req, executor.as_ref().spawner()));
 	assert_eq!(res.status, 404);
+}
+
+#[test]
+fn test_prefixless_group() {
+	let router = PrefixlessGroupRouter::new();
+	let executor = pin!(Executor::new());
+
+	let headers = [];
+	let req = Request::new("GET", "/grouped", &headers, &[]);
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
+	assert_eq!(res.status, 200);
+	assert_body(res.body, "grouped");
+}
+
+#[test]
+fn test_nested_catchall() {
+	let router = NestedCatchallRouter::new();
+	let executor = pin!(Executor::new());
+
+	let headers = [];
+	let req = Request::new("GET", "/not-found-here", &headers, &[]);
+	let res = block_on(router.route(req, executor.as_ref().spawner()));
+	assert_eq!(res.status, 200);
+	assert_body(res.body, "custom catchall");
 }
 
 // Helper to check body content
