@@ -6,7 +6,7 @@ pub fn from_request_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
 	let item_impl = parse_macro_input!(item as syn::ItemImpl);
 
 	let trait_segment = match &item_impl.trait_ {
-		Some((_, path, _)) => path.segments.last().unwrap(),
+		Some((path, _)) => path.segments.last().unwrap(),
 		None => {
 			return syn::Error::new_spanned(
 				&item_impl,
