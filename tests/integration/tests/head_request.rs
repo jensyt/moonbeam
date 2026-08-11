@@ -1,6 +1,5 @@
-use futures_lite::future::block_on;
-use moonbeam::{Body, Executor, Request, Response, Server, route, router};
-use std::pin::pin;
+use moonbeam::server::task::testing::execute;
+use moonbeam::{Body, Request, Response, route, router};
 
 #[route]
 async fn get_handler(req: Request) -> Response {
@@ -27,28 +26,34 @@ router! {
 #[test]
 fn test_implicit_head() {
 	let router = HeadRouter::new();
-	let executor = pin!(Executor::new());
-	let headers = [];
-	let req = Request::new("HEAD", "/implicit", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-
-	assert_eq!(
-		res.status, 200,
-		"HEAD request should be handled by GET handler if no HEAD handler exists"
+	let req = Request::new("HEAD", "/implicit", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(
+				res.status, 200,
+				"HEAD request should be handled by GET handler if no HEAD handler exists"
+			);
+			assert_body(res.body, "HEAD processed by GET handler");
+		},
+		|_| {},
 	);
-	assert_body(res.body, "HEAD processed by GET handler");
 }
 
 #[test]
 fn test_explicit_head() {
 	let router = HeadRouter::new();
-	let executor = pin!(Executor::new());
-	let headers = [];
-	let req = Request::new("HEAD", "/explicit", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-
-	assert_eq!(res.status, 200);
-	assert_body(res.body, "HEAD explicit");
+	let req = Request::new("HEAD", "/explicit", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert_body(res.body, "HEAD explicit");
+		},
+		|_| {},
+	);
 }
 
 fn assert_body(body: Option<Body>, expected: &str) {

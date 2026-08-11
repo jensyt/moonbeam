@@ -26,11 +26,10 @@
 //!
 //! serve("127.0.0.1:8080", || MyServer);
 //! ```
-use std::{cell::UnsafeCell, marker::PhantomPinned, pin::Pin, time::Duration};
+use std::{marker::PhantomPinned, pin::Pin, time::Duration};
 
 #[cfg(feature = "signals")]
 use crate::server::task_tracker::TaskTracker;
-use crate::tracing;
 use async_executor::LocalExecutor;
 
 /// A handle for spawning tasks on an [`Executor`].
@@ -40,7 +39,6 @@ use async_executor::LocalExecutor;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Spawner<'exec> {
 	ex: *const Executor<'exec>,
-	alive: *mut bool,
 }
 
 impl<'exec> Spawner<'exec> {
@@ -49,55 +47,41 @@ impl<'exec> Spawner<'exec> {
 	/// The task is detached and will run to completion (or until the executor is dropped).
 	pub fn spawn<T: 'exec>(&self, future: impl Future<Output = T> + 'exec) {
 		// SAFETY:
-		// Tasks are owned by the LocalExecutor. They can only execute or be dropped while the
-		// Executor is valid in memory, so derefencing the pointers will always be valid here.
-		// The alive flag is toggled in the Executor's drop method, so as long as it returns true
-		// the executor is valid and the ex pointer is safe to dereference and spawn tasks.
+		// Callers of Executor::spawner are responsible for ensuring the executor outlives this
+		// spawner.
 		unsafe {
-			if *self.alive {
-				#[cfg(feature = "signals")]
-				let future = {
-					let guard = (*self.ex).tracker.track();
-					async move {
-						let _guard = guard;
-						future.await
-					}
-				};
-				(*self.ex).executor.spawn(future).detach();
-			} else {
-				tracing::warn!("Attempting to spawn a task on an inactive executor");
-			}
+			#[cfg(feature = "signals")]
+			let future = {
+				let guard = (*self.ex).tracker.track();
+				async move {
+					let _guard = guard;
+					future.await
+				}
+			};
+			(*self.ex).executor.spawn(future).detach();
 		}
 	}
 
 	#[allow(unused)]
 	pub(super) async fn wait_until_empty(self, timeout: Duration) {
 		// SAFETY:
-		// Tasks are owned by the LocalExecutor. They can only execute or be dropped while the
-		// Executor is valid in memory, so derefencing the pointers will always be valid here.
-		// The alive flag is toggled in the Executor's drop method, so as long as it returns true
-		// the executor is valid and the ex pointer is safe to dereference and use the tracker.
+		// Callers of Executor::spawner are responsible for ensuring the executor outlives this
+		// spawner.
 		#[cfg(feature = "signals")]
 		unsafe {
-			if *self.alive {
-				(*self.ex).tracker.wait_until_empty(timeout).await
-			}
+			(*self.ex).tracker.wait_until_empty(timeout).await
 		}
 	}
 }
 
 /// A local executor for running asynchronous tasks.
 ///
-/// This is a wrapper around [`LocalExecutor`] that provides safe task tracking and lifetime-aware
-/// spawning via [`Spawner`].
-///
-/// This type is primarily exposed for testing and debugging purposes. Moonbeam manages the
-/// lifecycle of executors internally, so users should not need to interact with this type directly.
-pub struct Executor<'exec> {
+/// This is a wrapper around [`LocalExecutor`] that provides safe task tracking and spawning via
+/// [`Spawner`].
+pub(super) struct Executor<'exec> {
 	executor: LocalExecutor<'exec>,
 	#[cfg(feature = "signals")]
 	tracker: TaskTracker,
-	alive: UnsafeCell<bool>,
 	_pin: PhantomPinned,
 }
 
@@ -108,11 +92,12 @@ impl<'exec> Executor<'exec> {
 	}
 
 	/// Returns a [`Spawner`] for this executor.
-	pub fn spawner(self: Pin<&Self>) -> Spawner<'exec> {
-		Spawner {
-			ex: self.get_ref(),
-			alive: self.alive.get(),
-		}
+	///
+	/// # Safety
+	///
+	/// Callers of this function must ensure that `self` outlives the returned `Spawner`.
+	pub unsafe fn spawner(self: Pin<&Self>) -> Spawner<'exec> {
+		Spawner { ex: self.get_ref() }
 	}
 
 	/// Runs the executor until the given future completes.
@@ -136,18 +121,7 @@ impl<'exec> Default for Executor<'exec> {
 			executor: LocalExecutor::new(),
 			#[cfg(feature = "signals")]
 			tracker: TaskTracker::new(),
-			alive: UnsafeCell::new(true),
 			_pin: PhantomPinned,
-		}
-	}
-}
-
-impl<'exec> Drop for Executor<'exec> {
-	fn drop(&mut self) {
-		// SAFETY:
-		// `self.alive` can be safely dereferenced and written to before drop is completed
-		unsafe {
-			*self.alive.get() = false;
 		}
 	}
 }
@@ -191,4 +165,88 @@ macro_rules! spawn_with_span {
 			$spawner.spawn($future.instrument(span));
 		}
 	};
+}
+
+/// Utilities for testing servers and background tasks.
+pub mod testing {
+	use super::*;
+	use crate::http::{Request, Response};
+	use crate::server::Server;
+	use futures_lite::future::block_on;
+	use std::pin::pin;
+
+	/// A handle allowing tests to manually advance the task executor.
+	pub struct Tick<'a, 'exec> {
+		ex: Pin<&'a mut Executor<'exec>>,
+	}
+
+	impl<'a, 'exec> Tick<'a, 'exec> {
+		/// Attempts to advance the executor by ticking a single ready task.
+		///
+		/// Returns `true` if a task was ticked, or `false` if no tasks were ready.
+		pub fn try_tick(&self) -> bool {
+			self.ex.try_tick()
+		}
+	}
+
+	/// Executes a request against a server for testing, allowing inspection of the response
+	/// and manual executor ticking.
+	///
+	/// # Example
+	///
+	/// ```
+	/// use moonbeam::server::task::testing::execute;
+	/// use moonbeam::{Request, Response, Spawner, route, router};
+	/// use std::cell::Cell;
+	///
+	/// struct TestState {
+	///     value: Cell<i32>,
+	/// }
+	///
+	/// #[route]
+	/// async fn spawn_closure(state: &TestState, spawner: Spawner) -> Response {
+	///     spawner.spawn(async {
+	///         state.value.update(|v| v + 1);
+	///     });
+	///     Response::ok()
+	/// }
+	///
+	/// router! {
+	///     TestRouter<TestState> {
+	///         get("/closure") => spawn_closure,
+	///     }
+	/// }
+	///
+	/// let state = TestState {
+	///     value: Cell::new(42),
+	/// };
+	/// let router = TestRouter::new(state);
+	///
+	/// let req = Request::new("GET", "/closure", &[], &[]);
+	/// execute(
+	///     &router,
+	///     req,
+	///     |res| {
+	///         assert_eq!(res.status, 200);
+	///     },
+	///     |tick| {
+	///         assert_eq!(router.0.value.get(), 42);
+	///         assert_eq!(tick.try_tick(), true);
+	///         assert_eq!(router.0.value.get(), 43);
+	///         assert_eq!(tick.try_tick(), false);
+	///     },
+	/// );
+	/// ```
+	pub fn execute(
+		server: &impl Server,
+		req: Request,
+		eval: impl FnOnce(Response),
+		tick: impl FnOnce(Tick),
+	) {
+		let executor = pin!(Executor::new());
+		// SAFETY: Spawner does not outlive executor because it can't escape this scope
+		let res = block_on(server.route(req, unsafe { executor.as_ref().spawner() }));
+		eval(res);
+		tick(Tick { ex: executor });
+	}
 }

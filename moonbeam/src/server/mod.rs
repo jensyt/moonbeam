@@ -948,7 +948,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -978,7 +978,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1014,7 +1014,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx.write_all(b"GARBAGE\r\n\r\n").await.unwrap();
@@ -1040,7 +1040,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1069,7 +1069,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1126,7 +1126,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1174,7 +1174,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1248,7 +1248,7 @@ mod tests {
 		let server = AsyncStreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1292,7 +1292,7 @@ mod tests {
 		let server = AsyncStreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1337,7 +1337,7 @@ mod tests {
 		let server = AsyncStreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1448,7 +1448,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let body_size = 20 * 1024; // 20KB
 		let body_content = vec![b'a'; body_size];
@@ -1484,7 +1484,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let body_size = 1024 * 1024 + 10; // 1MB + 10 bytes
 

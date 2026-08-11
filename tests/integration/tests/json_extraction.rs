@@ -1,9 +1,8 @@
-use futures_lite::future::block_on;
 use moonbeam::http::{Body, Request};
-use moonbeam::{Executor, Server, route, router};
+use moonbeam::server::task::testing::execute;
+use moonbeam::{route, router};
 use moonbeam_serde::Json;
 use serde::{Deserialize, Serialize};
-use std::pin::pin;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct User<'a> {
@@ -24,25 +23,32 @@ router!(JsonRouter {
 #[test]
 fn test_json_extraction_borrowed() {
 	let router = JsonRouter::new();
-	let executor = pin!(Executor::new());
 
 	let body_content = r#"{"id": 42, "name": "Jens"}"#;
-	let headers = [];
+	let headers = [moonbeam::Header {
+		name: "Content-Type",
+		value: b"application/json",
+	}];
 	let req = Request::new("POST", "/echo", &headers, body_content.as_bytes());
 
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert!(
+				res.headers
+					.iter()
+					.any(|(n, v)| n.eq_ignore_ascii_case("Content-Type") && v == "application/json")
+			);
 
-	assert_eq!(res.status, 200);
-	assert!(
-		res.headers
-			.iter()
-			.any(|(n, v)| n.eq_ignore_ascii_case("Content-Type") && v == "application/json")
+			if let Some(Body::Immediate(data)) = res.body {
+				let response_str = String::from_utf8_lossy(&data);
+				assert_eq!(response_str, r#"{"id":43,"name":"Jens"}"#);
+			} else {
+				panic!("Expected immediate body");
+			}
+		},
+		|_| {},
 	);
-
-	if let Some(Body::Immediate(data)) = res.body {
-		let response_str = String::from_utf8_lossy(&data);
-		assert_eq!(response_str, r#"{"id":43,"name":"Jens"}"#);
-	} else {
-		panic!("Expected immediate body");
-	}
 }

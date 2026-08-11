@@ -1,8 +1,7 @@
-use futures_lite::future::block_on;
 use moonbeam::http::{FromBody, FromState};
-use moonbeam::{Body, Executor, Request, Response, Server, from_request, route, router};
+use moonbeam::server::task::testing::execute;
+use moonbeam::{Body, Request, Response, from_request, route, router};
 use std::convert::Infallible;
-use std::pin::pin;
 use std::str;
 
 struct State {
@@ -54,26 +53,29 @@ fn test_state_extraction() {
 		name: "Jens".to_string(),
 	};
 	let router = StateRouter::new(state);
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("POST", "/echo", &headers, b"John");
+	let req = Request::new("POST", "/echo", &[], b"John");
 
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert!(
+				res.headers.iter().any(
+					|(n, v)| n.eq_ignore_ascii_case("Content-Type") && v == Body::TEXT.unwrap()
+				)
+			);
 
-	assert_eq!(res.status, 200);
-	assert!(
-		res.headers
-			.iter()
-			.any(|(n, v)| n.eq_ignore_ascii_case("Content-Type") && v == Body::TEXT.unwrap())
+			if let Some(Body::Immediate(data)) = res.body {
+				let response_str = String::from_utf8_lossy(&data);
+				assert_eq!(response_str, r#"Hello Jens"#);
+			} else {
+				panic!("Expected immediate body");
+			}
+		},
+		|_| {},
 	);
-
-	if let Some(Body::Immediate(data)) = res.body {
-		let response_str = String::from_utf8_lossy(&data);
-		assert_eq!(response_str, r#"Hello Jens"#);
-	} else {
-		panic!("Expected immediate body");
-	}
 }
 
 #[test]
@@ -82,24 +84,27 @@ fn test_body_extraction() {
 		name: "Jens".to_string(),
 	};
 	let router = StateRouter::new(state);
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("POST", "/echobody", &headers, b"John");
+	let req = Request::new("POST", "/echobody", &[], b"John");
 
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert!(
+				res.headers.iter().any(
+					|(n, v)| n.eq_ignore_ascii_case("Content-Type") && v == Body::TEXT.unwrap()
+				)
+			);
 
-	assert_eq!(res.status, 200);
-	assert!(
-		res.headers
-			.iter()
-			.any(|(n, v)| n.eq_ignore_ascii_case("Content-Type") && v == Body::TEXT.unwrap())
+			if let Some(Body::Immediate(data)) = res.body {
+				let response_str = String::from_utf8_lossy(&data);
+				assert_eq!(response_str, r#"Hello John"#);
+			} else {
+				panic!("Expected immediate body");
+			}
+		},
+		|_| {},
 	);
-
-	if let Some(Body::Immediate(data)) = res.body {
-		let response_str = String::from_utf8_lossy(&data);
-		assert_eq!(response_str, r#"Hello John"#);
-	} else {
-		panic!("Expected immediate body");
-	}
 }
