@@ -49,6 +49,18 @@ impl<'buf, T: Deserialize<'buf>, State> FromRequest<'_, 'buf, '_, State> for Jso
 	type Error = Response<'static>;
 
 	async fn from_request(req: Request<'_, 'buf>, _state: &State) -> Result<Self, Self::Error> {
+		let content_type = req
+			.find_header("Content-Type")
+			.map(|ct| std::str::from_utf8(ct).unwrap_or(""))
+			.unwrap_or("");
+
+		let ct = content_type.trim().to_ascii_lowercase();
+		if !ct.starts_with("application/json") && !ct.contains("+json") {
+			return Err(
+				Response::new_with_code(415).with_body("Expected application/json", Body::TEXT)
+			);
+		}
+
 		Self::from_body(req.body)
 	}
 }
@@ -131,5 +143,30 @@ mod tests {
 		} else {
 			panic!("Expected immediate body");
 		}
+	}
+
+	#[test]
+	fn test_json_from_request_content_type() {
+		use moonbeam::Header;
+
+		let body = r#"{"id": 42, "name": "Jens"}"#.as_bytes();
+		let headers_valid = [Header {
+			name: "Content-Type",
+			value: b"application/json",
+		}];
+		let req = Request::new("POST", "/", &headers_valid, body);
+		let res: Result<Json<User<'_>>, Response> =
+			futures_lite::future::block_on(Json::from_request(req, &()));
+		assert!(res.is_ok());
+
+		let headers_invalid = [Header {
+			name: "Content-Type",
+			value: b"text/plain",
+		}];
+		let req = Request::new("POST", "/", &headers_invalid, body);
+		let res: Result<Json<User<'_>>, Response> =
+			futures_lite::future::block_on(Json::from_request(req, &()));
+		assert!(res.is_err());
+		assert_eq!(res.unwrap_err().status, 415);
 	}
 }

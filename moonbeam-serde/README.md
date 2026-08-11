@@ -120,7 +120,7 @@ async fn handle_upload(Form(upload): Form<Upload<'_>>) -> impl Into<Response> {
 
 ## Error Handling
 
-If the request body contains invalid JSON or does not match the expected structure, the `Json<T>` extractor will automatically return a `400 Bad Request` response.
+If the request does not specify a JSON content type (`application/json` or structured syntax suffixes like `*+json`), the `Json<T>` extractor will return a `415 Unsupported Media Type` response. If the request body contains invalid JSON or does not match the expected structure, `Json<T>` will automatically return a `400 Bad Request` response.
 
 Similarly, if the request does not contain a valid form content type or if deserialization fails, the `Form<T>` extractor will automatically return a `400 Bad Request` response.
 
