@@ -1,7 +1,7 @@
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::block_on};
-use moonbeam::{Body, Executor, Request, Response, Server, route, router};
+use moonbeam::server::task::testing::execute;
+use moonbeam::{Body, Request, Response, route, router};
 use piper::pipe;
-use std::pin::pin;
 
 #[route]
 async fn asyncread_handler() -> Response {
@@ -36,45 +36,51 @@ router! {
 #[test]
 fn test_async_read_response() {
 	let router = TestRouter::new();
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("GET", "/asyncread", &headers, &[]);
-	let mut res = block_on(router.route(req, executor.as_ref().spawner()));
+	let req = Request::new("GET", "/asyncread", &[], &[]);
+	execute(
+		&router,
+		req,
+		|mut res| {
+			assert_eq!(res.status, 200);
 
-	assert_eq!(res.status, 200);
-
-	let body = res.body.take().unwrap();
-	match body {
-		Body::AsyncStream { mut data, len } => {
-			assert_eq!(len, None);
-			let mut buf = String::new();
-			block_on(data.read_to_string(&mut buf)).unwrap();
-			assert_eq!(buf, "async stream");
-		}
-		_ => panic!("Expected AsyncStream body"),
-	}
+			let body = res.body.take().unwrap();
+			match body {
+				Body::AsyncStream { mut data, len } => {
+					assert_eq!(len, None);
+					let mut buf = String::new();
+					block_on(data.read_to_string(&mut buf)).unwrap();
+					assert_eq!(buf, "async stream");
+				}
+				_ => panic!("Expected AsyncStream body"),
+			}
+		},
+		|_| {},
+	);
 }
 
 #[test]
 fn test_async_stream_fn_response() {
 	let router = TestRouter::new();
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("GET", "/asyncstreamfn", &headers, &[]);
-	let mut res = block_on(router.route(req, executor.as_ref().spawner()));
+	let req = Request::new("GET", "/asyncstreamfn", &[], &[]);
+	execute(
+		&router,
+		req,
+		|mut res| {
+			assert_eq!(res.status, 200);
 
-	assert_eq!(res.status, 200);
-
-	let body = res.body.take().unwrap();
-	match body {
-		Body::AsyncStream { mut data, len } => {
-			assert_eq!(len, None);
-			let mut buf = String::new();
-			block_on(data.read_to_string(&mut buf)).unwrap();
-			assert_eq!(buf, "async stream");
-		}
-		_ => panic!("Expected AsyncStream body"),
-	}
+			let body = res.body.take().unwrap();
+			match body {
+				Body::AsyncStream { mut data, len } => {
+					assert_eq!(len, None);
+					let mut buf = String::new();
+					block_on(data.read_to_string(&mut buf)).unwrap();
+					assert_eq!(buf, "async stream");
+				}
+				_ => panic!("Expected AsyncStream body"),
+			}
+		},
+		|_| {},
+	);
 }

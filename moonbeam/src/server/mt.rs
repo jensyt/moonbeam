@@ -104,7 +104,9 @@ pub fn serve_multi<F, T: Server>(
 			scope.spawn(move || {
 				let server = server();
 				let executor = pin!(Executor::new());
-				let spawner = executor.as_ref().spawner();
+				// SAFETY: Spawner does not outlive this scope, since handle_socket ensures the
+				// 'exec lifetime is shorter than server, which is local.
+				let spawner = unsafe { executor.as_ref().spawner() };
 
 				let _span = tracing::debug_span!("thread", id = _i).entered();
 				async_io::block_on(executor.run(async {
@@ -136,7 +138,9 @@ pub fn serve_multi<F, T: Server>(
 		drop(worker_done_shutdown);
 
 		let executor = pin!(Executor::new());
-		let spawner = executor.as_ref().spawner();
+		// SAFETY: Spawner does not outlive the executor, since it is only used within futures that
+		// are owned by the executor.
+		let spawner = unsafe { executor.as_ref().spawner() };
 		#[cfg(feature = "signals")]
 		spawner.spawn(async move {
 			let _ = all_workers_shutdown.recv_async().await;
@@ -244,7 +248,9 @@ pub fn serve_multi_tls<F, T: Server>(
 			scope.spawn(move || {
 				let server = server();
 				let executor = pin!(Executor::new());
-				let spawner = executor.as_ref().spawner();
+				// SAFETY: Spawner does not outlive this scope, since handle_socket ensures the
+				// 'exec lifetime is shorter than server, which is local.
+				let spawner = unsafe { executor.as_ref().spawner() };
 
 				let _span = tracing::debug_span!("thread", id = _i).entered();
 				async_io::block_on(executor.run(async {
@@ -286,7 +292,9 @@ pub fn serve_multi_tls<F, T: Server>(
 		drop(worker_done_shutdown);
 
 		let executor = pin!(Executor::new());
-		let spawner = executor.as_ref().spawner();
+		// SAFETY: Spawner does not outlive the executor, since it is only used within futures that
+		// are owned by the executor.
+		let spawner = unsafe { executor.as_ref().spawner() };
 		#[cfg(feature = "signals")]
 		spawner.spawn(async move {
 			let _ = all_workers_shutdown.recv_async().await;

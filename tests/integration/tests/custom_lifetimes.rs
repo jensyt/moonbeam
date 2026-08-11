@@ -1,7 +1,6 @@
-use futures_lite::future::block_on;
-use moonbeam::{Executor, Request, Response, Server, Spawner, middleware, route, router};
+use moonbeam::server::task::testing::execute;
+use moonbeam::{Request, Response, Spawner, middleware, route, router};
 use std::cell::Cell;
-use std::pin::pin;
 
 struct TestState {
 	value: Cell<i32>,
@@ -30,16 +29,21 @@ fn test_spawn_custom_lifetimes() {
 		value: Cell::new(42),
 	};
 	let router = TestRouter::new(state);
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("GET", "/custom_lifetimes", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_eq!(router.0.value.get(), 42);
-	assert_eq!(executor.try_tick(), true);
-	assert_eq!(router.0.value.get(), 43);
-	assert_eq!(executor.try_tick(), false);
+	let req = Request::new("GET", "/custom_lifetimes", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+		},
+		|tick| {
+			assert_eq!(router.0.value.get(), 42);
+			assert_eq!(tick.try_tick(), true);
+			assert_eq!(router.0.value.get(), 43);
+			assert_eq!(tick.try_tick(), false);
+		},
+	);
 }
 
 #[moonbeam::server(CustomLifetimeServer)]
@@ -60,16 +64,21 @@ fn test_server_custom_lifetimes() {
 		value: Cell::new(42),
 	};
 	let server = CustomLifetimeServer(state);
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("GET", "/foo", &headers, &[]);
-	let res = block_on(server.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_eq!(server.0.value.get(), 42);
-	assert_eq!(executor.try_tick(), true);
-	assert_eq!(server.0.value.get(), 43);
-	assert_eq!(executor.try_tick(), false);
+	let req = Request::new("GET", "/foo", &[], &[]);
+	execute(
+		&server,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+		},
+		|tick| {
+			assert_eq!(server.0.value.get(), 42);
+			assert_eq!(tick.try_tick(), true);
+			assert_eq!(server.0.value.get(), 43);
+			assert_eq!(tick.try_tick(), false);
+		},
+	);
 }
 
 #[middleware]
@@ -98,17 +107,22 @@ fn test_middleware_custom_lifetimes() {
 		value: Cell::new(42),
 	};
 	let router = TestRouterWithMiddleware::new(state);
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("GET", "/custom_lifetimes", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_eq!(router.0.value.get(), 42);
-	// Both middleware and route handler spawn a task that increments the count
-	assert_eq!(executor.try_tick(), true); // First task
-	assert_eq!(router.0.value.get(), 43);
-	assert_eq!(executor.try_tick(), true); // Second task
-	assert_eq!(router.0.value.get(), 44);
-	assert_eq!(executor.try_tick(), false);
+	let req = Request::new("GET", "/custom_lifetimes", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+		},
+		|tick| {
+			assert_eq!(router.0.value.get(), 42);
+			// Both middleware and route handler spawn a task that increments the count
+			assert_eq!(tick.try_tick(), true); // First task
+			assert_eq!(router.0.value.get(), 43);
+			assert_eq!(tick.try_tick(), true); // Second task
+			assert_eq!(router.0.value.get(), 44);
+			assert_eq!(tick.try_tick(), false);
+		},
+	);
 }

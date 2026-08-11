@@ -1,6 +1,6 @@
-use futures_lite::future::block_on;
-use moonbeam::{Body, Executor, Request, Response, Server, route, router, router::PathParams};
-use std::pin::pin;
+use moonbeam::{
+	Body, Request, Response, route, router, router::PathParams, server::task::testing::execute,
+};
 
 // --- State Definition ---
 
@@ -59,7 +59,10 @@ router! {
 		get("/users/:id") => get_user,
 		get("/users/:user_id/posts/:post_id") => get_post,
 		get("/state") => with_state,
-		post("/items") => create_item
+		post("/items") => create_item,
+		get("/a/b/c/d/e/f/g/h") => index,
+		// Note the route below should never match because it is 9 segments
+		get("/a/b/c/d/e/f/g/h/extra") => index,
 	}
 }
 
@@ -87,82 +90,108 @@ router! {
 fn test_basic_routing() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = pin!(Executor::new());
 
 	// Test GET /
-	let headers = [];
-	let req = Request::new("GET", "/", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_body(res.body, "index");
+	let req = Request::new("GET", "/", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert_body(res.body, "index");
+		},
+		|_| {},
+	);
 }
 
 #[test]
 fn test_path_params() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = pin!(Executor::new());
 
 	// Test GET /users/123
-	let headers = [];
-	let req = Request::new("GET", "/users/123", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_body(res.body, "user: 123");
+	let req = Request::new("GET", "/users/123", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert_body(res.body, "user: 123");
+		},
+		|_| {},
+	);
 }
 
 #[test]
 fn test_multiple_path_params() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = pin!(Executor::new());
 
 	// Test GET /users/123/posts/456
-	let headers = [];
-	let req = Request::new("GET", "/users/123/posts/456", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_body(res.body, "user: 123, post: 456");
+	let req = Request::new("GET", "/users/123/posts/456", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert_body(res.body, "user: 123, post: 456");
+		},
+		|_| {},
+	);
 }
 
 #[test]
 fn test_state_access() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = pin!(Executor::new());
 
 	// Test GET /state
-	let headers = [];
-	let req = Request::new("GET", "/state", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_body(res.body, "state: 42");
+	let req = Request::new("GET", "/state", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert_body(res.body, "state: 42");
+		},
+		|_| {},
+	);
 }
 
 #[test]
 fn test_method_matching() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = pin!(Executor::new());
 
 	// Test POST /items
-	let headers = [];
-	let req = Request::new("POST", "/items", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 201);
-	assert_body(res.body, "created");
+	let req = Request::new("POST", "/items", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 201);
+			assert_body(res.body, "created");
+		},
+		|_| {},
+	);
 
 	// Test GET /items (should be 405 Method Not Allowed)
-	let req = Request::new("GET", "/items", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 405);
-	assert_eq!(
-		res.headers
-			.iter()
-			.find(|(n, _)| n.eq_ignore_ascii_case("Allow"))
-			.unwrap()
-			.1,
-		"POST"
+	let req = Request::new("GET", "/items", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 405);
+			assert_eq!(
+				res.headers
+					.iter()
+					.find(|(n, _)| n.eq_ignore_ascii_case("Allow"))
+					.unwrap()
+					.1,
+				"POST"
+			);
+		},
+		|_| {},
 	);
 }
 
@@ -170,37 +199,77 @@ fn test_method_matching() {
 fn test_not_found() {
 	let state = TestState { value: 42 };
 	let router = TestRouter::new(state);
-	let executor = pin!(Executor::new());
 
 	// Test non-existent route
-	let headers = [];
-	let req = Request::new("GET", "/not-found", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 404);
+	let req = Request::new("GET", "/not-found", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 404);
+		},
+		|_| {},
+	);
+}
+
+#[test]
+fn test_route_overflow_not_matching_8_segments() {
+	let state = TestState { value: 42 };
+	let router = TestRouter::new(state);
+
+	// Exactly 8 segments matches
+	let req = Request::new("GET", "/a/b/c/d/e/f/g/h", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+		},
+		|_| {},
+	);
+
+	// 9 segments should NOT match the 8-segment or 9-segment route
+	let req = Request::new("GET", "/a/b/c/d/e/f/g/h/extra", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 404);
+		},
+		|_| {},
+	);
 }
 
 #[test]
 fn test_prefixless_group() {
 	let router = PrefixlessGroupRouter::new();
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("GET", "/grouped", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_body(res.body, "grouped");
+	let req = Request::new("GET", "/grouped", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert_body(res.body, "grouped");
+		},
+		|_| {},
+	);
 }
 
 #[test]
 fn test_nested_catchall() {
 	let router = NestedCatchallRouter::new();
-	let executor = pin!(Executor::new());
 
-	let headers = [];
-	let req = Request::new("GET", "/not-found-here", &headers, &[]);
-	let res = block_on(router.route(req, executor.as_ref().spawner()));
-	assert_eq!(res.status, 200);
-	assert_body(res.body, "custom catchall");
+	let req = Request::new("GET", "/not-found-here", &[], &[]);
+	execute(
+		&router,
+		req,
+		|res| {
+			assert_eq!(res.status, 200);
+			assert_body(res.body, "custom catchall");
+		},
+		|_| {},
+	);
 }
 
 // Helper to check body content

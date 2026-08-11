@@ -328,21 +328,27 @@ pub(super) fn router_impl(item: proc_macro::TokenStream) -> proc_macro::TokenStr
 						let method = req.method;
 						let path = req.path;
 						let mut path_segments_raw = [const { ::std::borrow::Cow::Borrowed("") }; 8];
-						let mut path_segments = [""; 8];
-						let len: usize = path
-							.split('/')
-							.filter(|s| !s.is_empty())
-							.zip(&mut path_segments_raw)
-							.fold(0, |count, (src, dst)| {
-								*dst = src.percent_decode();
-								count + 1
-							});
+						let mut path_segments = [""; 9];
+						let mut iter = path.split('/').filter(|s| !s.is_empty());
+						let mut len: usize = 0;
+						while len < 8 {
+							if let Some(seg) = iter.next() {
+								path_segments_raw[len] = seg.percent_decode();
+								len += 1;
+							} else {
+								break;
+							}
+						}
+						let has_overflow = iter.next().is_some();
 						path_segments_raw[..len]
 							.iter()
-							.zip(&mut path_segments)
+							.zip(&mut path_segments[..len])
 							.for_each(|(raw, view)| {
 								*view = raw.deref();
 							});
+						if has_overflow {
+							len = 9;
+						}
 
 						#route_logic
 					}

@@ -214,22 +214,62 @@ pub(super) fn parse_http_request<'buf, 'headers>(
 	}
 }
 
-pub(super) fn get_important_headers(request: &Request) -> (usize, bool) {
-	let mut contentlength = 0;
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ImportantHeaders {
+	pub content_length: usize,
+	pub close: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum HeaderError {
+	ConflictingContentLength,
+	ConflictingTransferEncoding,
+	UnsupportedTransferEncoding,
+}
+
+pub(super) fn get_important_headers(request: &Request) -> Result<ImportantHeaders, HeaderError> {
+	let mut content_length: Option<usize> = None;
+	let mut has_transfer_encoding = false;
 	let mut close = false;
+
 	for &Header { name, value } in request.headers.iter() {
 		if name.eq_ignore_ascii_case("content-length") {
-			contentlength = std::str::from_utf8(value)
+			let val = std::str::from_utf8(value)
 				.ok()
-				.and_then(|v| v.parse().ok())
-				.unwrap_or(0);
-		} else if name.eq_ignore_ascii_case("connection") {
-			close = std::str::from_utf8(value)
+				.and_then(|v| v.trim().parse::<usize>().ok())
+				.ok_or(HeaderError::ConflictingContentLength)?;
+
+			if let Some(existing) = content_length {
+				if existing != val {
+					return Err(HeaderError::ConflictingContentLength);
+				}
+			} else {
+				content_length = Some(val);
+			}
+		} else if name.eq_ignore_ascii_case("transfer-encoding") {
+			has_transfer_encoding = true;
+		} else if name.eq_ignore_ascii_case("connection")
+			&& std::str::from_utf8(value)
 				.ok()
-				.is_some_and(|v| v.eq_ignore_ascii_case("close"));
+				.is_some_and(|v| v.eq_ignore_ascii_case("close"))
+		{
+			close = true;
 		}
 	}
-	(contentlength, close)
+
+	if has_transfer_encoding {
+		if content_length.is_some() {
+			// RFC 9112 §6.1: Conflicting TE and CL is a smuggling vector
+			return Err(HeaderError::ConflictingTransferEncoding);
+		} else {
+			return Err(HeaderError::UnsupportedTransferEncoding);
+		}
+	}
+
+	Ok(ImportantHeaders {
+		content_length: content_length.unwrap_or(0),
+		close,
+	})
 }
 
 #[cfg(test)]
@@ -304,6 +344,92 @@ mod tests {
 				b"\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
 			),
 			None
+		);
+	}
+
+	#[test]
+	fn test_get_important_headers_valid() {
+		let headers = [
+			Header {
+				name: "Content-Length",
+				value: b"42",
+			},
+			Header {
+				name: "Connection",
+				value: b"close",
+			},
+		];
+		let req = Request::new("POST", "/", &headers, b"");
+		let important = get_important_headers(&req).unwrap();
+		assert_eq!(important.content_length, 42);
+		assert!(important.close);
+	}
+
+	#[test]
+	fn test_get_important_headers_duplicate_matching_cl() {
+		let headers = [
+			Header {
+				name: "Content-Length",
+				value: b"42",
+			},
+			Header {
+				name: "Content-Length",
+				value: b"42",
+			},
+		];
+		let req = Request::new("POST", "/", &headers, b"");
+		let important = get_important_headers(&req).unwrap();
+		assert_eq!(important.content_length, 42);
+	}
+
+	#[test]
+	fn test_get_important_headers_conflicting_cl() {
+		let headers = [
+			Header {
+				name: "Content-Length",
+				value: b"42",
+			},
+			Header {
+				name: "Content-Length",
+				value: b"43",
+			},
+		];
+		let req = Request::new("POST", "/", &headers, b"");
+		assert_eq!(
+			get_important_headers(&req),
+			Err(HeaderError::ConflictingContentLength)
+		);
+	}
+
+	#[test]
+	fn test_get_important_headers_conflicting_te_cl() {
+		let headers = [
+			Header {
+				name: "Transfer-Encoding",
+				value: b"chunked",
+			},
+			Header {
+				name: "Content-Length",
+				value: b"42",
+			},
+		];
+		let req = Request::new("POST", "/", &headers, b"");
+		assert_eq!(
+			get_important_headers(&req),
+			Err(HeaderError::ConflictingTransferEncoding)
+		);
+	}
+
+	#[test]
+	fn test_get_important_headers_unsupported_te() {
+		let headers = [Header {
+			name: "Transfer-Encoding",
+			value: b"chunked",
+		}];
+		let req = Request::new("POST", "/", &headers, b"");
+		assert_eq!(
+			get_important_headers(&req),
+			Err(HeaderError::UnsupportedTransferEncoding)
 		);
 	}
 }

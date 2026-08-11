@@ -61,7 +61,9 @@ where
 {
 	let server = factory();
 	let executor = pin!(Executor::new());
-	let spawner = executor.as_ref().spawner();
+	// SAFETY: Spawner does not outlive this function, since accept_loop ensures the 'exec lifetime
+	// is shorter than server, which is local.
+	let spawner = unsafe { executor.as_ref().spawner() };
 	async_io::block_on(executor.run(async {
 		let listener = TcpListener::bind(addr)
 			.await
@@ -113,7 +115,9 @@ where
 {
 	let server = factory();
 	let executor = pin!(Executor::new());
-	let spawner = executor.as_ref().spawner();
+	// SAFETY: Spawner does not outlive this function, since accept_loop_tls ensures the 'exec
+	// lifetime is shorter than server, which is local.
+	let spawner = unsafe { executor.as_ref().spawner() };
 	async_io::block_on(executor.run(async {
 		let listener = TcpListener::bind(addr)
 			.await

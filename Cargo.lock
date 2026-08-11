@@ -705,6 +705,7 @@ dependencies = [
 name = "moonbeam-serde"
 version = "0.5.1"
 dependencies = [
+ "futures-lite",
  "moonbeam",
  "moonbeam-forms",
  "paste",

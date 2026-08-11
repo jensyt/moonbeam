@@ -232,7 +232,7 @@ impl<'buf> Iterator for PartIter<'buf, '_, '_> {
 					.iter()
 					.find(|h| h.name.eq_ignore_ascii_case("content-type"))
 					.map(|h| h.value);
-				if filename.is_some() || content_type.filter(|&v| v != b"text/plan").is_some() {
+				if filename.is_some() || content_type.filter(|&v| v != b"text/plain").is_some() {
 					return Some(FormData::File {
 						name: filename.map(|f| String::from_utf8_lossy(f)),
 						content_type: content_type.map(|c| String::from_utf8_lossy(c)),
@@ -274,7 +274,7 @@ impl<'a> Iterator for AllPartIter<'a, '_> {
 				.iter()
 				.find(|h| h.name.eq_ignore_ascii_case("content-type"))
 				.map(|h| h.value);
-			if filename.is_some() || content_type.filter(|&v| v != b"text/plan").is_some() {
+			if filename.is_some() || content_type.filter(|&v| v != b"text/plain").is_some() {
 				return Some((
 					name,
 					FormData::File {
@@ -303,7 +303,7 @@ fn find_next_boundary(
 		.position(|window| {
 			&window[0..prefix.len()] == prefix && &window[prefix.len()..] == boundary
 		})
-		.map(|p| (p, p + prefix.len() + boundary.len() + 2)) // prefixboundary\r\n
+		.map(|p| (p, body.len().min(p + prefix.len() + boundary.len() + 2))) // prefixboundary\r\n
 }
 
 #[cfg(test)]
@@ -488,5 +488,39 @@ mod tests {
 			})
 		);
 		assert_eq!(it.next(), None);
+	}
+
+	#[test]
+	fn test_multipart_form_text_plain() {
+		let headers = [Header {
+			name: "Content-Type",
+			value: b"multipart/form-data; boundary=bound",
+		}];
+		let body = b"--bound\r\n\
+					Content-Disposition: form-data; name=\"msg\"\r\n\
+					Content-Type: text/plain\r\n\
+					\r\n\
+					hello text\r\n\
+					--bound--";
+		let request = Request::new("POST", "/test", &headers, body);
+		let form = Form::try_from(request).unwrap();
+		let mut it = form.find("msg");
+		assert_eq!(it.next(), Some(FormData::Text(Cow::Borrowed("hello text"))));
+		assert_eq!(it.next(), None);
+	}
+
+	#[test]
+	fn test_multipart_truncated_body_no_panic() {
+		let multipart = Multipart::new(b"bound", b"--bound");
+		assert_eq!(multipart.parts.len(), 0);
+
+		let multipart = Multipart::new(b"bound", b"--bound\r\n");
+		assert_eq!(multipart.parts.len(), 0);
+
+		let multipart = Multipart::new(b"bound", b"--bound\r\n--bound--");
+		assert_eq!(multipart.parts.len(), 0);
+
+		let multipart = Multipart::new(b"bound", b"--bound\r\npart data\r\n--bound--");
+		assert_eq!(multipart.parts.len(), 1);
 	}
 }

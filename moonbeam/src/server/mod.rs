@@ -25,7 +25,7 @@ use async_io::Timer;
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
 use httparse::Header;
 use httpdate::fmt_http_date;
-use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
+use parsing::{HeaderError, get_important_headers, parse_http_request, scan_for_header_end};
 #[cfg(feature = "catchpanic")]
 use std::panic::AssertUnwindSafe;
 use std::{
@@ -184,7 +184,32 @@ async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 				Ok(req) => req,
 			};
 
-			let (contentlength, close) = get_important_headers(&req);
+			let (contentlength, close) = match get_important_headers(&req) {
+				Ok(h) => (h.content_length, h.close),
+				Err(HeaderError::ConflictingContentLength)
+				| Err(HeaderError::ConflictingTransferEncoding) => {
+					tracing::debug!(
+						"Rejected request due to conflicting Content-Length / Transfer-Encoding"
+					);
+					write_error_response(
+						&mut socket,
+						Response::bad_request().with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					return;
+				}
+				Err(HeaderError::UnsupportedTransferEncoding) => {
+					tracing::debug!("Rejected request with unsupported Transfer-Encoding");
+					write_error_response(
+						&mut socket,
+						Response::new_with_code(411).with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					return;
+				}
+			};
 
 			#[cfg(feature = "tracing")]
 			let request_id = REQUEST_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -283,16 +308,22 @@ where
 		if contentlength > body.len() {
 			let mut new_body = vec![0; contentlength];
 			new_body[..valid_body_len].copy_from_slice(&body[..valid_body_len]);
-			if let Err(_error) = socket.read_exact(&mut new_body[valid_body_len..]).await {
+			if let Err(_error) =
+				read_body_with_timeout(socket, &mut new_body[valid_body_len..], respbuf).await
+			{
 				tracing::debug!(error = ?_error, "Failed to read HTTP body");
 				return Err(());
 			}
+
 			Cow::Owned(new_body)
 		} else {
 			if contentlength > valid_body_len
-				&& let Err(_error) = socket
-					.read_exact(&mut body[valid_body_len..contentlength])
-					.await
+				&& let Err(_error) = read_body_with_timeout(
+					socket,
+					&mut body[valid_body_len..contentlength],
+					respbuf,
+				)
+				.await
 			{
 				tracing::debug!(error = ?_error, "Failed to read HTTP body");
 				return Err(());
@@ -421,6 +452,48 @@ where
 			}
 		}
 	}
+}
+
+async fn read_body_with_timeout<S>(
+	socket: &mut S,
+	buf: &mut [u8],
+	respbuf: &mut [u8],
+) -> std::io::Result<()>
+where
+	S: AsyncRead + AsyncWrite + Unpin,
+{
+	match socket
+		.read_exact(buf)
+		.or(async {
+			Timer::after(Duration::from_secs(30)).await;
+			Err(Error::new(ErrorKind::TimedOut, "Body read timed out"))
+		})
+		.await
+	{
+		Err(error) if error.kind() == ErrorKind::TimedOut => {
+			write_error_response(
+				socket,
+				Response::request_timeout().with_header("Connection", "close"),
+				respbuf,
+			)
+			.await;
+			Err(error)
+		}
+		x => x,
+	}
+}
+
+async fn write_all_with_timeout<S>(socket: &mut S, buf: &[u8]) -> std::io::Result<()>
+where
+	S: AsyncWrite + Unpin,
+{
+	socket
+		.write_all(buf)
+		.or(async {
+			Timer::after(Duration::from_secs(30)).await;
+			Err(Error::new(ErrorKind::TimedOut, "Socket write timed out"))
+		})
+		.await
 }
 
 fn write_sanitized<W: Write>(mut writer: W, s: &str) -> Result<(), Error> {
@@ -659,7 +732,7 @@ where
 
 	// Write filled buffers to the socket
 	while let Ok(mut buf) = recv_full.recv_async().await {
-		socket.write_all(&buf.data[0..buf.len]).await?;
+		write_all_with_timeout(socket, &buf.data[0..buf.len]).await?;
 		buf.len = 0;
 		let _ = send_empty.send_async(buf).await;
 	}
@@ -677,7 +750,7 @@ async fn write_async_stream_body<'a, S>(
 where
 	S: AsyncWrite + Unpin,
 {
-	socket.write_all(head).await?;
+	write_all_with_timeout(socket, head).await?;
 	let mut buf = vec![0; BUFSIZE];
 
 	if len.is_none() {
@@ -694,7 +767,7 @@ where
 					std::io::Error::other("Panic while streaming response")
 				})??;
 			if n == 0 {
-				socket.write_all(b"0\r\n\r\n").await?;
+				write_all_with_timeout(socket, b"0\r\n\r\n").await?;
 				break;
 			}
 
@@ -704,7 +777,7 @@ where
 			buf[7 + n] = b'\r';
 			buf[7 + n + 1] = b'\n';
 
-			socket.write_all(&buf[0..7 + n + 2]).await?;
+			write_all_with_timeout(socket, &buf[0..7 + n + 2]).await?;
 		}
 	} else {
 		// Known length
@@ -722,7 +795,7 @@ where
 			if n == 0 {
 				break;
 			}
-			socket.write_all(&buf[..n]).await?;
+			write_all_with_timeout(socket, &buf[..n]).await?;
 		}
 	}
 
@@ -900,7 +973,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -930,7 +1003,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -966,7 +1039,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx.write_all(b"GARBAGE\r\n\r\n").await.unwrap();
@@ -992,7 +1065,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1021,7 +1094,7 @@ mod tests {
 		let server = MockServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1078,7 +1151,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1126,7 +1199,7 @@ mod tests {
 		let server = StreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1200,7 +1273,7 @@ mod tests {
 		let server = AsyncStreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1244,7 +1317,7 @@ mod tests {
 		let server = AsyncStreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1289,7 +1362,7 @@ mod tests {
 		let server = AsyncStreamServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let test_future = async move {
 			client_tx
@@ -1400,7 +1473,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let body_size = 20 * 1024; // 20KB
 		let body_content = vec![b'a'; body_size];
@@ -1436,7 +1509,7 @@ mod tests {
 		let server = EchoServer;
 		let executor = pin!(Executor::new());
 
-		let handle_future = handle_socket(socket, &server, executor.as_ref().spawner());
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
 
 		let body_size = 1024 * 1024 + 10; // 1MB + 10 bytes
 
@@ -1454,6 +1527,35 @@ mod tests {
 			let response = std::str::from_utf8(&buf[..n]).unwrap();
 
 			assert!(response.contains("HTTP/1.1 413 Content Too Large"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_smuggling_rejection() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = EchoServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
+
+		let test_future = async move {
+			// Send conflicting TE and CL
+			let req = "POST /echo HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: \
+				chunked\r\nContent-Length: 10\r\n\r\n";
+			client_tx.write_all(req.as_bytes()).await.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 400 Bad Request"));
 		};
 
 		futures_lite::future::block_on(async {
