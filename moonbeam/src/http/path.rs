@@ -125,18 +125,19 @@ mod tests {
 		let left = PathIterator::new(left.as_str());
 		let right = PathIterator::new(right.as_str());
 
-		let mut clone = left.clone();
+		let mut clone = left;
 		assert!(left <= clone);
 		assert!(left >= clone);
 		// Note the use of PartialOrd trait - Iterator has a partial_cmp function that compares the
 		// values of the two iterators, which in this case will match even though the iterators
 		// themselves are not equal
-		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
-		assert_eq!(left >= right, false);
-		assert_eq!(left <= right, false);
+		assert_eq!(PartialOrd::partial_cmp(&left, &right), None);
 
 		clone.next();
 		assert!(left < clone);
-		assert!(!(left >= clone));
+		assert_eq!(
+			PartialOrd::partial_cmp(&left, &clone),
+			Some(std::cmp::Ordering::Less)
+		);
 	}
 }

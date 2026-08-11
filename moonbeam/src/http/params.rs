@@ -275,19 +275,20 @@ mod tests {
 		let left = AllParamIter::new(left.as_str());
 		let right = AllParamIter::new(right.as_str());
 
-		let mut clone = left.clone();
+		let mut clone = left;
 		assert!(left <= clone);
 		assert!(left >= clone);
 		// Note the use of PartialOrd trait - Iterator has a partial_cmp function that compares the
 		// values of the two iterators, which in this case will match even though the iterators
 		// themselves are not equal
-		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
-		assert_eq!(left >= right, false);
-		assert_eq!(left <= right, false);
+		assert_eq!(PartialOrd::partial_cmp(&left, &right), None);
 
 		clone.next();
 		assert!(left < clone);
-		assert!(!(left >= clone));
+		assert_eq!(
+			PartialOrd::partial_cmp(&left, &clone),
+			Some(std::cmp::Ordering::Less)
+		);
 	}
 
 	#[test]
@@ -297,7 +298,7 @@ mod tests {
 		let left = ParamIter::new(left.as_str(), "foo");
 		let right = ParamIter::new(right.as_str(), "foo");
 
-		assert_eq!(left, left.clone());
+		assert_eq!(left, left);
 		assert_ne!(left, right);
 	}
 
@@ -308,24 +309,23 @@ mod tests {
 		let left = ParamIter::new(left.as_str(), "foo");
 		let right = ParamIter::new(right.as_str(), "foo");
 
-		let mut clone = left.clone();
+		let mut clone = left;
 		assert!(left <= clone);
 		assert!(left >= clone);
 		// Note the use of PartialOrd trait - Iterator has a partial_cmp function that compares the
 		// values of the two iterators, which in this case will match even though the iterators
 		// themselves are not equal
-		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
-		assert_eq!(left >= right, false);
-		assert_eq!(left <= right, false);
+		assert_eq!(PartialOrd::partial_cmp(&left, &right), None);
 
-		let mut right = left.clone();
+		let mut right = left;
 		right.filter = "baz";
-		assert!(PartialOrd::partial_cmp(&left, &right).is_none());
-		assert_eq!(left >= right, false);
-		assert_eq!(left <= right, false);
+		assert_eq!(PartialOrd::partial_cmp(&left, &right), None);
 
 		clone.next();
 		assert!(left < clone);
-		assert!(!(left >= clone));
+		assert_eq!(
+			PartialOrd::partial_cmp(&left, &clone),
+			Some(std::cmp::Ordering::Less)
+		);
 	}
 }
