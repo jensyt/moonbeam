@@ -283,16 +283,22 @@ where
 		if contentlength > body.len() {
 			let mut new_body = vec![0; contentlength];
 			new_body[..valid_body_len].copy_from_slice(&body[..valid_body_len]);
-			if let Err(_error) = socket.read_exact(&mut new_body[valid_body_len..]).await {
+			if let Err(_error) =
+				read_body_with_timeout(socket, &mut new_body[valid_body_len..], respbuf).await
+			{
 				tracing::debug!(error = ?_error, "Failed to read HTTP body");
 				return Err(());
 			}
+
 			Cow::Owned(new_body)
 		} else {
 			if contentlength > valid_body_len
-				&& let Err(_error) = socket
-					.read_exact(&mut body[valid_body_len..contentlength])
-					.await
+				&& let Err(_error) = read_body_with_timeout(
+					socket,
+					&mut body[valid_body_len..contentlength],
+					respbuf,
+				)
+				.await
 			{
 				tracing::debug!(error = ?_error, "Failed to read HTTP body");
 				return Err(());
@@ -421,6 +427,48 @@ where
 			}
 		}
 	}
+}
+
+async fn read_body_with_timeout<S>(
+	socket: &mut S,
+	buf: &mut [u8],
+	respbuf: &mut [u8],
+) -> std::io::Result<()>
+where
+	S: AsyncRead + AsyncWrite + Unpin,
+{
+	match socket
+		.read_exact(buf)
+		.or(async {
+			Timer::after(Duration::from_secs(30)).await;
+			Err(Error::new(ErrorKind::TimedOut, "Body read timed out"))
+		})
+		.await
+	{
+		Err(error) if error.kind() == ErrorKind::TimedOut => {
+			write_error_response(
+				socket,
+				Response::request_timeout().with_header("Connection", "close"),
+				respbuf,
+			)
+			.await;
+			Err(error)
+		}
+		x => x,
+	}
+}
+
+async fn write_all_with_timeout<S>(socket: &mut S, buf: &[u8]) -> std::io::Result<()>
+where
+	S: AsyncWrite + Unpin,
+{
+	socket
+		.write_all(buf)
+		.or(async {
+			Timer::after(Duration::from_secs(30)).await;
+			Err(Error::new(ErrorKind::TimedOut, "Socket write timed out"))
+		})
+		.await
 }
 
 fn write_sanitized<W: Write>(mut writer: W, s: &str) -> Result<(), Error> {
@@ -659,7 +707,7 @@ where
 
 	// Write filled buffers to the socket
 	while let Ok(mut buf) = recv_full.recv_async().await {
-		socket.write_all(&buf.data[0..buf.len]).await?;
+		write_all_with_timeout(socket, &buf.data[0..buf.len]).await?;
 		buf.len = 0;
 		let _ = send_empty.send_async(buf).await;
 	}
@@ -677,7 +725,7 @@ async fn write_async_stream_body<'a, S>(
 where
 	S: AsyncWrite + Unpin,
 {
-	socket.write_all(head).await?;
+	write_all_with_timeout(socket, head).await?;
 	let mut buf = vec![0; BUFSIZE];
 
 	if len.is_none() {
@@ -694,7 +742,7 @@ where
 					std::io::Error::other("Panic while streaming response")
 				})??;
 			if n == 0 {
-				socket.write_all(b"0\r\n\r\n").await?;
+				write_all_with_timeout(socket, b"0\r\n\r\n").await?;
 				break;
 			}
 
@@ -704,7 +752,7 @@ where
 			buf[7 + n] = b'\r';
 			buf[7 + n + 1] = b'\n';
 
-			socket.write_all(&buf[0..7 + n + 2]).await?;
+			write_all_with_timeout(socket, &buf[0..7 + n + 2]).await?;
 		}
 	} else {
 		// Known length
@@ -722,7 +770,7 @@ where
 			if n == 0 {
 				break;
 			}
-			socket.write_all(&buf[..n]).await?;
+			write_all_with_timeout(socket, &buf[..n]).await?;
 		}
 	}
 
