@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Reject requests with conflicting `Transfer-Encoding` and `Content-Length` headers with `400 Bad Request`, and reject unsupported `Transfer-Encoding` with `411 Length Required`. Also reject requests with conflicting duplicate `Content-Length` headers with `400 Bad Request`.
+- Added 30-second read and write timeouts on request body reading and socket writing to protect against Slowloris-style denial of service. Returns `408 Request Timeout` if request body consumption times out.
+- Prevented path segment overflow in route matching where request paths with more than 8 segments could match 8-segment routes.
+- Prevented potential infinite loops or buffer out-of-bounds panics on malformed/truncated multipart payloads in `moonbeam-forms`.
+- `Json<T>` now validates the `Content-Type` header (`application/json` or `*+json`), rejecting invalid or missing content types with `415 Unsupported Media Type`.
+
+### Changed
+- Implemented RFC-compliant `Accept-Encoding` header parsing with support for quality values (`q=`), explicit zero weights (`q=0`), `identity`, and wildcard (`*`) fallbacks.
+- **Breaking**: Hid `Executor` internals to prevent lifetime bugs, providing `moonbeam::server::task::testing::execute` for test execution instead. This breaking change only affects tests, not production code.
+
+### Fixed
+- Fixed `Content-Type` matching for `text/plain` fields in multipart form data (was comparing against typo `text/plan`).
+
+## [0.9.0-2] - 2026-07-07
+
+### Added
+- Allow route groups to omit a prefix so you can attach middleware to multiple routes without changing the route prefix
+
+## [0.9.0-1] - 2026-07-30
+
+### Fixed
+- Fixed broken versioning on moonbeam-serde crate dependency on moonbeam-forms
+
 ## [0.9.0] - 2026-07-30
 
 ### Added

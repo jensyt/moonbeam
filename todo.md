@@ -40,3 +40,6 @@
 - moonbeam-serde README missing documentation on Forms functionality
 - BUG: `catchpanic` feature doesn't catch panics in `Body::Stream` and `Body::AsyncStream`
 - Can't easily implement other extractor traits (e.g. FromState) because they create conflicting impls with FromBody
+- Read and write timeouts for Slowloris DoS mitigation
+- Fix router path segment overflow when path exceeds 8 segments
+- Accept-Encoding q-value prioritization

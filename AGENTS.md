@@ -80,6 +80,8 @@ async fn my_middleware(req: Request, spawner: Spawner, state: &State, next: Next
 
 ## Development Guidelines
 - **Interior Mutability**: Use `std::rc::Rc` and `std::cell::RefCell` for state. Avoid `std::sync` unless explicitly required for cross-thread channels (`flume`).
+- **Zero-Copy Header & Request Processing**: `Request::find_header` returns `Option<&[u8]>`. Avoid allocating temporary `String` or `Vec` objects for header inspection. Use slice operations (`trim_ascii()`, `eq_ignore_ascii_case`, byte-splitting) directly on raw byte slices.
+- **Flattened Fast Paths**: When selecting among a small, fixed set of choices (e.g. content encodings, method matching, MIME types), prefer direct, flattened conditional checks over collection allocations and search loops in hot request paths.
 - **Memory Management**: `moonbeam::serve` and `moonbeam::serve_multi` handle the lifetime management of the local executor.
 - **Error Handling**: Prefer returning `Response::internal_server_error()` or similar over panicking. The `catchpanic` feature (if enabled) will catch panics in handlers and return a 500 response.
 
