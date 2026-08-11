@@ -31,16 +31,9 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 			return;
 		}
 
-		let accept_encoding = req
-			.find_header("Accept-Encoding")
-			.map(|v| String::from_utf8_lossy(v).to_string())
-			.unwrap_or_default();
+		let accept_encoding = req.find_header("Accept-Encoding").unwrap_or_default();
 
-		let use_brotli = accept_encoding.contains("br");
-		let use_gzip = accept_encoding.contains("gzip");
-		let use_deflate = accept_encoding.contains("deflate");
-
-		if use_brotli || use_gzip || use_deflate {
+		if let Some(encoding) = parse_encodings(accept_encoding) {
 			// Stream compression for all bodies
 			resp.headers
 				.retain(|n, _| !n.eq_ignore_ascii_case("content-length"));
@@ -57,12 +50,12 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 					Level,
 					futures::bufread::{BrotliEncoder, GzipEncoder, ZlibEncoder},
 				};
-				let compressed_stream: Pin<Box<dyn AsyncRead>> = if use_brotli {
-					Box::pin(BrotliEncoder::with_quality(buf_reader, Level::Precise(5)))
-				} else if use_gzip {
-					Box::pin(GzipEncoder::new(buf_reader))
-				} else {
-					Box::pin(ZlibEncoder::new(buf_reader))
+				let compressed_stream: Pin<Box<dyn AsyncRead>> = match encoding {
+					Encoding::Brotli => {
+						Box::pin(BrotliEncoder::with_quality(buf_reader, Level::Precise(5)))
+					}
+					Encoding::Gzip => Box::pin(GzipEncoder::new(buf_reader)),
+					Encoding::Deflate => Box::pin(ZlibEncoder::new(buf_reader)),
 				};
 
 				resp.body = Some(Body::AsyncStream {
@@ -70,8 +63,8 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 					len: None,
 				});
 			} else {
-				let compressed_stream: Box<dyn Read + Send> = if use_brotli {
-					match resp.body.take() {
+				let compressed_stream: Box<dyn Read + Send> = match encoding {
+					Encoding::Brotli => match resp.body.take() {
 						Some(Body::Immediate(data)) => Box::new(brotli::CompressorReader::new(
 							Cursor::new(data),
 							4 * 1024,
@@ -82,9 +75,8 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 							Box::new(brotli::CompressorReader::new(data, 8 * 1024, 5, 20))
 						}
 						_ => unreachable!("Body exists and is not AsyncStream"),
-					}
-				} else if use_gzip {
-					match resp.body.take() {
+					},
+					Encoding::Gzip => match resp.body.take() {
 						Some(Body::Immediate(data)) => Box::new(flate2::bufread::GzEncoder::new(
 							Cursor::new(data),
 							flate2::Compression::default(),
@@ -94,9 +86,8 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 							flate2::Compression::default(),
 						)),
 						_ => unreachable!("Body exists and is not AsyncStream"),
-					}
-				} else {
-					match resp.body.take() {
+					},
+					Encoding::Deflate => match resp.body.take() {
 						Some(Body::Immediate(data)) => Box::new(flate2::bufread::ZlibEncoder::new(
 							Cursor::new(data),
 							flate2::Compression::default(),
@@ -105,7 +96,7 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 							flate2::read::ZlibEncoder::new(data, flate2::Compression::default()),
 						),
 						_ => unreachable!("Body exists and is not AsyncStream"),
-					}
+					},
 				};
 
 				resp.body = Some(Body::Stream {
@@ -114,14 +105,24 @@ pub fn apply_compression(req: &Request, resp: &mut Response) {
 				});
 			}
 
-			let encoding = if use_brotli {
-				"br"
-			} else if use_gzip {
-				"gzip"
-			} else {
-				"deflate"
-			};
-			resp.set_header("Content-Encoding", encoding);
+			resp.set_header("Content-Encoding", encoding.as_str());
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Encoding {
+	Brotli,
+	Gzip,
+	Deflate,
+}
+
+impl Encoding {
+	fn as_str(&self) -> &'static str {
+		match self {
+			Encoding::Brotli => "br",
+			Encoding::Gzip => "gzip",
+			Encoding::Deflate => "deflate",
 		}
 	}
 }
@@ -136,6 +137,60 @@ fn is_compressible(content_type: &str) -> bool {
 		|| ct.starts_with("image/svg+xml")
 		|| ct.starts_with("application/rss+xml")
 		|| ct.starts_with("application/atom+xml")
+}
+
+fn parse_encodings(accept_encoding: &[u8]) -> Option<Encoding> {
+	let mut q_br: Option<f32> = None;
+	let mut q_gzip: Option<f32> = None;
+	let mut q_deflate: Option<f32> = None;
+	let mut q_identity: Option<f32> = None;
+	let mut q_wildcard: Option<f32> = None;
+
+	for entry in accept_encoding.split(|&b| b == b',') {
+		let mut parts = entry.split(|&b| b == b';');
+		let encoding = parts.next().unwrap_or(b"").trim_ascii();
+		let mut qvalue = 1.0f32;
+
+		for param in parts {
+			let param = param.trim_ascii();
+			if let Some(q_bytes) = param
+				.strip_prefix(b"q=")
+				.or_else(|| param.strip_prefix(b"Q="))
+				&& let Ok(q_str) = std::str::from_utf8(q_bytes.trim_ascii())
+				&& let Ok(q) = q_str.parse::<f32>()
+				&& !q.is_nan()
+			{
+				qvalue = q;
+			}
+		}
+
+		if encoding.eq_ignore_ascii_case(b"br") {
+			q_br = Some(q_br.map_or(qvalue, |prev| prev.max(qvalue)));
+		} else if encoding.eq_ignore_ascii_case(b"gzip") {
+			q_gzip = Some(q_gzip.map_or(qvalue, |prev| prev.max(qvalue)));
+		} else if encoding.eq_ignore_ascii_case(b"deflate") {
+			q_deflate = Some(q_deflate.map_or(qvalue, |prev| prev.max(qvalue)));
+		} else if encoding.eq_ignore_ascii_case(b"identity") {
+			q_identity = Some(q_identity.map_or(qvalue, |prev| prev.max(qvalue)));
+		} else if encoding == b"*" {
+			q_wildcard = Some(q_wildcard.map_or(qvalue, |prev| prev.max(qvalue)));
+		}
+	}
+
+	let q_br = q_br.or(q_wildcard).unwrap_or(0.0);
+	let q_gzip = q_gzip.or(q_wildcard).unwrap_or(0.0);
+	let q_deflate = q_deflate.or(q_wildcard).unwrap_or(0.0);
+	let q_identity = q_identity.or(q_wildcard).unwrap_or(0.0);
+
+	if q_br > 0.0 && q_br >= q_gzip && q_br >= q_deflate && q_br >= q_identity {
+		Some(Encoding::Brotli)
+	} else if q_gzip > 0.0 && q_gzip >= q_deflate && q_gzip >= q_identity {
+		Some(Encoding::Gzip)
+	} else if q_deflate > 0.0 && q_deflate >= q_identity {
+		Some(Encoding::Deflate)
+	} else {
+		None
+	}
 }
 
 #[cfg(test)]
@@ -352,20 +407,6 @@ mod tests {
 	}
 
 	#[test]
-	fn test_preference_br_over_gzip() {
-		let body = b"hello".to_vec();
-		let server = MockServer {
-			body: body.clone(),
-			content_type: "text/plain".to_string(),
-			use_stream: false,
-			use_async_stream: false,
-		};
-
-		let (head, _) = futures_lite::future::block_on(run_test(server, Some("gzip, br")));
-		assert!(head.contains("Content-Encoding: br"));
-	}
-
-	#[test]
 	fn test_compress_small_deflate_chunked() {
 		let body = b"hello world".to_vec();
 		let server = MockServer {
@@ -383,20 +424,6 @@ mod tests {
 		let chunk_decoded = decode_chunked(&resp_body);
 		let decoded = decode_zlib(&chunk_decoded);
 		assert_eq!(decoded, body);
-	}
-
-	#[test]
-	fn test_preference_gzip_over_deflate() {
-		let body = b"hello".to_vec();
-		let server = MockServer {
-			body: body.clone(),
-			content_type: "text/plain".to_string(),
-			use_stream: false,
-			use_async_stream: false,
-		};
-
-		let (head, _) = futures_lite::future::block_on(run_test(server, Some("deflate, gzip")));
-		assert!(head.contains("Content-Encoding: gzip"));
 	}
 
 	#[test]
@@ -457,5 +484,82 @@ mod tests {
 		let chunk_decoded = decode_chunked(&resp_body);
 		let decoded = decode_zlib(&chunk_decoded);
 		assert_eq!(decoded, body);
+	}
+
+	#[test]
+	fn test_compress_accept_encoding_quality_zero() {
+		let body = b"hello uncompressed because q=0".to_vec();
+		let server = MockServer {
+			body: body.clone(),
+			content_type: "text/plain".to_string(),
+			use_stream: false,
+			use_async_stream: false,
+		};
+
+		let (head, resp_body) =
+			futures_lite::future::block_on(run_test(server, Some("gzip;q=0, br;q=0")));
+
+		assert!(!head.contains("Content-Encoding:"));
+		assert_eq!(resp_body, body);
+	}
+
+	#[test]
+	fn test_parse_encodings_unit() {
+		// Defaults & implicit q=1.0
+		assert_eq!(parse_encodings(b"gzip"), Some(Encoding::Gzip));
+		assert_eq!(parse_encodings(b"br"), Some(Encoding::Brotli));
+		assert_eq!(parse_encodings(b"deflate"), Some(Encoding::Deflate));
+		assert_eq!(parse_encodings(b"*"), Some(Encoding::Brotli));
+		assert_eq!(parse_encodings(b"gzip, br"), Some(Encoding::Brotli));
+		assert_eq!(parse_encodings(b"deflate, gzip"), Some(Encoding::Gzip));
+
+		// Explicit q-value weighting
+		assert_eq!(
+			parse_encodings(b"gzip;q=0.9, br;q=0.5"),
+			Some(Encoding::Gzip)
+		);
+		assert_eq!(
+			parse_encodings(b"deflate;q=1.0, gzip;q=0.5, br;q=0.1"),
+			Some(Encoding::Deflate)
+		);
+		assert_eq!(
+			parse_encodings(b"br;q=0.8, gzip;q=0.8"),
+			Some(Encoding::Brotli)
+		);
+		assert_eq!(
+			parse_encodings(b"gzip;q=0.8, deflate;q=0.8"),
+			Some(Encoding::Gzip)
+		);
+
+		// Wildcards
+		assert_eq!(parse_encodings(b"*;q=0"), None);
+		assert_eq!(
+			parse_encodings(b"*;q=0.5, gzip;q=0.8"),
+			Some(Encoding::Gzip)
+		);
+		assert_eq!(
+			parse_encodings(b"*;q=0.8, gzip;q=0.2"),
+			Some(Encoding::Brotli)
+		);
+
+		// q=0 / exclusion
+		assert_eq!(parse_encodings(b"gzip;q=0, br;q=0, deflate;q=0"), None);
+		assert_eq!(
+			parse_encodings(b"gzip;q=0, br;q=0.8"),
+			Some(Encoding::Brotli)
+		);
+		assert_eq!(parse_encodings(b""), None);
+
+		// Identity handling
+		assert_eq!(parse_encodings(b"identity"), None);
+		assert_eq!(parse_encodings(b"identity;q=1.0, gzip;q=0.5"), None);
+		assert_eq!(
+			parse_encodings(b"identity;q=0.5, gzip;q=0.8"),
+			Some(Encoding::Gzip)
+		);
+		assert_eq!(
+			parse_encodings(b"gzip;q=1.0, identity;q=1.0"),
+			Some(Encoding::Gzip)
+		);
 	}
 }
