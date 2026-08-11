@@ -25,7 +25,7 @@ use async_io::Timer;
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
 use httparse::Header;
 use httpdate::fmt_http_date;
-use parsing::{get_important_headers, parse_http_request, scan_for_header_end};
+use parsing::{HeaderError, get_important_headers, parse_http_request, scan_for_header_end};
 #[cfg(feature = "catchpanic")]
 use std::panic::AssertUnwindSafe;
 use std::{
@@ -184,7 +184,32 @@ async fn handle_socket<'server: 'exec, 'exec, R: Server, S>(
 				Ok(req) => req,
 			};
 
-			let (contentlength, close) = get_important_headers(&req);
+			let (contentlength, close) = match get_important_headers(&req) {
+				Ok(h) => (h.content_length, h.close),
+				Err(HeaderError::ConflictingContentLength)
+				| Err(HeaderError::ConflictingTransferEncoding) => {
+					tracing::debug!(
+						"Rejected request due to conflicting Content-Length / Transfer-Encoding"
+					);
+					write_error_response(
+						&mut socket,
+						Response::bad_request().with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					return;
+				}
+				Err(HeaderError::UnsupportedTransferEncoding) => {
+					tracing::debug!("Rejected request with unsupported Transfer-Encoding");
+					write_error_response(
+						&mut socket,
+						Response::new_with_code(411).with_header("Connection", "close"),
+						respbuf,
+					)
+					.await;
+					return;
+				}
+			};
 
 			#[cfg(feature = "tracing")]
 			let request_id = REQUEST_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1502,6 +1527,35 @@ mod tests {
 			let response = std::str::from_utf8(&buf[..n]).unwrap();
 
 			assert!(response.contains("HTTP/1.1 413 Content Too Large"));
+		};
+
+		futures_lite::future::block_on(async {
+			futures_lite::future::zip(handle_future, test_future).await;
+		});
+	}
+
+	#[test]
+	fn test_handle_socket_smuggling_rejection() {
+		let (reader, mut client_tx) = piper::pipe(1024);
+		let (mut client_rx, writer) = piper::pipe(1024);
+		let socket = MockStream { reader, writer };
+
+		let server = EchoServer;
+		let executor = pin!(Executor::new());
+
+		let handle_future = handle_socket(socket, &server, unsafe { executor.as_ref().spawner() });
+
+		let test_future = async move {
+			// Send conflicting TE and CL
+			let req = "POST /echo HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: \
+				chunked\r\nContent-Length: 10\r\n\r\n";
+			client_tx.write_all(req.as_bytes()).await.unwrap();
+
+			let mut buf = vec![0u8; 1024];
+			let n = client_rx.read(&mut buf).await.unwrap();
+			let response = std::str::from_utf8(&buf[..n]).unwrap();
+
+			assert!(response.contains("HTTP/1.1 400 Bad Request"));
 		};
 
 		futures_lite::future::block_on(async {
