@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-24
+
 ### Security
 - Reject requests with conflicting `Transfer-Encoding` and `Content-Length` headers with `400 Bad Request`, and reject unsupported `Transfer-Encoding` with `411 Length Required`. Also reject requests with conflicting duplicate `Content-Length` headers with `400 Bad Request`.
 - Added 30-second read and write timeouts on request body reading and socket writing to protect against Slowloris-style denial of service. Returns `408 Request Timeout` if request body consumption times out.
